@@ -15,7 +15,7 @@
 //!     └─ TimeLimit
 //!         └─ RecordingTap   (frame + metric stream to disk)
 //!             ↓
-//!          train_discrete
+//!          train (rlevo_harness)
 //!             ↑ tracing::info!(policy_loss = …, value_loss = …, …)
 //!             └─ RecordingLayer (captures canonical RL metrics)
 //! ```
@@ -41,7 +41,6 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -51,24 +50,20 @@ use tracing_subscriber::util::SubscriberInitExt;
 use burn::grad_clipping::GradientClippingConfig;
 use burn::tensor::Device;
 
+use rlevo_harness::evaluator::train;
 use rlevo_harness::record::{
     RecordSink, RecordWriter, RecordingConfig, RecordingLayer, RecordingTap,
 };
 use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 
-use rlevo_core::environment::Environment;
-
-use rlevo_environments::classic::cartpole::{
-    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
-};
+use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig, CartPoleObservation};
 use rlevo_environments::wrappers::TimeLimit;
 use rlevo_reinforcement_learning::algorithms::ppo::policies::{
     CategoricalPolicyHead, CategoricalPolicyHeadConfig,
 };
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::{PpoAgent, PpoAgentError};
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
-use rlevo_reinforcement_learning::algorithms::ppo::train::train_discrete;
 
 // Enough timesteps for the policy to climb toward the 500-step ceiling
 // rather than plateauing mid-curve. CartPole PPO with `num_steps = 128`
@@ -82,8 +77,6 @@ const CLIENT_DIST: &str = "crates/rlevo-benchmarks-report-client/dist";
 pub const SEED: u64 = 42;
 /// Rollout horizon per PPO update.
 pub const NUM_STEPS: usize = 128;
-/// Emit a structured training-progress event every this many steps.
-pub const LOG_EVERY: usize = 1_024;
 /// Episodes are truncated at this length via [`TimeLimit`].
 pub const EPISODE_TIME_LIMIT: usize = 500;
 
@@ -215,39 +208,6 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
     PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config")
 }
 
-/// Trains `agent` against `env` for `total_timesteps`, hiding the long
-/// `train_discrete` turbofish from `main`.
-///
-/// `env` is generic over the viz-tier composition: a bare [`TimeLimit`],
-/// a `TuiEnvTap`-wrapped env, a `RecordingTap`-wrapped env, or any nesting
-/// of those — they all forward `CartPole`'s observation / action / reward
-/// associated types. In other words, all those wrappers forward `CartPole`'s
-/// observation/action/reward types, so a single generic function handles them
-/// all.
-///
-/// The const generics `<1, 1>` and the turbofish in
-/// `train_discrete::<_, _, _, _, CartPoleAction, 1, 2>` encode
-/// type-level facts:
-/// - observation rank `1` and action rank `1`
-/// - `2` at the end, the batched observation rank (`OR + 1`)
-///
-/// The whole `train` function exists mainly to **hide that gnarly turbofish** from `main` — a small but real ergonomics win.
-///
-/// # Errors
-///
-/// Returns [`PpoAgentError`] if a rollout or policy update fails.
-pub fn train<E>(
-    agent: &mut CartPoleAgent,
-    env: &mut E,
-    rng: &mut impl Rng,
-    total_timesteps: usize,
-) -> Result<(), PpoAgentError>
-where
-    E: Environment<1, 1, ObservationType = CartPoleObservation, ActionType = CartPoleAction>,
-{
-    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(agent, env, rng, total_timesteps, LOG_EVERY)
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let record_cfg = RecordingConfig::for_env::<CartPole>(SEED);
     let writer = RecordWriter::open_default(record_cfg)?;
@@ -278,7 +238,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         RecordingTap::with_classic2d_payload(base_env(), sink.clone());
     let mut agent = build_agent(TOTAL_TIMESTEPS);
 
-    train(&mut agent, &mut env, &mut rng, TOTAL_TIMESTEPS)?;
+    train(&mut env, &mut agent, TOTAL_TIMESTEPS, usize::MAX, &mut rng)?;
 
     // Finalise the run manifest before we open the directory for emit.
     sink.lock().on_run_end(manifest);

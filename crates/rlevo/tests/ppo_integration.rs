@@ -16,8 +16,9 @@ use burn::tensor::Device;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
 use rlevo_core::bounds::Bounds;
-use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
+use rlevo_environments::classic::cartpole::CartPoleObservation;
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
@@ -29,7 +30,6 @@ use rlevo_reinforcement_learning::algorithms::ppo::policies::{
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
-use rlevo_reinforcement_learning::algorithms::ppo::train::{train_continuous, train_discrete};
 
 use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::baseline::{random_return, uniform_bounded};
@@ -104,13 +104,8 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, 128, total);
-    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
-        .expect("training");
-    let stats = agent.stats();
-    TrainOutcome {
-        avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
-    }
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
+    TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value))
 }
 
 // `CartPole` target: after 50k steps the moving average should clear 80.
@@ -168,21 +163,13 @@ fn ppo_cartpole_produces_finite_rewards() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total);
-    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
-        .expect("training");
-    let history = agent.stats().recent_history();
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
     assert_all_finite(
         "reward",
-        &history.iter().map(|m| m.reward).collect::<Vec<_>>(),
+        &TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value)).rewards,
     );
-    assert_all_finite(
-        "policy_loss",
-        &history.iter().map(|m| m.policy_loss).collect::<Vec<_>>(),
-    );
-    assert_all_finite(
-        "value_loss",
-        &history.iter().map(|m| m.value_loss).collect::<Vec<_>>(),
-    );
+    // Every loss stayed finite: no update was skipped for a non-finite one.
+    assert_eq!(agent.skipped_updates(), 0, "a loss went non-finite");
 }
 
 // ---------------------------------------------------------------------------
@@ -252,165 +239,10 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
     );
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_pendulum_agent(seed, 512, total);
-    train_continuous::<_, _, _, _, PendulumAction, 1, 1, 2>(
-        &mut agent, &mut env, &mut rng, total, 0,
-    )
-    .expect("training");
-    let stats = agent.stats();
-    let avg = stats.avg_score().unwrap_or(f32::NEG_INFINITY);
-    eprintln!("CALIBRATION: PPO Pendulum avg = {avg:.2}");
-    TrainOutcome {
-        avg_score: avg,
-        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
-    }
-}
-
-/// Drives one real PPO update and checks that the `log_std` telemetry added
-/// alongside the `log_std` clamp is actually populated end-to-end.
-///
-/// The clamp turns a `NaN` blow-up into a silently frozen `$\sigma$`, so the `log_std` extrema are
-/// the only signal a user has that the policy is collapsing — or diverging. A `None` here on a
-/// Gaussian head — or a value outside the head's configured bounds — would mean the metric is wired
-/// up but dead, which is worse than not having it.
-///
-/// **Both** extrema are checked. `max_log_std` is not decoration: a minimum
-/// reports the healthiest dim, so a head with a dim pinned at `log_std_max`
-/// reads perfectly normal on `min_log_std` alone. This is the only
-/// end-to-end path through `PpoAgent::update` on a real backend, so it is where
-/// a `max_log_std` that is computed but never assigned would be caught.
-///
-/// Deliberately tiny (64 steps, one update): this asserts plumbing, not
-/// learning, so it runs in CI rather than behind `#[ignore]`.
-#[test]
-fn ppo_pendulum_update_reports_log_std_extrema() {
-    use rlevo_core::environment::Environment;
-    use rlevo_reinforcement_learning::algorithms::ppo::policies::gaussian::continuous_action_from_row;
-
-    let _guard = flex_guard();
-    let seed: u64 = 11;
-    let num_steps = 64_usize;
-
-    let mut env = TimeLimit::new(
-        Pendulum::with_config(PendulumConfig {
-            seed,
-            ..PendulumConfig::default()
-        })
-        .expect("valid config"),
-        200,
-    );
-    let mut rng = StdRng::seed_from_u64(seed);
-    let mut agent = make_pendulum_agent(seed, num_steps, num_steps);
-
-    let mut snapshot = env.reset().expect("reset");
-    for _ in 0..num_steps {
-        let obs_now = snapshot.observation;
-        let act = agent.act(&obs_now, &mut rng);
-        let next = env
-            .step(continuous_action_from_row::<1, PendulumAction>(
-                &act.env_row,
-            ))
-            .expect("step");
-        let reward: f32 = (next.reward).into();
-        let status = next.status;
-        agent.record_step(obs_now, &act, reward, &next.observation, status);
-        snapshot = if status.is_done() {
-            env.reset().expect("reset")
-        } else {
-            next
-        };
-    }
-    agent.finalize_rollout(&snapshot.observation);
-
-    let stats = agent.update(&mut rng);
-    let min_log_std = stats
-        .min_log_std
-        .expect("a Gaussian head must report min_log_std");
-    assert!(
-        min_log_std.is_finite(),
-        "min_log_std must be finite, got {min_log_std}"
-    );
-    // The head was built with log_std_min = -20.0 / log_std_max = 2.0, and the
-    // metric reports the *clamped* value, so it can never leave that interval.
-    assert!(
-        (-20.0..=2.0).contains(&min_log_std),
-        "min_log_std {min_log_std} must lie within the head's configured bounds"
-    );
-    // A single update from log_std_init = 0.0 cannot plausibly reach the floor;
-    // if it has, the clamp is binding immediately and the run is already dead.
-    assert!(
-        min_log_std > -1.0,
-        "log_std collapsed to {min_log_std} after one update; the clamp is binding"
-    );
-
-    // The ceiling-side metric, mirroring every assertion above.
-    let max_log_std = stats
-        .max_log_std
-        .expect("a Gaussian head must report max_log_std");
-    assert!(
-        max_log_std.is_finite(),
-        "max_log_std must be finite, got {max_log_std}"
-    );
-    assert!(
-        (-20.0..=2.0).contains(&max_log_std),
-        "max_log_std {max_log_std} must lie within the head's configured bounds"
-    );
-    // Symmetrically to the floor check: one update from log_std_init = 0.0
-    // cannot plausibly reach the ceiling either.
-    assert!(
-        max_log_std < 1.0,
-        "log_std diverged to {max_log_std} after one update; the clamp is binding"
-    );
-    // Pendulum has action_dim = 1, so the two extrema are the same element and
-    // must agree exactly. This pins that both metrics read the *same* parameter
-    // vector — but it deliberately does not claim to catch a transposed
-    // `.0`/`.1` projection, which is invisible at one dim; that is covered by
-    // `max_log_std_sees_the_ceiling_that_min_log_std_cannot` in the head's own
-    // unit tests, where the dims differ.
-    assert!(
-        (min_log_std - max_log_std).abs() < 1e-6,
-        "a 1-dim head's extrema are the same element: min {min_log_std} vs max {max_log_std}"
-    );
-}
-
-/// The discrete head has no `$\log \sigma$`, so the shared `PpoUpdateStats` field must come back
-/// `None` rather than a meaningless number.
-#[test]
-fn ppo_cartpole_update_reports_no_min_log_std() {
-    use rlevo_core::environment::Environment;
-    use rlevo_reinforcement_learning::algorithms::ppo::policies::categorical::discrete_action_from_row;
-
-    let _guard = flex_guard();
-    let seed: u64 = 11;
-    let num_steps = 64_usize;
-
-    let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
-    let mut rng = StdRng::seed_from_u64(seed);
-    let mut agent = make_cart_pole_agent(seed, num_steps, num_steps);
-
-    let mut snapshot = env.reset().expect("reset");
-    for _ in 0..num_steps {
-        let obs_now = snapshot.observation;
-        let act = agent.act(&obs_now, &mut rng);
-        let next = env
-            .step(discrete_action_from_row::<1, CartPoleAction>(&act.env_row))
-            .expect("step");
-        let reward: f32 = (next.reward).into();
-        let status = next.status;
-        agent.record_step(obs_now, &act, reward, &next.observation, status);
-        snapshot = if status.is_done() {
-            env.reset().expect("reset")
-        } else {
-            next
-        };
-    }
-    agent.finalize_rollout(&snapshot.observation);
-
-    let stats = agent.update(&mut rng);
-    assert!(
-        stats.min_log_std.is_none(),
-        "a categorical head has no log_std, got {:?}",
-        stats.min_log_std
-    );
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
+    let outcome = TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value));
+    eprintln!("CALIBRATION: PPO Pendulum avg = {:.2}", outcome.avg_score);
+    outcome
 }
 
 /// Mean episode return of a uniform-random torque policy on the `TimeLimit`ed
@@ -449,38 +281,17 @@ rl_learning_test! {
 }
 
 // ---------------------------------------------------------------------------
-// Progress-logging cadence
+// Progress logging
 // ---------------------------------------------------------------------------
 //
-// The PPO loop can only log at a rollout boundary, so `global_step` is sampled
-// on a `num_steps` stride. The original gate was
-// `global_step % log_every == 0`, which fires on the *intersection* of the two
-// schedules — `lcm(num_steps, log_every)` — so any `log_every` that does not
-// divide `num_steps` silently logged far too rarely or (for a short run) never
-// at all. The fix is a last-logged watermark plus a terminal line.
-//
-// This test pins the wiring, not just the helper: that the watermark is
-// constructed from `log_every`, consulted at the rollout boundary, that
-// `emit_progress` is actually reached, and that the run's final step is
-// reported. Everything else in this suite passes `log_every = 0`, so without
-// it the whole logging path is unexercised.
+// The TUI example's panels read the agent's per-update `tracing` event. This
+// pins that the event is reached once per update, at each rollout boundary,
+// and that a rollout the budget leaves unfinished logs nothing.
 
 #[test]
-fn ppo_progress_logs_when_log_every_does_not_divide_num_steps() {
-    // The canonical configuration that exposes the old bug: a 128-step
-    // rollout stride with `log_every = 100`, which shares no useful factor
-    // with it. `lcm(128, 100)` is 3200, so the old gate emitted ZERO lines
-    // for this run.
+fn ppo_logs_one_progress_line_per_update() {
     const NUM_STEPS: usize = 128;
-    const LOG_EVERY: usize = 100;
-    // Not a multiple of the stride, so the final rollout is partial (boundaries
-    // at 128..640, then a 10-step tail) — which is exactly the case where the
-    // watermark alone would drop the closing line.
-    //
-    // It must also not be a multiple of `LOG_EVERY`: at 700 the old gate would
-    // fire on the terminal boundary by coincidence and this test would pass
-    // against the very bug it exists to catch. No boundary of this run --
-    // 128, 256, 384, 512, 640, 650 -- is a multiple of 100.
+    // Five whole rollouts, then a 10-step tail that never fills a sixth.
     const TOTAL: usize = 650;
     const SEED: u64 = 7;
 
@@ -491,46 +302,8 @@ fn ppo_progress_logs_when_log_every_does_not_divide_num_steps() {
         let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
         let mut rng = StdRng::seed_from_u64(SEED);
         let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL);
-        train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(
-            &mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY,
-        )
-        .expect("training");
+        train(&mut env, &mut agent, TOTAL, usize::MAX, &mut rng).expect("training");
     });
 
-    let steps = capture.values();
-
-    // (1) The literal regression: zero lines under the old gate.
-    assert!(
-        !steps.is_empty(),
-        "a {TOTAL}-step run with log_every = {LOG_EVERY} must emit at least one progress line, \
-         but emitted none (this is the regression the old gate produced: the divisibility test \
-         fired only on multiples of lcm({NUM_STEPS}, {LOG_EVERY}) = 3200)"
-    );
-
-    // (2) The terminal line: the run's final update stats must be reported.
-    assert_eq!(
-        steps.last().copied(),
-        Some(TOTAL as u64),
-        "the final progress line must report the terminal step {TOTAL}, got {steps:?}"
-    );
-
-    // (3) Cadence: a boundary-gated logger cannot hit `log_every` exactly, but
-    // it must never fall a whole extra rollout behind it. The terminal line is
-    // exempt — it is deliberately early, by design.
-    let mut previous = 0_u64;
-    for &step in &steps[..steps.len() - 1] {
-        let gap = step - previous;
-        assert!(
-            gap >= LOG_EVERY as u64,
-            "progress lines must be at least log_every = {LOG_EVERY} steps apart, \
-             got a gap of {gap} at step {step} in {steps:?}"
-        );
-        assert!(
-            gap < (LOG_EVERY + NUM_STEPS) as u64,
-            "progress lines must never lag more than one rollout past log_every \
-             (< {}), got a gap of {gap} at step {step} in {steps:?}",
-            LOG_EVERY + NUM_STEPS
-        );
-        previous = step;
-    }
+    assert_eq!(capture.values(), vec![128, 256, 384, 512, 640]);
 }

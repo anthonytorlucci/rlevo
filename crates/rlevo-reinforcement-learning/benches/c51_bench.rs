@@ -1,76 +1,86 @@
-//! Micro benchmarks for the C51 categorical projection operator.
+//! Micro benchmarks for the C51 agent's learning step, across support sizes.
 //!
-//! Runs the projection at a spread of `(num_atoms, batch_size)` settings so
-//! a regression that turns the linear scatter-add into a quadratic broadcast
-//! is easy to spot in the output.
+//! Each case primes a replay buffer with 2 000 `CartPole` steps, then times
+//! one `learn_step` at a spread of `(atoms, batch_size)` settings. The
+//! categorical projection inside the step is linear in the atoms, so a
+//! regression that made it quadratic shows as step time growing faster than
+//! the atoms do (`cargo bench -p rlevo-reinforcement-learning --bench c51_bench`).
 
-use burn::tensor::{Device, Tensor, TensorData};
+use burn::tensor::Device;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
-use rlevo_reinforcement_learning::algorithms::c51::projection::project_distribution;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 
-// Synthetic fixture/benchmark data: the loop counter and element count are
-// bounded by small constants declared in this file, far below f32's 2^24
-// exact-integer limit. The values are inputs to a throughput measurement, not
-// quantities whose precision is asserted.
-#[allow(clippy::cast_precision_loss)]
-fn make_support(v_min: f32, v_max: f32, n: usize, device: &Device) -> Tensor<1> {
-    let delta = (v_max - v_min) / (n as f32 - 1.0);
-    let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
-    Tensor::from_data(TensorData::new(data, vec![n]), device)
+use rlevo_core::agent::Agent as _;
+use rlevo_core::environment::Environment;
+use rlevo_environments::classic::cartpole::{
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+};
+use rlevo_reinforcement_learning::algorithms::c51::c51_agent::C51Agent;
+use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
+    MlpDistributionalQ, MlpDistributionalQConfig,
+};
+
+type Agent = C51Agent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
+
+fn primed_agent(num_atoms: usize, batch_size: usize) -> Agent {
+    let device = Device::flex();
+    let config = C51TrainingConfig {
+        batch_size,
+        replay_buffer_capacity: 10_000,
+        learning_starts: 0,
+        train_frequency: 1,
+        num_atoms,
+        v_min: -10.0,
+        v_max: 10.0,
+        ..Default::default()
+    };
+    let model = MlpDistributionalQConfig {
+        obs_dim: 4,
+        hidden: vec![64, 64],
+        num_actions: 2,
+        num_atoms,
+    }
+    .try_init(&device)
+    .expect("valid network config");
+    let mut agent = C51Agent::new(model, config, device).expect("valid config");
+
+    let mut env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut snap = env.reset().expect("reset");
+    for _ in 0..2_000 {
+        let obs = snap.observation;
+        let action = agent.act(&obs, &mut rng);
+        let next = env.step(action).expect("step");
+        let reward: f32 = (next.reward).into();
+        let done = next.status.is_done();
+        agent.remember(obs, &action, reward, next.observation, next.status);
+        snap = if done {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
+    }
+    agent
 }
 
-// Synthetic fixture/benchmark data: the loop counter and element count are
-// bounded by small constants declared in this file, far below f32's 2^24
-// exact-integer limit. The values are inputs to a throughput measurement, not
-// quantities whose precision is asserted.
-#[allow(clippy::cast_precision_loss)]
-fn bench_projection(c: &mut Criterion) {
-    let device: Device = Device::flex();
-    let v_min = -10.0_f32;
-    let v_max = 10.0_f32;
-
+fn bench_learn_step(c: &mut Criterion) {
     for &num_atoms in &[21_usize, 51, 101] {
         for &batch in &[32_usize, 128] {
-            let support = make_support(v_min, v_max, num_atoms, &device);
-
-            // Fill next_probs with a valid distribution per row.
-            let row: Vec<f32> = vec![1.0_f32 / num_atoms as f32; num_atoms];
-            let data: Vec<f32> = (0..batch).flat_map(|_| row.clone()).collect();
-            let next_probs: Tensor<2> =
-                Tensor::from_data(TensorData::new(data, vec![batch, num_atoms]), &device);
-
-            let rewards_data: Vec<f32> = (0..batch).map(|i| (i as f32) * 0.01 - 0.5).collect();
-            let rewards: Tensor<1> =
-                Tensor::from_data(TensorData::new(rewards_data, vec![batch]), &device);
-
-            let dones_data: Vec<f32> = (0..batch)
-                .map(|i| if i % 5 == 0 { 1.0 } else { 0.0 })
-                .collect();
-            let dones: Tensor<1> =
-                Tensor::from_data(TensorData::new(dones_data, vec![batch]), &device);
-
-            let label = format!("project_distribution/atoms={num_atoms}/batch={batch}");
+            let mut agent = primed_agent(num_atoms, batch);
+            let mut rng = StdRng::seed_from_u64(1);
+            let label = format!("c51_learn_step/atoms={num_atoms}/batch={batch}");
             c.bench_function(&label, |b| {
                 b.iter(|| {
-                    let out = project_distribution(
-                        next_probs.clone(),
-                        rewards.clone(),
-                        dones.clone(),
-                        support.clone(),
-                        0.99,
-                        v_min,
-                        v_max,
-                        num_atoms,
-                    );
-                    // Touch the result so the optimizer doesn't elide it.
-                    let _ = out.into_data();
+                    let _ = agent.learn_step(&mut rng);
                 });
             });
         }
     }
 }
 
-criterion_group!(micro, bench_projection);
+criterion_group!(micro, bench_learn_step);
 criterion_main!(micro);

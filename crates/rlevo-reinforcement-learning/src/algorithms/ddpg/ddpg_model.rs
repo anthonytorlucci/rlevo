@@ -4,7 +4,7 @@
 //! actions — with a Q-critic that takes an `(obs, action)` pair and returns a
 //! scalar value. Both networks have a Polyak-averaged target twin, a
 //! [`valid`](Module::valid) snapshot updated by
-//! [`polyak_update`](crate::utils::polyak_update). These traits mirror
+//! `polyak_update`. These traits mirror
 //! [`crate::algorithms::dqn::dqn_model::DqnModel`]: one [`forward`] each, run
 //! on the training network and on its target alike.
 //!

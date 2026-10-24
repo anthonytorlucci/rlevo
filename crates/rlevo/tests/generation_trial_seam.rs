@@ -1,7 +1,7 @@
 //! Cross-crate proof that the `Trial` seam is shape-agnostic.
 //!
 //! Drives an `EvolutionaryLoop` through `Evaluator::run_trials` as a
-//! `GenerationTrial` — no `BenchEnv`, no `BenchableAgent`, no episode axis —
+//! `GenerationTrial` — no `BenchEnv`, no `Agent`, no episode axis —
 //! and asserts it gets the same machinery the episodic path does: rayon
 //! fan-out, per-trial seeding, checkpoint-shaped `TrialReport`s, and the
 //! reporter lifecycle.
@@ -65,6 +65,7 @@ fn cfg() -> EvaluatorConfig {
         // Irrelevant to a generation trial — deliberately set to a value that
         // would be wrong if the probe path honoured it as an episode count.
         num_episodes: 7,
+        train_steps: 0,
         num_trials_per_env: 2,
         // Backstop only; the probe's own budget (GENS) must end the loop.
         max_steps: GENS * 10,

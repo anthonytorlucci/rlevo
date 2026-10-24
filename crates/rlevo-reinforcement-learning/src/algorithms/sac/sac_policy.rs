@@ -23,8 +23,10 @@
 
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
+#[cfg(test)]
+use burn::tensor::TensorData;
 use burn::tensor::activation::{relu, softplus, tanh};
-use burn::tensor::{Device, Tensor, TensorData};
+use burn::tensor::{Device, Tensor};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
@@ -283,8 +285,9 @@ impl SquashedGaussianPolicy<2, 2> for SquashedGaussianPolicyHead {
 // `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
 // Narrowing to the tensor's own dtype is the intent, and the sample is finite
 // by construction.
+#[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
-pub fn standard_normal_tensor(
+pub(crate) fn standard_normal_tensor(
     rows: usize,
     cols: usize,
     device: &Device,

@@ -34,12 +34,12 @@ pub struct DdpgTrainingConfig {
     /// Maximum number of transitions stored in the replay buffer.
     ///
     /// Must be non-zero and at most
-    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY). The ceiling is not
+    /// `MAX_BUFFER_CAPACITY`. The ceiling is not
     /// a taste judgement: a misconfigured value (a unit slip, a `usize::MAX`
     /// sentinel) would otherwise reach `VecDeque::with_capacity` and abort the
     /// process on a failed allocation. Both bounds are checked by
-    /// [`UniformReplayConfig`], which `validate` delegates to; see
-    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY) for why `$2^{32}$`
+    /// `UniformReplayConfig`, which `validate` delegates to; see
+    /// `MAX_BUFFER_CAPACITY` for why `$2^{32}$`
     /// is the bound.
     pub replay_buffer_capacity: usize,
     /// Mini-batch size drawn from the replay buffer each learn step.

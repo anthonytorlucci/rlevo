@@ -32,6 +32,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
+use rlevo_core::agent::Agent;
 use rlevo_core::base::Action;
 use rlevo_core::environment::Environment;
 use rlevo_environments::box2d::car_racing::{
@@ -204,7 +205,7 @@ fn td3_steps_car_racing_without_producing_an_impossible_action() {
     // 4 warm-up steps (uniform sample per component) then 4 policy steps
     // (tanh output clipped per component) — both action paths, one run.
     for step in 0..8 {
-        let action = agent.act(&obs, true, &mut rng);
+        let action = agent.act(&obs, &mut rng);
         assert_per_component_valid(&action);
 
         let snapshot = env.step(action.clone()).unwrap_or_else(|e| {
@@ -217,9 +218,8 @@ fn td3_steps_car_racing_without_producing_an_impossible_action() {
             &action,
             snapshot.reward.0,
             next_obs.clone(),
-            snapshot.status.is_terminated(),
+            snapshot.status,
         );
-        agent.on_env_step();
 
         if snapshot.status.is_done() {
             obs = env.reset().expect("reset").observation.clone();
@@ -249,7 +249,7 @@ fn td3_learn_step_runs_against_the_asymmetric_action_space() {
 
     let mut obs = env.reset().expect("reset").observation.clone();
     for _ in 0..8 {
-        let action = agent.act(&obs, true, &mut rng);
+        let action = agent.act(&obs, &mut rng);
         assert_per_component_valid(&action);
         let snapshot = env.step(action.clone()).expect("valid action accepted");
         let next_obs = snapshot.observation.clone();
@@ -258,9 +258,8 @@ fn td3_learn_step_runs_against_the_asymmetric_action_space() {
             &action,
             snapshot.reward.0,
             next_obs.clone(),
-            snapshot.status.is_terminated(),
+            snapshot.status,
         );
-        agent.on_env_step();
         obs = next_obs;
     }
 

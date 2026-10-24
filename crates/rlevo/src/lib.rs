@@ -21,7 +21,8 @@
 //! ```
 //!
 //! The prelude carries `rand`'s [`Rng`](prelude::Rng), the generator
-//! `BenchableAgent::act` and every strategy's `init`, `ask` and `tell` take,
+//! [`Agent::act`](prelude::Agent::act) and every strategy's `init`, `ask` and
+//! `tell` take,
 //! and [`RngExt`](prelude::RngExt), whose methods draw from it. The rest of
 //! `rand` is [`core::rand`], the release those signatures are written
 //! against, so a consumer needs no `rand` entry of its own.
@@ -104,6 +105,10 @@ pub use burn;
 /// [`HostRow`](core::base::HostRow),
 /// [`TensorConvertible`](core::base::TensorConvertible)
 ///
+/// **Agent** (`rlevo::core::agent`):
+/// [`Agent`](core::agent::Agent),
+/// [`Transition`](core::agent::Transition)
+///
 /// **Environment** (`rlevo::core::environment`):
 /// [`Environment`](core::environment::Environment),
 /// [`Snapshot`](core::environment::Snapshot),
@@ -131,6 +136,9 @@ pub use burn;
 pub mod prelude {
     // Base traits
     pub use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
+
+    // Agent seam
+    pub use rlevo_core::agent::{Agent, Transition};
 
     // Environment protocol
     pub use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};

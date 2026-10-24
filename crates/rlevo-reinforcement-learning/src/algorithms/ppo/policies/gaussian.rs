@@ -90,7 +90,7 @@
 //!    other already fired would hide the second diagnosis entirely.
 //! 2. **Two per-update metrics** — the minimum and the maximum clamped `$\log \sigma$`
 //!    across action dims — surfaced on
-//!    [`PpoUpdateStats`](crate::algorithms::ppo::ppo_agent::PpoUpdateStats) so
+//!    `PpoUpdateStats` so
 //!    the drift toward *either* bound is visible *before* it pins. A minimum
 //!    alone is structurally blind to the ceiling: with `[-20, 2]` bounds and a
 //!    dim pinned at `2`, `min_log_std` can read a perfectly healthy `0.0`
@@ -108,7 +108,7 @@
 //! So the check is deliberately *not* in the hot path. It rides along with the
 //! stats read in [`min_log_std`](PpoPolicy::min_log_std) /
 //! [`max_log_std`](PpoPolicy::max_log_std), which
-//! [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update)
+//! `PpoAgent::update`
 //! calls **once per update** — a cost the metrics already pay. A bound that
 //! binds will be reported at the end of the very update in which it binds, and
 //! since the parameter can never leave the bound again, no crossing is ever
@@ -735,11 +735,13 @@ impl PpoPolicy<2> for TanhGaussianPolicyHead {
 /// values) into a typed [`ContinuousAction`](rlevo_core::action::ContinuousAction)
 /// via [`from_slice`](rlevo_core::action::ContinuousAction::from_slice).
 ///
-/// Use this as the `action_from_row` closure in custom train loops; the
-/// built-in [`train_continuous`](crate::algorithms::ppo::train::train_continuous)
-/// calls it automatically.
+/// `PpoAgent`'s [`Agent`](rlevo_core::agent::Agent) impl for this head
+/// decodes its rows with it.
 #[must_use]
-pub fn continuous_action_from_row<const AR: usize, A: rlevo_core::action::ContinuousAction<AR>>(
+pub(crate) fn continuous_action_from_row<
+    const AR: usize,
+    A: rlevo_core::action::ContinuousAction<AR>,
+>(
     row: &[f32],
 ) -> A {
     A::from_slice(row)

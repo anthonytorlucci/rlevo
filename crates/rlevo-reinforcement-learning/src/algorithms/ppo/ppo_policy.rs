@@ -116,7 +116,7 @@ pub trait PpoPolicy<const BOR: usize>: Module {
     /// # Cost
     ///
     /// Implementations read from device to host, so this **must not** be called
-    /// per environment step. [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update)
+    /// per environment step. `PpoAgent::update`
     /// calls it exactly once per update, after the epoch loop.
     fn min_log_std(&self) -> Option<f32> {
         None
@@ -141,7 +141,7 @@ pub trait PpoPolicy<const BOR: usize>: Module {
     /// # Cost
     ///
     /// Implementations read from device to host, so this **must not** be called
-    /// per environment step. [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update)
+    /// per environment step. `PpoAgent::update`
     /// calls it exactly once per update, after the epoch loop.
     fn max_log_std(&self) -> Option<f32> {
         None

@@ -10,6 +10,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo_core::agent::Agent as _;
 use rlevo_core::environment::Environment;
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
@@ -50,7 +51,8 @@ fn build_agent() -> Agent {
 }
 
 fn bench_act(c: &mut Criterion) {
-    let agent = build_agent();
+    let mut agent = build_agent();
+    agent.set_training(false);
     let obs = PendulumObservation {
         cos_theta: 1.0,
         sin_theta: 0.0,
@@ -59,7 +61,7 @@ fn bench_act(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(0);
     c.bench_function("ddpg_act_single_obs_eval", |b| {
         b.iter(|| {
-            let _: PendulumAction = agent.act(&obs, false, &mut rng);
+            let _: PendulumAction = agent.act(&obs, &mut rng);
         });
     });
 }
@@ -72,21 +74,19 @@ fn bench_learn(c: &mut Criterion) {
     let mut snap = env.reset().expect("reset");
     for _ in 0..2_000 {
         let obs = snap.observation;
-        let action = agent.act(&obs, true, &mut rng);
+        let action = agent.act(&obs, &mut rng);
         let next = env.step(action).expect("step");
         let r: f32 = (next.reward).into();
-        // `done` drives the episode reset; `terminated` is the Bellman
-        // bootstrap mask. `Pendulum` only ever truncates, so these differ.
+        // `done` drives the episode reset; `remember` masks the Bellman
+        // bootstrap on the status, and only on termination. `Pendulum` only ever truncates, so these differ.
         let done = next.status.is_done();
-        let terminated = next.status.is_terminated();
         agent.remember(
             obs,
             &PendulumAction::new(0.0).unwrap(),
             r,
             next.observation,
-            terminated,
+            next.status,
         );
-        agent.on_env_step();
         snap = if done {
             env.reset().expect("reset")
         } else {

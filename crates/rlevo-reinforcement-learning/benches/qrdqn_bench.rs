@@ -1,61 +1,86 @@
-//! Micro benchmarks for the QR-DQN quantile Huber loss.
+//! Micro benchmarks for the QR-DQN agent's learning step, across quantile
+//! counts.
 //!
-//! Runs the loss at a spread of `(num_quantiles, batch_size)` settings so a
-//! regression that turns the `(B, N, N)` broadcast into a `(B, B, N, N)` or
-//! otherwise super-linear blow-up is easy to spot.
+//! Each case primes a replay buffer with 2 000 `CartPole` steps, then times
+//! one `learn_step` at a spread of `(quantiles, batch_size)` settings. The
+//! quantile Huber loss inside the step is a `(batch, N, N)` broadcast, so a
+//! regression that widened it to `(batch, batch, N, N)` shows as step time
+//! growing with the square of the batch
+//! (`cargo bench -p rlevo-reinforcement-learning --bench qrdqn_bench`).
 
-use burn::tensor::{Device, Tensor, TensorData};
+use burn::tensor::Device;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
-use rlevo_reinforcement_learning::algorithms::qrdqn::quantile_loss::quantile_huber_loss_per_sample;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 
-// Synthetic fixture/benchmark data: the loop counter and element count are
-// bounded by small constants declared in this file, far below f32's 2^24
-// exact-integer limit. The values are inputs to a throughput measurement, not
-// quantities whose precision is asserted.
-#[allow(clippy::cast_precision_loss)]
-fn make_taus(n: usize, device: &Device) -> Tensor<1> {
-    let data: Vec<f32> = (0..n).map(|i| (i as f32 + 0.5) / n as f32).collect();
-    Tensor::from_data(TensorData::new(data, vec![n]), device)
+use rlevo_core::agent::Agent as _;
+use rlevo_core::environment::Environment;
+use rlevo_environments::classic::cartpole::{
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+};
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
+    MlpDistributionalQ, MlpDistributionalQConfig,
+};
+use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
+use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
+
+type Agent = QrDqnAgent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
+
+fn primed_agent(num_quantiles: usize, batch_size: usize) -> Agent {
+    let device = Device::flex();
+    let config = QrDqnTrainingConfig {
+        batch_size,
+        replay_buffer_capacity: 10_000,
+        learning_starts: 0,
+        train_frequency: 1,
+        num_quantiles,
+        ..Default::default()
+    };
+    let model = MlpDistributionalQConfig {
+        obs_dim: 4,
+        hidden: vec![64, 64],
+        num_actions: 2,
+        num_atoms: num_quantiles,
+    }
+    .try_init(&device)
+    .expect("valid network config");
+    let mut agent = QrDqnAgent::new(model, config, device).expect("valid config");
+
+    let mut env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut snap = env.reset().expect("reset");
+    for _ in 0..2_000 {
+        let obs = snap.observation;
+        let action = agent.act(&obs, &mut rng);
+        let next = env.step(action).expect("step");
+        let reward: f32 = (next.reward).into();
+        let done = next.status.is_done();
+        agent.remember(obs, &action, reward, next.observation, next.status);
+        snap = if done {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
+    }
+    agent
 }
 
-// Synthetic fixture/benchmark data: the loop counter and element count are
-// bounded by small constants declared in this file, far below f32's 2^24
-// exact-integer limit. The values are inputs to a throughput measurement, not
-// quantities whose precision is asserted.
-#[allow(clippy::cast_precision_loss)]
-fn make_quantile_batch(batch: usize, n: usize, device: &Device) -> Tensor<2> {
-    // Deterministic but non-trivial payload: a saw-tooth across the row.
-    let data: Vec<f32> = (0..batch * n)
-        .map(|i| ((i % n) as f32) * 0.1 - ((i / n) as f32) * 0.01)
-        .collect();
-    Tensor::from_data(TensorData::new(data, vec![batch, n]), device)
-}
-
-fn bench_quantile_huber_loss(c: &mut Criterion) {
-    let device: Device = Device::flex();
-
+fn bench_learn_step(c: &mut Criterion) {
     for &num_quantiles in &[51_usize, 101, 200] {
         for &batch in &[32_usize, 128] {
-            let taus = make_taus(num_quantiles, &device);
-            let pred = make_quantile_batch(batch, num_quantiles, &device);
-            let target = make_quantile_batch(batch, num_quantiles, &device);
-
-            // Criterion benchmark IDs are the key for historical comparison, so
-            // the label keeps its pre-ADR-0050 spelling even though the callee
-            // was renamed. The `.mean()` reproduces the reduction the function
-            // used to perform internally, so the measured work is unchanged.
-            let label = format!("quantile_huber_loss/quantiles={num_quantiles}/batch={batch}");
+            let mut agent = primed_agent(num_quantiles, batch);
+            let mut rng = StdRng::seed_from_u64(1);
+            let label = format!("qrdqn_learn_step/quantiles={num_quantiles}/batch={batch}");
             c.bench_function(&label, |b| {
                 b.iter(|| {
-                    let out = quantile_huber_loss_per_sample(&pred, &target, &taus, 1.0).mean();
-                    let _ = out.into_data();
+                    let _ = agent.learn_step(&mut rng);
                 });
             });
         }
     }
 }
 
-criterion_group!(micro, bench_quantile_huber_loss);
+criterion_group!(micro, bench_learn_step);
 criterion_main!(micro);

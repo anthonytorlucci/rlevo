@@ -22,7 +22,7 @@ Suite<E>
         │     ├── EpisodicTrial   ──► Environment::reset / Environment::step
         │     └── GenerationTrial ──► GenerationProbe::begin / ::advance
         │         │
-        │    BenchableAgent::act   (episodic path only)
+        │    Agent::act / on_transition / on_episode_end   (episodic path only)
         │         │
         │    EpisodeSummary (return, length)
         │         │
@@ -45,16 +45,17 @@ Suite<E>
 | Item | Description |
 |------|-------------|
 | `Trial` | `run(self, cfg, info, reporter) → TrialReport` — the seam that lets one machinery drive several trial shapes |
-| `EpisodicTrial<E, A, D, SD, AD>` | Rolls an `Environment` out against a `BenchableAgent` for `num_episodes` episodes |
+| `EpisodicTrial<E, A, D, AD>` | Trains an `Agent` for `train_steps` environment steps (none by default), then evaluates it for `num_episodes` episodes; the agent is shown every step with the environment's status unchanged |
+| `train` | The training phase alone, over a borrowed agent, for a caller that keeps the agent afterwards |
 | `GenerationTrial<P>` | Drives a `GenerationProbe` to its budget; reports no episodes |
 
 ### Agent and fitness traits
 
-The traits a trial drives are part of the contract, so they live in `rlevo-core`, in `rlevo_core::fitness` (`rlevo::core::fitness` through the umbrella). This crate has no module of its own for them.
+The traits a trial drives are part of the contract, so they live in `rlevo-core`: `Agent` in `rlevo_core::agent`, `Landscape` in `rlevo_core::fitness` (`rlevo::core::…` through the umbrella, and `Agent` in `rlevo::prelude`). This crate has no module of its own for them.
 
 | Trait | Description |
 |-------|-------------|
-| `BenchableAgent<Obs, Act>` | Inference-only (frozen policy): `act(&mut self, obs, rng) → Act`; optional `emit_metrics()` hook |
+| `Agent<Obs, Act>` | `act(&mut self, obs, rng) → Act` is required. A learner also implements `on_transition` (every step), `on_episode_end` (with how the episode ended), `set_training`, and `emit_metrics`; each defaults to doing nothing |
 | `Landscape` | For optimizer-on-landscape scenarios; `evaluate(x) → f64`, the landscape being the fitness function |
 
 ### `evaluator` — Suite Runner
@@ -92,7 +93,7 @@ The traits a trial drives are part of the contract, so they live in `rlevo-core`
 
 ### `metrics` — Metric Collection
 
-Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram`, `Counter`). Agents report method-specific metrics by implementing `MetricsProvider` and returning values from `BenchableAgent::emit_metrics`.
+Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram`, `Counter`). An agent reports method-specific metrics from `Agent::emit_metrics`, pulled once per trial; a generation loop's metrics implement `MetricsProvider`.
 
 | Sub-module | Contents |
 |------------|----------|
@@ -231,7 +232,7 @@ rlevo-harness = { path = "../rlevo-harness" }
 
 ### Moving from `rlevo-benchmarks`
 
-Through 0.5.0 this crate was published as `rlevo-benchmarks` (ADR 0088). A project that depends on it directly changes three things: the dependency line, every feature that names the crate (`rlevo-benchmarks/tui`, `rlevo-benchmarks/record`, `dep:rlevo-benchmarks`), and the first segment of its paths, from `rlevo_benchmarks::` to `rlevo_harness::`. Cargo's `package` key keeps the old local name, so the paths and feature entries go on working until they are changed, except the paths through `agent` and `seed`: those two modules were aliases for traits and a type that moved to `rlevo-core` under ADR 0004, and the rename removed them (ADR 0088). Import `BenchableAgent` and `Landscape` from `rlevo_core::fitness` (an evaluator written against `FitnessEvaluable` implements `Landscape` instead; ADR 0091), and `SeedStream` from `rlevo_core::util::seed`.
+Through 0.5.0 this crate was published as `rlevo-benchmarks` (ADR 0088). A project that depends on it directly changes three things: the dependency line, every feature that names the crate (`rlevo-benchmarks/tui`, `rlevo-benchmarks/record`, `dep:rlevo-benchmarks`), and the first segment of its paths, from `rlevo_benchmarks::` to `rlevo_harness::`. Cargo's `package` key keeps the old local name, so the paths and feature entries go on working until they are changed, except the paths through `agent` and `seed`: those two modules were aliases for traits and a type that moved to `rlevo-core` under ADR 0004, and the rename removed them (ADR 0088). Import `Landscape` from `rlevo_core::fitness` (an evaluator written against `FitnessEvaluable` implements `Landscape` instead; ADR 0091), and `SeedStream` from `rlevo_core::util::seed`. `BenchableAgent` is gone, with no alias: implement `rlevo_core::agent::Agent`, whose `act` has the same signature (ADR 0095).
 
 ```toml
 [dependencies]
@@ -249,7 +250,7 @@ use rlevo_harness::{
     suite::Suite,
 };
 use rlevo_core::environment::Environment;
-use rlevo_core::fitness::BenchableAgent;
+use rlevo_core::agent::Agent;
 
 // 1. Implement `rlevo_core::environment::Environment` for your env. The
 //    evaluator infers the rank parameters
@@ -267,9 +268,9 @@ impl Environment<1, 1> for MyEnv {
     }
 }
 
-// 2. Wrap your agent as BenchableAgent
+// 2. Implement Agent for your policy: `act` alone for a frozen one
 struct MyAgent;
-impl BenchableAgent<MyObs, MyAction> for MyAgent {
+impl Agent<MyObs, MyAction> for MyAgent {
     fn act(&mut self, _obs: &MyObs, _rng: &mut dyn rlevo_core::rand::Rng) -> MyAction { MyAction }
 }
 

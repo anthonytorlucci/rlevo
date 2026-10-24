@@ -1,19 +1,13 @@
-//! Inference-only agent interfaces and fitness-evaluation traits.
+//! Fitness evaluation, and the metric data type.
 //!
-//! Two traits plus the [`Metric`] data type:
-//!
-//! - [`BenchableAgent`] — frozen policies (RL-style) that consume an
-//!   observation and produce an action. RL training/replay state must be
-//!   stripped in a `Frozen*Policy` adapter before benchmarking.
 //! - [`Landscape`] — a self-evaluating numerical landscape, used when the
 //!   "environment" is a pure fitness function (Sphere, Rastrigin, Ackley).
 //!   Consumed by `rlevo-evolution`'s `FromLandscape` adapter.
-//!
-//! [`Metric`] and [`MetricsProvider`] live here because [`BenchableAgent`]
-//! returns `Vec<Metric>` from its optional `emit_metrics` hook; co-locating
-//! them keeps the trait self-contained without a dep on the harness crate.
-
-use rand::Rng;
+//! - [`Metric`] and [`MetricsProvider`] — method-specific signal reported at
+//!   trial boundaries: by an agent through
+//!   [`Agent::emit_metrics`](crate::agent::Agent::emit_metrics), by a
+//!   generation loop's metrics through [`MetricsProvider`]. They live in
+//!   this crate so neither reporter depends on the harness that reads them.
 
 use crate::objective::ObjectiveSense;
 
@@ -55,29 +49,6 @@ pub trait MetricsProvider {
     /// construction). Implementations should drain internal accumulators so
     /// that repeated calls do not double-count.
     fn emit(&self) -> Vec<Metric>;
-}
-
-/// Minimal inference interface required by an external evaluator.
-///
-/// Implementors must be deterministic given a fixed RNG state and must not
-/// mutate learnable parameters. Internal RNG state (e.g. for stochastic
-/// policies) may be mutated, which is why `act` takes `&mut self`.
-///
-/// The `rng` argument is owned by the harness so reproducibility is
-/// guaranteed regardless of the agent's internal RNG discipline.
-pub trait BenchableAgent<Obs, Act> {
-    /// Selects an action given the current observation.
-    ///
-    /// `rng` is supplied by the harness and must be used for any randomness
-    /// the policy requires (e.g. epsilon-greedy exploration, stochastic
-    /// sampling). Do not source randomness from a privately held RNG; doing
-    /// so breaks the harness's reproducibility guarantees.
-    fn act(&mut self, obs: &Obs, rng: &mut dyn Rng) -> Act;
-
-    /// Optional hook to emit method-specific metrics at trial end.
-    fn emit_metrics(&self) -> Vec<Metric> {
-        Vec::new()
-    }
 }
 
 /// Self-evaluating numerical fitness landscape.

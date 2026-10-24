@@ -100,7 +100,7 @@ pub const BYOE1: Walk = Walk {
         Level {
             feature: Some("agent"),
             step: "implement-agent",
-            built: Some("the policy implements BenchableAgent with act alone"),
+            built: Some("the policy implements Agent with act alone"),
             reports: &[],
         },
         Level {

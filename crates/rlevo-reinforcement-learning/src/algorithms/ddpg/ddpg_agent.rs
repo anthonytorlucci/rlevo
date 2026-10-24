@@ -3,11 +3,12 @@
 //!
 //! [`DdpgAgent`] owns a deterministic actor, a Q-critic, their Polyak-averaged
 //! target twins, two independent Adam optimizers, a uniform FIFO replay
-//! buffer, and a [`GaussianNoise`] exploration module. Call
-//! [`DdpgAgent::act`] to sample actions, [`DdpgAgent::remember`] to push
-//! transitions, and [`DdpgAgent::learn_step`] to run one gradient update.
-//! Drive the full loop with [`crate::algorithms::ddpg::train`].
+//! buffer, and a `GaussianNoise` exploration module. It implements
+//! [`Agent`], through which a driver steps it. [`DdpgAgent::remember`] and
+//! [`DdpgAgent::learn_step`] are the externally paced path: push transitions
+//! and run gradient updates on a cadence of the caller's own.
 
+use rlevo_core::agent::{Agent, Transition};
 use std::marker::PhantomData;
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
@@ -15,11 +16,11 @@ use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
-use crate::metrics::{AgentStats, PerformanceRecord};
 use crate::replay::{ContinuousTransition, ReplayStrategy, UniformReplay, UniformReplayConfig};
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
+use rlevo_core::environment::EpisodeStatus;
 
 use crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
@@ -31,97 +32,6 @@ use crate::algorithms::shared::{
     action_bound_tensors, assert_bounds_match_components, clip_to_action_bounds,
 };
 use crate::utils::{PolyakError, compute_target_q_values, polyak_update};
-
-/// Error variants returned by [`DdpgAgent`] operations.
-///
-/// Two variants, and each has a real construction site in this crate.
-/// [`InvalidAction`](DdpgAgentError::InvalidAction) is built by
-/// [`train`](super::train::train) when `env.reset()` or `env.step()` rejects an
-/// action the agent proposed. [`Polyak`](DdpgAgentError::Polyak) arrives through
-/// `?` on the target soft-updates at the end of
-/// [`learn_step`](DdpgAgent::learn_step), where a live network and its target
-/// twin can disagree on parameter topology.
-///
-/// The enum is `#[non_exhaustive]`: downstream `match` expressions must carry a
-/// wildcard arm, so a future variant is not a breaking change.
-///
-/// # Why there is no tensor-conversion variant
-///
-/// This enum previously carried `TensorConversionFailed(String)`, which nothing
-/// constructed and nothing could. The tensor host-reads on the act path are the
-/// `as_slice::<f32>()` calls in [`act`](DdpgAgent::act) and
-/// [`act_with`](DdpgAgent::act_with), and both methods return a bare `A` rather
-/// than a `Result` — there is no error channel for a variant to travel down. The
-/// read is an `.expect` on a named invariant, which is precisely the form the
-/// Error Handling section of `docs/rules.md` sanctions for a host-read that
-/// "cannot fail by construction": the tensor is one the same function just
-/// built from its own actor. Making that path fallible is a breaking change,
-/// deferred and tracked separately.
-///
-/// When it lands, the variant returns carrying a structured payload — not a
-/// `String`. That section prefers structured variants over string-based
-/// errors, so re-introducing a `String` payload would rebuild the discarded
-/// variant in a merely-live form.
-///
-/// # Why there is no buffer or I/O variant
-///
-/// `Buffer(#[from] ReplayBufferError)` was unreachable by design.
-/// [`learn_step`](DdpgAgent::learn_step) samples with
-/// `let Ok(batch) = self.buffer.sample(..) else { return Ok(None) };`, and the
-/// only variant `sample` can produce is
-/// [`ReplayBufferError::InsufficientData`](crate::replay::ReplayBufferError::InsufficientData),
-/// which means "the buffer is still warming up, skip this learn step" — not
-/// "this learn step failed". Propagating it would misreport an ordinary warm-up
-/// as an error.
-///
-/// `Io(#[from] std::io::Error)` anticipated checkpointing that does not exist:
-/// there is no `save`, `load`, `Recorder`, or `std::fs` use anywhere under
-/// `algorithms/`, and ADR 0014, Decision 6, defers the checkpoint write path.
-///
-/// Because the enum is `#[non_exhaustive]`, adding a variant when either of
-/// those lands is not a breaking change. The bar for adding one is an actual
-/// construction site, not an anticipated failure mode — a declared but
-/// unconstructible variant is what this section exists to keep from recurring.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum DdpgAgentError {
-    /// The sampled or requested action is outside the valid action space.
-    #[error("Invalid action: {0}")]
-    InvalidAction(String),
-    /// A target soft-update failed because a live network and its target twin
-    /// have mismatched parameter topologies.
-    #[error(transparent)]
-    Polyak(#[from] PolyakError),
-}
-
-/// Per-episode statistics emitted by the DDPG training loop.
-///
-/// Implements [`PerformanceRecord`] so it can be accumulated by
-/// [`AgentStats`]; `score` is the episode reward and `duration` is the step
-/// count.
-#[derive(Debug, Clone, Copy)]
-pub struct DdpgMetrics {
-    /// Total reward collected during the episode.
-    pub reward: f32,
-    /// Number of environment steps taken.
-    pub steps: usize,
-    /// Most recent critic (Q-network) loss.
-    pub critic_loss: f32,
-    /// Most recent actor loss. `0.0` until the first policy update fires.
-    pub actor_loss: f32,
-    /// Mean predicted Q-value across the most recent learn step.
-    pub q_mean: f32,
-}
-
-impl PerformanceRecord for DdpgMetrics {
-    fn score(&self) -> f32 {
-        self.reward
-    }
-
-    fn duration(&self) -> usize {
-        self.steps
-    }
-}
 
 /// Summary values returned by a single [`DdpgAgent::learn_step`].
 #[derive(Debug, Clone, Copy)]
@@ -138,29 +48,29 @@ pub struct LearnOutcome {
 ///
 /// Owns a deterministic actor, a continuous Q-critic, their Polyak-averaged
 /// target twins, two independent Adam optimizers, a uniform FIFO replay
-/// buffer, and a [`GaussianNoise`] exploration module.
+/// buffer, and a `GaussianNoise` exploration module.
 ///
 /// The typical call sequence per environment step is:
 ///
 /// 1. [`act`](Self::act) — choose an action (random during warm-up, noisy
 ///    policy thereafter).
-/// 2. [`remember`](Self::remember) — store the resulting transition.
-/// 3. [`on_env_step`](Self::on_env_step) — advance the global step counter.
-/// 4. [`learn_step`](Self::learn_step) — run one gradient update (no-op
+/// 2. [`remember`](Self::remember) — store the resulting transition and
+///    count the step.
+/// 3. [`learn_step`](Self::learn_step) — run one gradient update (no-op
 ///    during warm-up).
 ///
-/// Drive the complete loop with [`crate::algorithms::ddpg::train::train`].
+/// A driver runs that sequence through the [`Agent`] impl.
 ///
 /// # Network ownership
 ///
-/// The actor and critic live in a [`Slot`], which holds each network across the
+/// The actor and critic live in a `Slot`, which holds each network across the
 /// Burn optimizer step that consumes it by value. Every fallible operation —
 /// the forward pass, the loss, `backward`, and `GradientsParams::from_grads` —
 /// runs on a borrow, so a panic there leaves the agent intact and usable. The
 /// networks are out of their slots only for the duration of the
 /// [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step) call itself; a panic in
 /// that one window is terminal for this agent and requires rebuilding it. See
-/// [`Slot`] for why that residual window is irreducible.
+/// `Slot` for why that residual window is irreducible.
 ///
 /// # Const generics
 ///
@@ -208,7 +118,6 @@ pub struct DdpgAgent<
     plain_device: Device,
     step: usize,
     critic_updates: usize,
-    stats: AgentStats<DdpgMetrics>,
     last_actor_loss: f32,
     /// Most recent *applied* critic loss — carried forward across a non-finite
     /// skip so the reported metric never folds in a NaN (ADR 0056, Decision 3).
@@ -243,6 +152,10 @@ pub struct DdpgAgent<
     /// cannot, and pays a per-call `Vec` instead — see [`act`](Self::act).
     obs_scratch: Vec<f32>,
     _action: PhantomData<A>,
+    /// Whether the [`Agent`] impl explores and learns (`true`, the state a
+    /// new agent starts in) or acts greedily and learns nothing; see
+    /// [`Agent::set_training`].
+    training: bool,
 }
 
 impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
@@ -319,7 +232,6 @@ where
             None => (adam.clone().init(), adam.clone().init()),
         };
         let exploration = GaussianNoise::new(config.exploration_noise);
-        let stats = AgentStats::<DdpgMetrics>::new(100);
         let (low_t, high_t) = action_bound_tensors::<A, AR, BAR>(&plain_device);
         // The capacity is a runtime config field, not a literal, so it takes
         // the fallible path: an out-of-range value is a `ConfigError` naming
@@ -328,6 +240,7 @@ where
             capacity: config.replay_buffer_capacity,
         })?;
         Ok(Self {
+            training: true,
             actor: Slot::new(actor),
             target_actor,
             critic: Slot::new(critic),
@@ -345,7 +258,6 @@ where
             plain_device,
             step: 0,
             critic_updates: 0,
-            stats,
             last_actor_loss: 0.0,
             last_critic_loss: 0.0,
             critic_guard: FiniteLossGuard::new("ddpg/critic"),
@@ -356,16 +268,6 @@ where
             obs_scratch: Vec::new(),
             _action: PhantomData,
         })
-    }
-
-    /// Current agent statistics.
-    pub fn stats(&self) -> &AgentStats<DdpgMetrics> {
-        &self.stats
-    }
-
-    /// Records one completed episode into the running statistics.
-    pub fn record_episode(&mut self, metrics: DdpgMetrics) {
-        self.stats.record(metrics);
     }
 
     /// Number of transitions currently stored.
@@ -459,9 +361,9 @@ where
     /// `u64::MAX` (a bound no real run approaches; the saturation exists so the
     /// metric can never wrap into a small number).
     ///
-    /// # Why the aggregate is the one the training loop emits
+    /// # Why the aggregate is the one to report
     ///
-    /// DDPG has two loss sites today and could gain a third. The training loop
+    /// DDPG has two loss sites today and could gain a third. A reporter that
     /// reads *this* accessor rather than adding the per-site counts itself, so
     /// a new guard is picked up by extending this method alone — a site cannot
     /// be silently omitted from the reported metric by a caller that has not
@@ -539,7 +441,7 @@ where
     /// `docs/rules.md` sanctions here because `act` returns a bare action and so
     /// has no error channel to report the failure through — making the path
     /// fallible is a breaking change, deferred and tracked separately.
-    pub fn act(&self, obs: &O, training: bool, rng: &mut (impl Rng + ?Sized)) -> A {
+    fn select(&self, obs: &O, training: bool, rng: &mut (impl Rng + ?Sized)) -> A {
         if training && self.step < self.config.learning_starts {
             let sample: Vec<f32> = (0..A::COMPONENTS)
                 .map(|i| rng.random_range(self.low[i]..=self.high[i]))
@@ -583,7 +485,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if the actor slot is poisoned — see [`Slot::get`].
+    /// Panics if the actor slot is poisoned — see `Slot::get`.
     pub fn inference_net(&self) -> Actor {
         self.actor.get().valid()
     }
@@ -629,17 +531,19 @@ where
     /// Appends a transition to the replay buffer, evicting the oldest entry
     /// when the buffer is at capacity.
     ///
+    /// Each call counts one environment step, whether the transition is
+    /// stored or dropped: the counter `learning_starts` gates learning on.
+    ///
     /// # Arguments
     ///
-    /// - `terminated` — pass [`EpisodeStatus::is_terminated`], not
-    ///   [`EpisodeStatus::is_done`]. Only a true environmental termination may zero
-    ///   the Bellman bootstrap; on a truncation (time-limit cutoff) `next_obs`
-    ///   is a genuine continuation state whose value must still be
-    ///   bootstrapped. See [`Transition::terminated`].
+    /// - `status` — the snapshot's status, unchanged. When the transition is
+    ///   sampled, only [`EpisodeStatus::Terminated`] zeroes the Bellman
+    ///   bootstrap; after a truncation (a time-limit cut) `next_obs` is a
+    ///   genuine continuation state whose value is still bootstrapped. See
+    ///   [`Transition::status`].
     ///
-    /// [`Transition::terminated`]: crate::replay::Transition::terminated
-    /// [`EpisodeStatus::is_terminated`]: rlevo_core::environment::EpisodeStatus::is_terminated
-    /// [`EpisodeStatus::is_done`]: rlevo_core::environment::EpisodeStatus::is_done
+    /// [`Transition::status`]: rlevo_core::agent::Transition::status
+    /// [`EpisodeStatus::Terminated`]: rlevo_core::environment::EpisodeStatus::Terminated
     ///
     /// # Behavior
     ///
@@ -656,7 +560,17 @@ where
     /// decade-scheduled `warn!` (ADR 0067). The reward check runs
     /// **first** and returns early, so a transition that is bad in both ways
     /// increments only `dropped_transitions`.
-    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
+    pub fn remember(
+        &mut self,
+        obs: O,
+        action: &A,
+        reward: f32,
+        next_obs: O,
+        status: EpisodeStatus,
+    ) {
+        // Every step offered counts, stored or dropped: `learning_starts` and
+        // the replay schedule read environment steps, not stored transitions.
+        self.step += 1;
         if !self.reward_guard.admit(reward) {
             return;
         }
@@ -677,7 +591,7 @@ where
             action: action.as_slice().to_vec(),
             reward,
             next_obs,
-            terminated,
+            status,
         });
     }
 
@@ -781,12 +695,15 @@ where
     /// Test-only view of the Bellman bootstrap masks currently held in the
     /// replay buffer, oldest first.
     ///
-    /// Exists so the `train`-loop tests can assert that a *truncated* step was
+    /// Exists so the driven tests can assert that a *truncated* step was
     /// recorded with `terminated = false` — the invariant that separates a
     /// time-limit cutoff from a real MDP termination.
     #[cfg(test)]
     pub(crate) fn replay_terminated_flags(&self) -> Vec<bool> {
-        self.buffer.iter().map(|t| t.terminated).collect()
+        self.buffer
+            .iter()
+            .map(|t| t.status.is_terminated())
+            .collect()
     }
 
     /// Test-only parameter checksums of the two **target** networks, as
@@ -817,14 +734,9 @@ where
         ]
     }
 
-    /// Advances the global env-step counter. Called once per env step.
-    pub fn on_env_step(&mut self) {
-        self.step += 1;
-    }
-
     /// Returns `true` once the warm-up period has elapsed and the buffer has
     /// enough transitions to draw a batch.
-    pub fn can_learn(&self) -> bool {
+    fn can_learn(&self) -> bool {
         self.buffer.len() >= self.config.batch_size && self.step >= self.config.learning_starts
     }
 
@@ -833,7 +745,7 @@ where
     /// [`target_update.every()`](crate::target::TargetUpdate::every)-th one.
     ///
     /// Returns `None` if the agent is still in warm-up (see
-    /// [`can_learn`](Self::can_learn)).
+    /// `can_learn`).
     ///
     /// The critic is updated every call via mean-squared Bellman error. The actor is updated with
     /// the deterministic policy gradient (negative mean Q-value over the batch). Both target
@@ -850,19 +762,19 @@ where
     /// network. Every other operation here — sampling, the forward passes, the
     /// losses, `backward`, and gradient reduction — runs on a borrow, so a
     /// panic in any of them leaves the agent fully usable; only a panic inside
-    /// the optimizer step itself is terminal. See [`Slot`].
+    /// the optimizer step itself is terminal. See `Slot`.
     ///
     /// # Errors
     ///
-    /// Returns [`DdpgAgentError::Polyak`] if a target soft-update finds a
+    /// Returns a [`PolyakError`] if a target soft-update finds a
     /// parameter-topology mismatch between a live network and its target twin
-    /// (see [`polyak_update`]). Every in-tree
+    /// (see `polyak_update`). Every in-tree
     /// target is cloned from its active network, so this cannot occur for
     /// agents built normally.
     pub fn learn_step(
         &mut self,
         rng: &mut (impl Rng + ?Sized),
-    ) -> Result<Option<LearnOutcome>, DdpgAgentError> {
+    ) -> Result<Option<LearnOutcome>, PolyakError> {
         if !self.can_learn() {
             return Ok(None);
         }
@@ -897,7 +809,7 @@ where
             t.next_obs.write_host_row(&mut next_flat);
             action_flat.extend_from_slice(&t.action);
             rewards.push(t.reward);
-            terminated.push(if t.terminated { 1.0 } else { 0.0 });
+            terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
         let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(BOR);
@@ -1041,6 +953,45 @@ where
     }
 }
 
+/// Driven through [`Agent`], the agent acts with exploration and learns
+/// while training, and acts on its deterministic actor otherwise.
+///
+/// Each step [`on_transition`](Agent::on_transition) stores the transition,
+/// advances the step counter and takes a learning step, which does nothing
+/// until the buffer holds `learning_starts` transitions. While evaluating it
+/// does nothing.
+impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    Agent<O, A> for DdpgAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
+where
+    Actor: DeterministicPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR>,
+    A: BoundedAction<AR>,
+{
+    fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
+        self.select(obs, self.training, rng)
+    }
+
+    fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
+        if !self.training {
+            return;
+        }
+        self.remember(
+            t.obs.clone(),
+            t.action,
+            t.reward,
+            t.next_obs.clone(),
+            t.status,
+        );
+        self.learn_step(rng)
+            .expect("a target network cloned from its online network shares its parameter ids");
+    }
+
+    fn set_training(&mut self, training: bool) {
+        self.training = training;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Exact comparison is intentional throughout this test module: the values are
@@ -1053,25 +1004,6 @@ mod tests {
     use crate::MAX_BUFFER_CAPACITY;
     use crate::algorithms::shared::{params_are_plain, params_train};
     use rlevo_core::config::ConstraintKind;
-
-    #[test]
-    fn test_ddpg_agent_metrics_performance_record_returns_reward_and_steps() {
-        let m = DdpgMetrics {
-            reward: 3.5,
-            steps: 42,
-            critic_loss: 0.1,
-            actor_loss: -0.2,
-            q_mean: 1.0,
-        };
-        assert_eq!(m.score(), 3.5);
-        assert_eq!(m.duration(), 42);
-    }
-
-    #[test]
-    fn test_ddpg_agent_error_display_uses_thiserror_messages() {
-        let err = DdpgAgentError::InvalidAction("bad slice".into());
-        assert_eq!(err.to_string(), "Invalid action: bad slice");
-    }
 
     // -------- non-finite-loss guard (ADR 0056) --------
 
@@ -1136,7 +1068,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
 
@@ -1174,7 +1106,7 @@ mod tests {
             outcome.critic_loss.is_finite(),
             "the reported critic loss must stay finite despite the skipped site"
         );
-        let probe_action = agent.act(&make_obs(0.2, 0.8), false, &mut rng);
+        let probe_action = agent.select(&make_obs(0.2, 0.8), false, &mut rng);
         assert!(
             probe_action.as_slice()[0].is_finite(),
             "the actor must remain finite — the critic's NaN must not reach it"
@@ -1208,7 +1140,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
 
@@ -1356,7 +1288,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
 
@@ -1498,7 +1430,7 @@ mod tests {
             &action,
             f32::NAN,
             make_obs(0.1, 0.9),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1511,7 +1443,13 @@ mod tests {
             "the drop must be visible to the caller through the public counter"
         );
 
-        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        agent.remember(
+            make_obs(0.1, 0.9),
+            &action,
+            0.5,
+            make_obs(0.2, 0.8),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             1,
@@ -1553,7 +1491,7 @@ mod tests {
             &action,
             0.5,
             make_obs(0.1, 0.9),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1571,7 +1509,13 @@ mod tests {
             "the reward was finite: the reward counter must not move"
         );
 
-        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        agent.remember(
+            make_obs(0.1, 0.9),
+            &action,
+            0.5,
+            make_obs(0.2, 0.8),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             1,
@@ -1594,7 +1538,7 @@ mod tests {
             &action,
             0.5,
             make_obs(0.1, f32::INFINITY),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1607,7 +1551,13 @@ mod tests {
             "the `next_obs` drop must be visible through the public counter"
         );
 
-        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        agent.remember(
+            make_obs(0.1, 0.9),
+            &action,
+            0.5,
+            make_obs(0.2, 0.8),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             1,
@@ -1634,7 +1584,7 @@ mod tests {
             &action,
             f32::NAN,
             make_obs(f32::NAN, 0.9),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(agent.buffer_len(), 0, "the transition must be dropped");
         assert_eq!(
@@ -1658,7 +1608,7 @@ mod tests {
         let agent = obs_guard_agent();
         let mut rng = StdRng::seed_from_u64(0);
 
-        let action = agent.act(&make_obs(f32::NAN, 1.0), false, &mut rng);
+        let action = agent.select(&make_obs(f32::NAN, 1.0), false, &mut rng);
         assert_eq!(
             agent.degenerate_action_selections(),
             1,
@@ -1671,7 +1621,7 @@ mod tests {
         );
 
         // Non-latching, and a healthy observation is not counted.
-        let _ = agent.act(&make_obs(0.2, 0.8), false, &mut rng);
+        let _ = agent.select(&make_obs(0.2, 0.8), false, &mut rng);
         assert_eq!(
             agent.degenerate_action_selections(),
             1,
@@ -1788,7 +1738,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
         assert!(
@@ -1825,6 +1775,98 @@ mod tests {
         assert!(
             params_are_plain(&agent.inference_net()),
             "`inference_net` is a plain snapshot"
+        );
+    }
+}
+
+#[cfg(test)]
+mod driven_tests {
+    use super::*;
+
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    use crate::algorithms::bootstrap_mask::{
+        ContinuousMaskEnv, MaskContinuousAction, MaskObservation, drive, tiny_critic,
+    };
+    use crate::algorithms::ddpg::ddpg_model::MlpActor;
+    use crate::algorithms::ddpg::ddpg_model::MlpCritic;
+
+    /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
+    const PERIOD: usize = 3;
+    const STEPS: usize = 9;
+
+    use crate::algorithms::bootstrap_mask::tiny_actor;
+
+    /// Drives the agent through its `Agent` hooks against a clock env whose
+    /// episodes all end with `end_status`, and returns the bootstrap masks
+    /// it stored.
+    ///
+    /// `learning_starts` is pushed past the step budget so no gradient step
+    /// ever runs — this guard is about *which predicate reaches `remember`*,
+    /// not about learning.
+    fn recorded_masks(end_status: EpisodeStatus) -> Vec<bool> {
+        let device = Device::flex();
+        let config = DdpgTrainingConfig {
+            learning_starts: 1_000_000,
+            replay_buffer_capacity: 64,
+            ..DdpgTrainingConfig::default()
+        };
+        let actor = tiny_actor(&device);
+        let critic = tiny_critic(&device);
+        let mut agent = DdpgAgent::<
+            MlpActor,
+            MlpCritic,
+            MaskObservation,
+            MaskContinuousAction,
+            1,
+            2,
+            1,
+            2,
+        >::new(actor, critic, config, device)
+        .expect("default config is valid");
+        let mut env = ContinuousMaskEnv::new(PERIOD, end_status);
+        let mut rng = StdRng::seed_from_u64(7);
+        drive(&mut env, &mut agent, STEPS, &mut rng);
+        agent.replay_terminated_flags()
+    }
+
+    /// The episode boundaries this fixture produces: steps 3, 6 and 9.
+    fn episode_end_steps() -> Vec<bool> {
+        (1..=STEPS).map(|s| s.is_multiple_of(PERIOD)).collect()
+    }
+
+    /// A genuine environmental termination *must* zero the bootstrap.
+    ///
+    /// This also pins the fixture's episode cadence, which is what makes the
+    /// truncation test below non-vacuous: it proves three of these nine steps
+    /// really do end an episode.
+    #[test]
+    fn test_ddpg_on_transition_termination_sets_bootstrap_mask() {
+        assert_eq!(
+            recorded_masks(EpisodeStatus::Terminated),
+            episode_end_steps(),
+            "an environmental termination must zero the Bellman bootstrap"
+        );
+    }
+
+    /// A truncation must **not** zero the bootstrap.
+    ///
+    /// Same env, same cadence, same `is_done()` pattern as the test above —
+    /// only `is_terminated()` differs. Masking on `is_done()` here would
+    /// reproduce `episode_end_steps()` and bias every Q-value downward on any
+    /// time-limited env (Pardo et al., ICML 2018, Eq. 6).
+    #[test]
+    fn test_ddpg_on_transition_truncation_leaves_bootstrap_mask_clear() {
+        let flags = recorded_masks(EpisodeStatus::Truncated);
+        assert_eq!(
+            flags.len(),
+            STEPS,
+            "every step must reach the replay buffer"
+        );
+        assert!(
+            flags.iter().all(|f| !f),
+            "truncation must not zero the bootstrap; got {flags:?}"
         );
     }
 }

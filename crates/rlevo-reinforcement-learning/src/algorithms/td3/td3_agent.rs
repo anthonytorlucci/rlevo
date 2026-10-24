@@ -7,13 +7,14 @@
 //! relative to [`crate::algorithms::ddpg::ddpg_agent::DdpgAgent`] are
 //! (1) twin critics with a `min`-of-targets Bellman backup,
 //! (2) Gaussian target-policy smoothing via
-//! [`super::target_smoothing::smoothed_target_action`], and
+//! `super::target_smoothing::smoothed_target_action`, and
 //! (3) a delayed actor update every `policy_frequency`-th critic step,
 //! alongside a target Polyak update on its own, independently configured
 //! cadence (ADR 0058).
 //!
-//! Drive the full loop with [`super::train::train`].
+//! A driver steps the agent through its [`Agent`] impl.
 
+use rlevo_core::agent::{Agent, Transition};
 use std::marker::PhantomData;
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
@@ -21,11 +22,11 @@ use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
-use crate::metrics::{AgentStats, PerformanceRecord};
 use crate::replay::{ContinuousTransition, ReplayStrategy, UniformReplay, UniformReplayConfig};
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
+use rlevo_core::environment::EpisodeStatus;
 
 use crate::algorithms::ddpg::exploration::GaussianNoise;
 #[cfg(test)]
@@ -38,99 +39,6 @@ use crate::algorithms::td3::target_smoothing::smoothed_target_action;
 use crate::algorithms::td3::td3_config::Td3TrainingConfig;
 use crate::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 use crate::utils::{PolyakError, compute_target_q_values, polyak_update};
-
-/// Error variants returned by [`Td3Agent`] operations.
-///
-/// Two variants, and each has a real construction site in this crate.
-/// [`InvalidAction`](Td3AgentError::InvalidAction) is built by
-/// [`train`](super::train::train) when `env.reset()` or `env.step()` rejects an
-/// action the agent proposed. [`Polyak`](Td3AgentError::Polyak) arrives through
-/// `?` on the target soft-updates at the end of
-/// [`learn_step`](Td3Agent::learn_step), where a live network and its target
-/// twin can disagree on parameter topology.
-///
-/// The enum is `#[non_exhaustive]`: downstream `match` expressions must carry a
-/// wildcard arm, so a future variant is not a breaking change.
-///
-/// # Why there is no tensor-conversion variant
-///
-/// This enum previously carried `TensorConversionFailed(String)`, which nothing
-/// constructed and nothing could. The tensor host-reads on the act path are the
-/// `as_slice::<f32>()` calls in [`act`](Td3Agent::act) and
-/// [`act_with`](Td3Agent::act_with), and both methods return a bare `A` rather
-/// than a `Result` — there is no error channel for a variant to travel down. The
-/// read is an `.expect` on a named invariant, which is precisely the form the
-/// Error Handling section of `docs/rules.md` sanctions for a host-read that
-/// "cannot fail by construction": the tensor is one the same function just
-/// built from its own actor. Making that path fallible is a breaking change,
-/// deferred and tracked separately.
-///
-/// When it lands, the variant returns carrying a structured payload — not a
-/// `String`. That section prefers structured variants over string-based
-/// errors, so re-introducing a `String` payload would rebuild the discarded
-/// variant in a merely-live form.
-///
-/// # Why there is no buffer or I/O variant
-///
-/// `Buffer(#[from] ReplayBufferError)` was unreachable by design.
-/// [`learn_step`](Td3Agent::learn_step) samples with
-/// `let Ok(batch) = self.buffer.sample(..) else { return Ok(None) };`, and the
-/// only variant `sample` can produce is
-/// [`ReplayBufferError::InsufficientData`](crate::replay::ReplayBufferError::InsufficientData),
-/// which means "the buffer is still warming up, skip this learn step" — not
-/// "this learn step failed". Propagating it would misreport an ordinary warm-up
-/// as an error.
-///
-/// `Io(#[from] std::io::Error)` anticipated checkpointing that does not exist:
-/// there is no `save`, `load`, `Recorder`, or `std::fs` use anywhere under
-/// `algorithms/`, and ADR 0014, Decision 6, defers the checkpoint write path.
-///
-/// Because the enum is `#[non_exhaustive]`, adding a variant when either of
-/// those lands is not a breaking change. The bar for adding one is an actual
-/// construction site, not an anticipated failure mode — a declared but
-/// unconstructible variant is what this section exists to keep from recurring.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum Td3AgentError {
-    /// The sampled or requested action is outside the valid action space.
-    #[error("Invalid action: {0}")]
-    InvalidAction(String),
-    /// A target soft-update failed because a live network and its target twin
-    /// have mismatched parameter topologies.
-    #[error(transparent)]
-    Polyak(#[from] PolyakError),
-}
-
-/// Per-episode statistics emitted by the TD3 training loop.
-///
-/// Mirrors [`crate::algorithms::ddpg::ddpg_agent::DdpgMetrics`] so dashboards
-/// and A/B tooling can handle DDPG and TD3 runs interchangeably. `critic_loss`
-/// is the sum across the two critics; `q_mean` is the mean of the
-/// element-wise `min(q1, q2)` used by the learn step.
-#[derive(Debug, Clone, Copy)]
-pub struct Td3Metrics {
-    /// Total reward collected during the episode.
-    pub reward: f32,
-    /// Number of environment steps taken.
-    pub steps: usize,
-    /// Sum of the two critics' mean-squared Bellman errors on the most
-    /// recent learn step.
-    pub critic_loss: f32,
-    /// Most recent actor loss. `0.0` until the first policy update fires.
-    pub actor_loss: f32,
-    /// Mean of `min(q1, q2)` across the most recent learn step.
-    pub q_mean: f32,
-}
-
-impl PerformanceRecord for Td3Metrics {
-    fn score(&self) -> f32 {
-        self.reward
-    }
-
-    fn duration(&self) -> usize {
-        self.steps
-    }
-}
 
 /// Summary values returned by a single [`Td3Agent::learn_step`].
 #[derive(Debug, Clone, Copy)]
@@ -164,10 +72,8 @@ pub(crate) fn compute_twin_critic_target(
 ///
 /// Holds the live actor, two independent critics, their three Polyak-averaged
 /// target networks, three separate Adam optimizers, a FIFO replay buffer, and
-/// per-episode statistics. The public surface is intentionally narrow: callers
-/// interact through [`act`](Self::act), [`remember`](Self::remember),
-/// [`on_env_step`](Self::on_env_step), and [`learn_step`](Self::learn_step).
-/// The high-level collect-learn loop is driven by [`super::train::train`].
+/// A driver steps it through its [`Agent`] impl; [`remember`](Self::remember)
+/// and [`learn_step`](Self::learn_step) let a caller pace the learning itself.
 ///
 /// # Const generics
 ///
@@ -179,7 +85,7 @@ pub(crate) fn compute_twin_critic_target(
 ///
 /// # Network ownership
 ///
-/// The actor and both critics live in a [`Slot`], because Burn's
+/// The actor and both critics live in a `Slot`, because Burn's
 /// [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step) consumes the module it
 /// updates and each network must briefly leave the agent to be trained. Every
 /// *fallible* operation — the forward pass, the loss, `backward`, and gradient
@@ -191,7 +97,7 @@ pub(crate) fn compute_twin_critic_target(
 /// # Panics
 ///
 /// If `ModuleOptimizer::step` itself panics (a shape mismatch, a device error), the
-/// network it was stepping is lost; [`Slot`] documents why that residual window
+/// network it was stepping is lost; `Slot` documents why that residual window
 /// cannot be closed. The agent is then *poisoned* with respect to that one
 /// network: every later read of it — [`act`](Self::act),
 /// [`inference_net`](Self::inference_net), [`learn_step`](Self::learn_step) —
@@ -237,7 +143,6 @@ pub struct Td3Agent<
     plain_device: Device,
     step: usize,
     critic_updates: usize,
-    stats: AgentStats<Td3Metrics>,
     last_actor_loss: f32,
     /// Most recent *applied* critic-1 loss — carried forward across a
     /// non-finite skip so the reported metric never folds in a NaN.
@@ -280,6 +185,10 @@ pub struct Td3Agent<
     /// cannot, and pays a per-call `Vec` instead — see [`act`](Self::act).
     obs_scratch: Vec<f32>,
     _action: PhantomData<A>,
+    /// Whether the [`Agent`] impl explores and learns (`true`, the state a
+    /// new agent starts in) or acts greedily and learns nothing; see
+    /// [`Agent::set_training`].
+    training: bool,
 }
 
 impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
@@ -366,7 +275,6 @@ where
             ),
         };
         let exploration = GaussianNoise::new(config.exploration_noise);
-        let stats = AgentStats::<Td3Metrics>::new(100);
         let (low_t, high_t) = action_bound_tensors::<A, AR, BAR>(&plain_device);
         // The capacity is a runtime config field, not a literal, so it takes
         // the fallible path: an out-of-range value is a `ConfigError` naming
@@ -375,6 +283,7 @@ where
             capacity: config.replay_buffer_capacity,
         })?;
         Ok(Self {
+            training: true,
             actor: Slot::new(actor),
             target_actor,
             critic_1: Slot::new(critic_1),
@@ -395,7 +304,6 @@ where
             plain_device,
             step: 0,
             critic_updates: 0,
-            stats,
             last_actor_loss: 0.0,
             last_qf1_loss: 0.0,
             last_qf2_loss: 0.0,
@@ -408,16 +316,6 @@ where
             obs_scratch: Vec::new(),
             _action: PhantomData,
         })
-    }
-
-    /// Current agent statistics.
-    pub fn stats(&self) -> &AgentStats<Td3Metrics> {
-        &self.stats
-    }
-
-    /// Records one completed episode into the running statistics.
-    pub fn record_episode(&mut self, metrics: Td3Metrics) {
-        self.stats.record(metrics);
     }
 
     /// Number of transitions currently stored.
@@ -514,13 +412,11 @@ where
     /// Total gradient updates skipped for a non-finite loss across **all** of
     /// this agent's loss sites — critic-1, critic-2 and the actor.
     ///
-    /// This is the canonical `skipped_updates` metric the training loop emits
-    /// (ADR 0072). It exists as the single aggregation point on purpose: a
+    /// This is the canonical `skipped_updates` metric (ADR 0072). It exists as the single aggregation point on purpose: a
     /// future fourth loss site is added to this sum once, and cannot be
     /// silently omitted from the reporting path.
     ///
-    /// The sum is `saturating_add`-chained (the [`AgentStats`] counter
-    /// precedent), so it pins at `u64::MAX` rather than wrapping — an
+    /// The sum is `saturating_add`-chained, so it pins at `u64::MAX` rather than wrapping — an
     /// unreachable total in practice, but a wrapped one would read as a
     /// *healthy* run.
     ///
@@ -606,7 +502,7 @@ where
     /// a bare action and so has no error channel to report the failure through —
     /// making the path fallible is a breaking change, deferred and tracked
     /// separately.
-    pub fn act(&self, obs: &O, training: bool, rng: &mut (impl Rng + ?Sized)) -> A {
+    fn select(&self, obs: &O, training: bool, rng: &mut (impl Rng + ?Sized)) -> A {
         if training && self.step < self.config.learning_starts {
             let sample: Vec<f32> = (0..A::COMPONENTS)
                 .map(|i| rng.random_range(self.low[i]..=self.high[i]))
@@ -698,17 +594,19 @@ where
     /// Appends a transition to the replay buffer, evicting the oldest entry
     /// when the buffer is at capacity.
     ///
+    /// Each call counts one environment step, whether the transition is
+    /// stored or dropped: the counter `learning_starts` gates learning on.
+    ///
     /// # Arguments
     ///
-    /// - `terminated` — pass [`EpisodeStatus::is_terminated`], **not**
-    ///   [`EpisodeStatus::is_done`]. Only a true environmental termination may zero
-    ///   the Bellman bootstrap; on a truncation (time-limit cutoff) `next_obs`
-    ///   is a genuine continuation state whose value must still be
-    ///   bootstrapped. See [`Transition::terminated`].
+    /// - `status` — the snapshot's status, unchanged. When the transition is
+    ///   sampled, only [`EpisodeStatus::Terminated`] zeroes the Bellman
+    ///   bootstrap; after a truncation (a time-limit cut) `next_obs` is a
+    ///   genuine continuation state whose value is still bootstrapped. See
+    ///   [`Transition::status`].
     ///
-    /// [`Transition::terminated`]: crate::replay::Transition::terminated
-    /// [`EpisodeStatus::is_terminated`]: rlevo_core::environment::EpisodeStatus::is_terminated
-    /// [`EpisodeStatus::is_done`]: rlevo_core::environment::EpisodeStatus::is_done
+    /// [`Transition::status`]: rlevo_core::agent::Transition::status
+    /// [`EpisodeStatus::Terminated`]: rlevo_core::environment::EpisodeStatus::Terminated
     ///
     /// # Behavior
     ///
@@ -725,7 +623,17 @@ where
     /// decade-scheduled `warn!` (ADR 0067). The reward check runs
     /// **first** and returns early, so a transition that is bad in both ways
     /// increments only `dropped_transitions`.
-    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
+    pub fn remember(
+        &mut self,
+        obs: O,
+        action: &A,
+        reward: f32,
+        next_obs: O,
+        status: EpisodeStatus,
+    ) {
+        // Every step offered counts, stored or dropped: `learning_starts` and
+        // the replay schedule read environment steps, not stored transitions.
+        self.step += 1;
         if !self.reward_guard.admit(reward) {
             return;
         }
@@ -746,7 +654,7 @@ where
             action: action.as_slice().to_vec(),
             reward,
             next_obs,
-            terminated,
+            status,
         });
     }
 
@@ -850,12 +758,15 @@ where
     /// Test-only view of the Bellman bootstrap masks currently held in the
     /// replay buffer, oldest first.
     ///
-    /// Exists so the `train`-loop tests can assert that a *truncated* step was
+    /// Exists so the driven tests can assert that a *truncated* step was
     /// recorded with `terminated = false` — the invariant that separates a
     /// time-limit cutoff from a real MDP termination.
     #[cfg(test)]
     pub(crate) fn replay_terminated_flags(&self) -> Vec<bool> {
-        self.buffer.iter().map(|t| t.terminated).collect()
+        self.buffer
+            .iter()
+            .map(|t| t.status.is_terminated())
+            .collect()
     }
 
     /// Test-only parameter checksums of the three **target** networks, as
@@ -888,14 +799,9 @@ where
         ]
     }
 
-    /// Advances the global env-step counter. Called once per env step.
-    pub fn on_env_step(&mut self) {
-        self.step += 1;
-    }
-
     /// Returns `true` once the warm-up period has elapsed and the buffer has
     /// enough transitions to draw a batch.
-    pub fn can_learn(&self) -> bool {
+    fn can_learn(&self) -> bool {
         self.buffer.len() >= self.config.batch_size && self.step >= self.config.learning_starts
     }
 
@@ -906,7 +812,7 @@ where
     /// 2. Builds the twin-critic TD target on the plain (non-autodiff) device:
     ///    `$y = r + \gamma(1-d) \cdot \min(Q_1'(s', a'), Q_2'(s', a'))$`
     ///    where `$a' = \text{clip}(\text{target\_actor}(s') + \text{clip}(\mathcal{N}(0, \sigma^2), -c, c), \text{low}, \text{high})$`
-    ///    (target-policy smoothing; see [`super::target_smoothing`]).
+    ///    (target-policy smoothing; see `super::target_smoothing`).
     /// 3. Runs an independent backward pass and Adam step for each critic.
     /// 4. Every `policy_frequency`-th critic step, updates the actor with
     ///    deterministic policy gradient against `critic_1`.
@@ -916,7 +822,7 @@ where
     ///    defaults — step 4 runs first, so no target tracks a stale actor.
     ///
     /// Returns `None` if the agent is still in warm-up
-    /// ([`can_learn`](Self::can_learn) returns `false`).
+    /// (`can_learn` returns `false`).
     ///
     /// Every fallible stage — forward, loss, `backward`, gradient reduction —
     /// runs on a borrow of the network, so a panic anywhere in this method
@@ -933,9 +839,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`Td3AgentError::Polyak`] if a target soft-update finds a
+    /// Returns a [`PolyakError`] if a target soft-update finds a
     /// parameter-topology mismatch between a live network and its target twin
-    /// (see [`polyak_update`]). Every in-tree
+    /// (see `polyak_update`). Every in-tree
     /// target is cloned from its active network, so this cannot occur for
     /// agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,
@@ -947,7 +853,7 @@ where
     pub fn learn_step(
         &mut self,
         rng: &mut (impl Rng + ?Sized),
-    ) -> Result<Option<LearnOutcome>, Td3AgentError> {
+    ) -> Result<Option<LearnOutcome>, PolyakError> {
         if !self.can_learn() {
             return Ok(None);
         }
@@ -982,7 +888,7 @@ where
             t.next_obs.write_host_row(&mut next_flat);
             action_flat.extend_from_slice(&t.action);
             rewards.push(t.reward);
-            terminated.push(if t.terminated { 1.0 } else { 0.0 });
+            terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
         let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(BOR);
@@ -1176,6 +1082,45 @@ where
     }
 }
 
+/// Driven through [`Agent`], the agent acts with exploration and learns
+/// while training, and acts on its deterministic actor otherwise.
+///
+/// Each step [`on_transition`](Agent::on_transition) stores the transition,
+/// advances the step counter and takes a learning step, which does nothing
+/// until the buffer holds `learning_starts` transitions. While evaluating it
+/// does nothing.
+impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
+    Agent<O, A> for Td3Agent<Actor, Critic, O, A, OR, BOR, AR, BAR>
+where
+    Actor: DeterministicPolicy<BOR, BAR>,
+    Critic: ContinuousQ<BOR, BAR>,
+    O: Observation<OR> + TensorConvertible<OR>,
+    A: BoundedAction<AR>,
+{
+    fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
+        self.select(obs, self.training, rng)
+    }
+
+    fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
+        if !self.training {
+            return;
+        }
+        self.remember(
+            t.obs.clone(),
+            t.action,
+            t.reward,
+            t.next_obs.clone(),
+            t.status,
+        );
+        self.learn_step(rng)
+            .expect("a target network cloned from its online network shares its parameter ids");
+    }
+
+    fn set_training(&mut self, training: bool) {
+        self.training = training;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Exact comparison is intentional throughout this test module: the values are
@@ -1188,25 +1133,6 @@ mod tests {
     use crate::MAX_BUFFER_CAPACITY;
     use crate::algorithms::shared::{params_are_plain, params_train};
     use rlevo_core::config::ConstraintKind;
-
-    #[test]
-    fn test_td3agent_metrics_performance_record_returns_reward_and_steps() {
-        let m = Td3Metrics {
-            reward: 3.5,
-            steps: 42,
-            critic_loss: 0.1,
-            actor_loss: -0.2,
-            q_mean: 1.0,
-        };
-        assert_eq!(m.score(), 3.5);
-        assert_eq!(m.duration(), 42);
-    }
-
-    #[test]
-    fn test_td3agent_error_display_uses_thiserror_messages() {
-        let err = Td3AgentError::InvalidAction("bad slice".into());
-        assert_eq!(err.to_string(), "Invalid action: bad slice");
-    }
 
     #[test]
     fn test_td3agent_td3_target_is_min_of_twin_critics() {
@@ -1316,7 +1242,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
 
@@ -1376,7 +1302,7 @@ mod tests {
             outcome.critic_loss.is_finite(),
             "the summed critic loss must stay finite despite the skipped site"
         );
-        let probe_action = agent.act(&make_obs(0.2, 0.8), false, &mut rng);
+        let probe_action = agent.select(&make_obs(0.2, 0.8), false, &mut rng);
         assert!(
             probe_action.as_slice()[0].is_finite(),
             "the actor must remain finite — critic-1's NaN must not reach it"
@@ -1426,7 +1352,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
 
@@ -1660,7 +1586,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
 
@@ -1810,7 +1736,7 @@ mod tests {
             &action,
             f32::NAN,
             make_obs(0.1, 0.9),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1823,7 +1749,13 @@ mod tests {
             "the drop must be visible to the caller through the public counter"
         );
 
-        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        agent.remember(
+            make_obs(0.1, 0.9),
+            &action,
+            0.5,
+            make_obs(0.2, 0.8),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             1,
@@ -1871,7 +1803,7 @@ mod tests {
             &action,
             0.5,
             make_obs(0.1, 0.9),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1889,7 +1821,13 @@ mod tests {
             "the reward was finite: the reward counter must not move"
         );
 
-        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        agent.remember(
+            make_obs(0.1, 0.9),
+            &action,
+            0.5,
+            make_obs(0.2, 0.8),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             1,
@@ -1912,7 +1850,7 @@ mod tests {
             &action,
             0.5,
             make_obs(0.1, f32::INFINITY),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1925,7 +1863,13 @@ mod tests {
             "the `next_obs` drop must be visible through the public counter"
         );
 
-        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        agent.remember(
+            make_obs(0.1, 0.9),
+            &action,
+            0.5,
+            make_obs(0.2, 0.8),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             1,
@@ -1952,7 +1896,7 @@ mod tests {
             &action,
             f32::NAN,
             make_obs(f32::NAN, 0.9),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(agent.buffer_len(), 0, "the transition must be dropped");
         assert_eq!(
@@ -1976,7 +1920,7 @@ mod tests {
         let agent = obs_guard_agent();
         let mut rng = StdRng::seed_from_u64(0);
 
-        let action = agent.act(&make_obs(f32::NAN, 1.0), false, &mut rng);
+        let action = agent.select(&make_obs(f32::NAN, 1.0), false, &mut rng);
         assert_eq!(
             agent.degenerate_action_selections(),
             1,
@@ -1989,7 +1933,7 @@ mod tests {
         );
 
         // Non-latching, and a healthy observation is not counted.
-        let _ = agent.act(&make_obs(0.2, 0.8), false, &mut rng);
+        let _ = agent.select(&make_obs(0.2, 0.8), false, &mut rng);
         assert_eq!(
             agent.degenerate_action_selections(),
             1,
@@ -2116,7 +2060,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
         assert!(
@@ -2164,6 +2108,99 @@ mod tests {
         assert!(
             params_are_plain(&agent.inference_net()),
             "`inference_net` is a plain snapshot"
+        );
+    }
+}
+
+#[cfg(test)]
+mod driven_tests {
+    use super::*;
+
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    use crate::algorithms::bootstrap_mask::{
+        ContinuousMaskEnv, MaskContinuousAction, MaskObservation, drive, tiny_critic,
+    };
+    use crate::algorithms::ddpg::ddpg_model::MlpActor;
+    use crate::algorithms::ddpg::ddpg_model::MlpCritic;
+
+    /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
+    const PERIOD: usize = 3;
+    const STEPS: usize = 9;
+
+    use crate::algorithms::bootstrap_mask::tiny_actor;
+
+    /// Drives the agent through its `Agent` hooks against a clock env whose
+    /// episodes all end with `end_status`, and returns the bootstrap masks
+    /// it stored.
+    ///
+    /// `learning_starts` is pushed past the step budget so no gradient step
+    /// ever runs — this guard is about *which predicate reaches `remember`*,
+    /// not about learning.
+    fn recorded_masks(end_status: EpisodeStatus) -> Vec<bool> {
+        let device = Device::flex();
+        let config = Td3TrainingConfig {
+            learning_starts: 1_000_000,
+            replay_buffer_capacity: 64,
+            ..Td3TrainingConfig::default()
+        };
+        let actor = tiny_actor(&device);
+        let critic_1 = tiny_critic(&device);
+        let critic_2 = tiny_critic(&device);
+        let mut agent = Td3Agent::<
+            MlpActor,
+            MlpCritic,
+            MaskObservation,
+            MaskContinuousAction,
+            1,
+            2,
+            1,
+            2,
+        >::new(actor, critic_1, critic_2, config, device)
+        .expect("default config is valid");
+        let mut env = ContinuousMaskEnv::new(PERIOD, end_status);
+        let mut rng = StdRng::seed_from_u64(7);
+        drive(&mut env, &mut agent, STEPS, &mut rng);
+        agent.replay_terminated_flags()
+    }
+
+    /// The episode boundaries this fixture produces: steps 3, 6 and 9.
+    fn episode_end_steps() -> Vec<bool> {
+        (1..=STEPS).map(|s| s.is_multiple_of(PERIOD)).collect()
+    }
+
+    /// A genuine environmental termination *must* zero the bootstrap.
+    ///
+    /// This also pins the fixture's episode cadence, which is what makes the
+    /// truncation test below non-vacuous: it proves three of these nine steps
+    /// really do end an episode.
+    #[test]
+    fn test_train_termination_sets_bootstrap_mask() {
+        assert_eq!(
+            recorded_masks(EpisodeStatus::Terminated),
+            episode_end_steps(),
+            "an environmental termination must zero the Bellman bootstrap"
+        );
+    }
+
+    /// A truncation must **not** zero the bootstrap.
+    ///
+    /// Same env, same cadence, same `is_done()` pattern as the test above —
+    /// only `is_terminated()` differs. Masking on `is_done()` here would
+    /// reproduce `episode_end_steps()` and bias every Q-value downward on any
+    /// time-limited env (Pardo et al., ICML 2018, Eq. 6).
+    #[test]
+    fn test_train_truncation_leaves_bootstrap_mask_clear() {
+        let flags = recorded_masks(EpisodeStatus::Truncated);
+        assert_eq!(
+            flags.len(),
+            STEPS,
+            "every step must reach the replay buffer"
+        );
+        assert!(
+            flags.iter().all(|f| !f),
+            "truncation must not zero the bootstrap; got {flags:?}"
         );
     }
 }

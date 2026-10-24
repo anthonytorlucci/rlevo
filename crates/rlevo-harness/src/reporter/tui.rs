@@ -45,7 +45,7 @@ pub enum TuiEvent {
     /// return and length — no `TrialInfo`, no `EpisodeSummary`. Emitted by
     /// non-harness env wrappers (e.g.,
     /// [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap)) so a raw
-    /// `Environment` driver (PPO's `train_discrete`, future EA loops) can
+    /// `Environment` driver (the evaluator's `train`, future EA loops) can
     /// populate the reward sparkline without synthesising harness-only
     /// types. The render thread folds the return into the same
     /// `reward_ring` that `EpisodeEnd` writes to.

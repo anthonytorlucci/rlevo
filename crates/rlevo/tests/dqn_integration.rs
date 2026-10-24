@@ -16,11 +16,11 @@ use burn::tensor::{Device, Tensor};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{MlpQNetwork, MlpQNetworkConfig};
-use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
 use rlevo_test_support::assert::assert_all_finite;
@@ -92,12 +92,8 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let mut env = cartpole_seeded(seed);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = fresh_agent(seed);
-    train(&mut agent, &mut env, &mut rng, total, 0).expect("training");
-    let stats = agent.stats();
-    TrainOutcome {
-        avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
-    }
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
+    TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value))
 }
 
 // `CartPole` target: after 30k steps with a 2x64 MLP, the 100-episode moving
@@ -136,14 +132,10 @@ fn dqn_cartpole_produces_finite_rewards() {
     let mut env = cartpole_seeded(seed);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = fresh_agent(seed);
-    train(&mut agent, &mut env, &mut rng, 2_500, 0).expect("training");
+    let episodes = train(&mut env, &mut agent, 2_500, usize::MAX, &mut rng).expect("training");
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
-    let rewards: Vec<f32> = agent
-        .stats()
-        .recent_history()
-        .iter()
-        .map(|m| m.reward)
-        .collect();
+    let rewards: Vec<f32> =
+        TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value)).rewards;
     assert_all_finite("reward", &rewards);
 }
 
@@ -275,7 +267,8 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
     let initial_target = hard_net_weights(agent.target_net());
 
     // -- Leg 1: land exactly on a firing -----------------------------------
-    train(&mut agent, &mut env, &mut rng, HARD_LEG1_END, 0).expect("training");
+    let episodes =
+        train(&mut env, &mut agent, HARD_LEG1_END, usize::MAX, &mut rng).expect("training");
 
     let leg1_updates = hard_expected_updates(HARD_LEG1_END);
     assert_eq!(
@@ -292,12 +285,8 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
 
     // The run itself completed healthily.
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
-    let rewards: Vec<f32> = agent
-        .stats()
-        .recent_history()
-        .iter()
-        .map(|m| m.reward)
-        .collect();
+    let rewards: Vec<f32> =
+        TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value)).rewards;
     assert!(
         !rewards.is_empty(),
         "the run must have completed at least one episode, or the finiteness check \
@@ -324,11 +313,11 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
 
     // -- Leg 2: stop strictly between firings ------------------------------
     train(
-        &mut agent,
         &mut env,
-        &mut rng,
+        &mut agent,
         HARD_LEG2_END - HARD_LEG1_END,
-        0,
+        usize::MAX,
+        &mut rng,
     )
     .expect("training");
 
@@ -353,11 +342,11 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
 
     // -- Leg 3: the next firing copies again -------------------------------
     train(
-        &mut agent,
         &mut env,
-        &mut rng,
+        &mut agent,
         HARD_LEG3_END - HARD_LEG2_END,
-        0,
+        usize::MAX,
+        &mut rng,
     )
     .expect("training");
 

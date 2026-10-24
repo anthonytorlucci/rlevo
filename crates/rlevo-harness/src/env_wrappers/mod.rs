@@ -4,9 +4,9 @@
 //! tallying, tracing hooks, …) without touching the rollout loop in
 //! [`Evaluator`].
 //!
-//! - [`TuiEnvTap`] wraps a raw [`Environment`] for training loops that
-//!   bypass the harness (PPO's `train_discrete`, future evolutionary
-//!   loops). It owns episode-return accumulation since no `Reporter` is
+//! - [`TuiEnvTap`] wraps a raw [`Environment`] for drivers that bypass the
+//!   suite (the evaluator's [`train`](crate::evaluator::train), future
+//!   evolutionary loops). It owns episode-return accumulation since no `Reporter` is
 //!   involved, feeding the live TUI's reward sparkline. The live TUI is
 //!   metrics-only (ADR-0013), so the tap no longer captures env frames.
 //!

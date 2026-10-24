@@ -109,6 +109,7 @@ fn coea_factory(seed: u64) -> CoEvolutionaryLoop<Coea> {
 fn coevolutionary_loop_runs_through_evaluator() {
     let cfg = EvaluatorConfig {
         num_episodes: 1,
+        train_steps: 0,
         num_trials_per_env: 2,
         max_steps: MAX_GENS,
         base_seed: 17,

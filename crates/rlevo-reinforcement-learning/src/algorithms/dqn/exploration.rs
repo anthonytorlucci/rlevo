@@ -47,12 +47,6 @@ impl EpsilonGreedy {
         self.epsilon
     }
 
-    /// Number of decay steps observed so far.
-    #[must_use]
-    pub fn step(&self) -> usize {
-        self.step
-    }
-
     /// Advances the schedule by one step, clamping at `epsilon_min`.
     pub fn decay(&mut self) {
         self.epsilon = (self.epsilon * self.epsilon_decay).max(self.epsilon_min);

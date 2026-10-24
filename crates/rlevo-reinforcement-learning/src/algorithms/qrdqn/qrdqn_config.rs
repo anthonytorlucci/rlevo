@@ -81,15 +81,15 @@ pub struct QrDqnTrainingConfig {
     /// Maximum number of transitions retained in the replay buffer.
     ///
     /// Must be non-zero and at most
-    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY). The ceiling is not
+    /// `MAX_BUFFER_CAPACITY`. The ceiling is not
     /// a taste judgement: a misconfigured value (a unit slip, a `usize::MAX`
     /// sentinel) either aborts on a failed allocation or wraps the `SumTree`'s
-    /// node arithmetic. Both bounds are checked by [`UniformReplayConfig`],
+    /// node arithmetic. Both bounds are checked by `UniformReplayConfig`,
     /// which `validate` delegates to, and which shares its ceiling with
     /// `PrioritizedReplayConfig` so toggling
     /// [`prioritized_replay`](Self::prioritized_replay) cannot move the
     /// accept/reject boundary. See
-    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY) for why `$2^{32}$`
+    /// `MAX_BUFFER_CAPACITY` for why `$2^{32}$`
     /// is the bound.
     pub replay_buffer_capacity: usize,
 

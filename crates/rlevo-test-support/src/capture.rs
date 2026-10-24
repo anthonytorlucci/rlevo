@@ -1,14 +1,12 @@
 //! `tracing` event capture for tests that assert on *logging behaviour*.
 //!
 //! Most assertions in this workspace are about values an algorithm returns.
-//! A few are about what it **emits**: a training loop's periodic progress line
-//! is a documented part of its contract (`log_every`), and a loop can satisfy
+//! A few are about what it **emits**: an agent's per-update progress line is
+//! part of its contract, read by the live dashboard, and an agent can satisfy
 //! every numeric assertion while silently logging nothing at all. That is not
-//! hypothetical — this is exactly the failure PPO/PPG once had: gating progress
-//! on `global_step % log_every == 0` at a rollout boundary, so any `log_every`
-//! that did not divide `num_steps` fired on `lcm(num_steps, log_every)` and a
-//! short run emitted zero lines. Nothing panicked, no metric moved, and every
-//! existing test passed, because every call site passed `log_every = 0`.
+//! hypothetical: PPO and PPG once gated their progress line on a divisibility
+//! test that a short run never passed, and nothing panicked, no metric moved,
+//! and every existing test passed.
 //!
 //! [`FieldCapture`] closes that class of gap: install it around a run, then
 //! assert on the field values the run actually emitted.
@@ -58,16 +56,16 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 /// assert_eq!(capture.values(), vec![128, 256]);
 /// ```
 ///
-/// Asserting that a training loop logs at all, and that its final line reports
-/// the terminal step:
+/// Asserting that a PPO agent logs its updates, and that the last one reports
+/// the step it ran at (a budget that is a whole number of rollouts):
 ///
 /// ```ignore
 /// let capture = FieldCapture::new("step");
 /// capture.record(|| {
-///     train_discrete(&mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY).expect("training");
+///     train(&mut env, &mut agent, TOTAL, usize::MAX, &mut rng).expect("training");
 /// });
 /// let steps = capture.values();
-/// assert!(!steps.is_empty(), "the run must emit at least one progress line");
+/// assert!(!steps.is_empty(), "the run must log at least one update");
 /// assert_eq!(steps.last().copied(), Some(TOTAL as u64));
 /// ```
 #[derive(Debug, Clone)]

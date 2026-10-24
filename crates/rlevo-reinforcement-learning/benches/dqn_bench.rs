@@ -14,6 +14,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo_core::agent::Agent as _;
 use rlevo_core::environment::Environment;
 use rlevo_environments::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
@@ -44,7 +45,7 @@ fn build_agent() -> Agent {
 }
 
 fn bench_act(c: &mut Criterion) {
-    let agent = build_agent();
+    let mut agent = build_agent();
     let obs = CartPoleObservation {
         cart_pos: 0.0,
         cart_vel: 0.0,
@@ -72,12 +73,10 @@ fn bench_learn(c: &mut Criterion) {
         let action = agent.act(&obs, &mut rng);
         let next = env.step(action).expect("step");
         let r: f32 = (next.reward).into();
-        // `done` drives the episode reset; `terminated` is the Bellman
-        // bootstrap mask. CartPole truncates at its step cap, so these differ.
+        // `done` drives the episode reset; `remember` masks the Bellman
+        // bootstrap on the status, and only on termination. CartPole truncates at its step cap, so these differ.
         let done = next.status.is_done();
-        let terminated = next.status.is_terminated();
-        agent.remember(obs, &action, r, next.observation, terminated);
-        agent.on_env_step();
+        agent.remember(obs, &action, r, next.observation, next.status);
         snap = if done {
             env.reset().expect("reset")
         } else {

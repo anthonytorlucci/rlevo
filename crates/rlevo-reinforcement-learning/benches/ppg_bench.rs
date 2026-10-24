@@ -1,59 +1,119 @@
-//! Criterion micro-benchmarks for the PPG-specific building blocks.
+//! Micro benchmarks for one PPG rollout and its update, driven through
+//! `Agent`.
 //!
-//! PPG inherits all of PPO's hot paths (GAE, clipped surrogate, advantage
-//! normalisation) so those are covered by `ppo_bench`. What's left:
-//!
-//! - `policy_kl_categorical` — the distillation KL kernel called once per
-//!   aux-phase minibatch.
-//! - `aux_value_loss_path` — the aux-phase value-target MSE (same kernel as
-//!   PPO's unclipped value loss, benchmarked here at aux-phase-shaped sizes).
+//! Each iteration shows the agent `num_steps` transitions on a synthetic
+//! `CartPole` observation; the last one fills the rollout, so that call runs
+//! GAE, the policy phase and, its cadence being every update here, the
+//! auxiliary phase with its distillation KL. That is the per-rollout cost a training run pays
+//! (`cargo bench -p rlevo-reinforcement-learning --bench ppg_bench`).
 
-use burn::tensor::{Device, Tensor, TensorData};
+use burn::tensor::Device;
+
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use rlevo_reinforcement_learning::algorithms::ppg::losses::policy_kl_categorical;
-use rlevo_reinforcement_learning::algorithms::ppo::losses::unclipped_value_loss;
-use std::hint::black_box;
 
-fn bench_policy_kl_categorical(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ppg_policy_kl_categorical");
-    let device: Device = Device::flex();
-    for &(batch, num_actions) in &[(64_usize, 2_usize), (256, 2), (1024, 2), (256, 18)] {
-        let id = format!("batch{batch}_actions{num_actions}");
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+
+use rlevo_core::agent::{Agent, Transition};
+use rlevo_core::environment::EpisodeStatus;
+use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
+use rlevo_reinforcement_learning::algorithms::ppg::policies::{
+    PpgCategoricalPolicyHead, PpgCategoricalPolicyHeadConfig,
+};
+use rlevo_reinforcement_learning::algorithms::ppg::ppg_agent::PpgAgent;
+use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfig;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
+
+type CartPoleAgent = PpgAgent<PpgCategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2>;
+
+fn build_agent(num_steps: usize) -> CartPoleAgent {
+    let device = Device::flex();
+    let policy = PpgCategoricalPolicyHeadConfig {
+        obs_dim: 4,
+        hidden: 64,
+        num_actions: 2,
+    }
+    .try_init(&device)
+    .expect("valid head config");
+    let value = MlpValueConfig {
+        obs_dim: 4,
+        hidden: vec![64, 64],
+    }
+    .try_init(&device)
+    .expect("valid value network config");
+    // No annealing, so every timed rollout updates at the same rate.
+    let ppo = PpoTrainingConfig {
+        num_envs: 1,
+        num_steps,
+        num_minibatches: 4,
+        update_epochs: 4,
+        anneal_lr: false,
+        ..Default::default()
+    };
+    let config = PpgConfig {
+        ppo,
+        n_iteration: 1,
+        e_aux: 2,
+        beta_clone: 1.0,
+        aux_batch_size: 64,
+    };
+    PpgAgent::new(policy, value, config, device, 1).expect("valid config")
+}
+
+/// One rollout of a slowly moving synthetic observation, with an episode
+/// ending every 50 steps.
+// The step index is bounded by `num_steps`, at most 2 048 here, far below
+// f32's 2^24 exact-integer limit.
+#[allow(clippy::cast_precision_loss)]
+fn rollout(agent: &mut CartPoleAgent, num_steps: usize, rng: &mut StdRng) {
+    for i in 0..num_steps {
+        let x = (i as f32 * 0.01).sin();
+        let obs = CartPoleObservation {
+            cart_pos: x,
+            cart_vel: 0.0,
+            pole_angle: 0.01 * x,
+            pole_ang_vel: 0.0,
+        };
+        let next_obs = CartPoleObservation {
+            cart_pos: x + 0.01,
+            ..obs
+        };
+        let action: CartPoleAction = agent.act(&obs, rng);
+        let status = if (i + 1) % 50 == 0 {
+            EpisodeStatus::Terminated
+        } else {
+            EpisodeStatus::Running
+        };
+        agent.on_transition(
+            Transition {
+                obs: &obs,
+                action: &action,
+                reward: 1.0,
+                next_obs: &next_obs,
+                status,
+            },
+            rng,
+        );
+    }
+}
+
+fn bench_rollout_and_update(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ppg_rollout_and_update");
+    group.sample_size(10);
+    for &num_steps in &[128_usize, 512] {
+        let mut agent = build_agent(num_steps);
+        let mut rng = StdRng::seed_from_u64(0);
         group.bench_with_input(
-            BenchmarkId::from_parameter(&id),
-            &(batch, num_actions),
-            |b, &(n, a)| {
-                let old: Tensor<2> =
-                    Tensor::from_data(TensorData::new(vec![0.1_f32; n * a], vec![n, a]), &device);
-                let new: Tensor<2> =
-                    Tensor::from_data(TensorData::new(vec![0.0_f32; n * a], vec![n, a]), &device);
-                b.iter(|| {
-                    let out = policy_kl_categorical(black_box(old.clone()), black_box(new.clone()));
-                    black_box(out);
-                });
+            BenchmarkId::from_parameter(num_steps),
+            &num_steps,
+            |b, &n| {
+                b.iter(|| rollout(&mut agent, n, &mut rng));
             },
         );
     }
     group.finish();
 }
 
-fn bench_aux_value_loss(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ppg_aux_value_loss_mse");
-    let device: Device = Device::flex();
-    for &n in &[256_usize, 1024, 4096] {
-        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
-            let v: Tensor<1> =
-                Tensor::from_data(TensorData::new(vec![0.0_f32; n], vec![n]), &device);
-            let r: Tensor<1> =
-                Tensor::from_data(TensorData::new(vec![1.0_f32; n], vec![n]), &device);
-            b.iter(|| {
-                let out = unclipped_value_loss(black_box(v.clone()), black_box(r.clone()));
-                black_box(out);
-            });
-        });
-    }
-    group.finish();
-}
-
-criterion_group!(benches, bench_policy_kl_categorical, bench_aux_value_loss);
-criterion_main!(benches);
+criterion_group!(micro, bench_rollout_and_update);
+criterion_main!(micro);

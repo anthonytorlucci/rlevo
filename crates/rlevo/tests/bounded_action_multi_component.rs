@@ -37,7 +37,9 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
+use rlevo_core::agent::Agent;
 use rlevo_core::base::Action;
+use rlevo_core::environment::EpisodeStatus;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
@@ -228,17 +230,17 @@ fn bounds_are_keyed_on_components_not_rank() {
 #[test]
 fn warmup_sample_produces_all_components_within_bounds() {
     let _guard = flex_guard();
-    let agent = build_agent(1_000);
+    let mut agent = build_agent(1_000);
     let mut rng = StdRng::seed_from_u64(0x00C0_FFEE);
 
     for _ in 0..32 {
-        let action = agent.act(&LinearObservation { x: 0.25 }, true, &mut rng);
+        let action = agent.act(&LinearObservation { x: 0.25 }, &mut rng);
         assert_within_per_component_bounds(&action);
     }
 }
 
-/// Greedy/eval path: `act(.., training = false)` clips the actor output per
-/// component.
+/// Greedy/eval path: `act` after `set_training(false)` clips the actor output
+/// per component.
 ///
 /// The actor emits `$\tanh(\cdot) \in [-1, 1]$` on all three outputs, so the `gas` and
 /// `brake` components are genuinely out of *their* bounds before clipping —
@@ -250,10 +252,11 @@ fn warmup_sample_produces_all_components_within_bounds() {
 #[test]
 fn greedy_action_clips_each_component_against_its_own_bound() {
     let _guard = flex_guard();
-    let agent = build_agent(0);
+    let mut agent = build_agent(0);
     let mut rng = StdRng::seed_from_u64(7);
 
-    let action = agent.act(&LinearObservation { x: -0.5 }, false, &mut rng);
+    agent.set_training(false);
+    let action = agent.act(&LinearObservation { x: -0.5 }, &mut rng);
     assert_within_per_component_bounds(&action);
     assert!(
         action.is_valid(),
@@ -278,11 +281,11 @@ fn greedy_action_clips_each_component_against_its_own_bound() {
 #[test]
 fn noisy_action_stays_within_per_component_bounds() {
     let _guard = flex_guard();
-    let agent = build_agent(0);
+    let mut agent = build_agent(0);
     let mut rng = StdRng::seed_from_u64(99);
 
     for _ in 0..32 {
-        let action = agent.act(&LinearObservation { x: 1.0 }, true, &mut rng);
+        let action = agent.act(&LinearObservation { x: 1.0 }, &mut rng);
         assert_within_per_component_bounds(&action);
     }
 }
@@ -383,11 +386,11 @@ fn build_sac_agent(learning_starts: usize, gain: f32) -> CarSacAgent {
 #[test]
 fn sac_warmup_sample_produces_all_components_within_bounds() {
     let _guard = flex_guard();
-    let agent = build_sac_agent(1_000, 10.0);
+    let mut agent = build_sac_agent(1_000, 10.0);
     let mut rng = StdRng::seed_from_u64(0x5AC0_0001);
 
     for _ in 0..32 {
-        let action = agent.act(&LinearObservation { x: 0.25 }, true, &mut rng);
+        let action = agent.act(&LinearObservation { x: 0.25 }, &mut rng);
         assert_within_per_component_bounds(&action);
     }
 }
@@ -403,11 +406,12 @@ fn sac_warmup_sample_produces_all_components_within_bounds() {
 #[test]
 fn sac_policy_action_clamps_each_component_against_its_own_bound() {
     let _guard = flex_guard();
-    let agent = build_sac_agent(0, 10.0);
+    let mut agent = build_sac_agent(0, 10.0);
     let mut rng = StdRng::seed_from_u64(0x5AC0_0002);
 
-    // `training = false` `$\Rightarrow \epsilon = 0 \Rightarrow$` the deterministic squashed mean.
-    let action = agent.act(&LinearObservation { x: -1.0 }, false, &mut rng);
+    // Evaluating `$\Rightarrow \epsilon = 0 \Rightarrow$` the deterministic squashed mean.
+    agent.set_training(false);
+    let action = agent.act(&LinearObservation { x: -1.0 }, &mut rng);
     assert_within_per_component_bounds(&action);
     let values = action.as_slice();
     for (i, want) in [-1.0_f32, 0.0, 0.0].iter().enumerate() {
@@ -420,8 +424,9 @@ fn sac_policy_action_clamps_each_component_against_its_own_bound() {
     }
 
     // The noisy branch takes the same clamp.
+    agent.set_training(true);
     for _ in 0..16 {
-        let noisy = agent.act(&LinearObservation { x: -1.0 }, true, &mut rng);
+        let noisy = agent.act(&LinearObservation { x: -1.0 }, &mut rng);
         assert_within_per_component_bounds(&noisy);
     }
 }
@@ -547,7 +552,7 @@ fn target_actions_after_one_learn_step(next_obs_x: f32) -> Vec<Vec<f32>> {
             &CarLikeAction([0.0, 0.5, 0.5]),
             1.0,
             LinearObservation { x: next_obs_x },
-            false,
+            EpisodeStatus::Running,
         );
     }
     agent

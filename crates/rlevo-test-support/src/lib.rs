@@ -28,8 +28,8 @@
 //! - [`mod@assert`] — reward-finiteness, baseline, and reproducibility assertions
 //!   that standardise the per-algorithm acceptance checks.
 //! - [`capture`] — [`FieldCapture`](capture::FieldCapture), for tests that
-//!   assert on the `tracing` events a training loop emits rather than on the
-//!   values it returns.
+//!   assert on the `tracing` events an agent emits rather than on the values
+//!   it returns.
 
 pub mod assert;
 pub mod baseline;
@@ -47,8 +47,35 @@ mod macros;
 /// `rewards` (the per-episode reward column) feeds the sequence-equal check.
 #[derive(Debug, Clone)]
 pub struct TrainOutcome {
-    /// The agent's moving-average score at the end of the run.
+    /// The mean return of the run's last [`TrainOutcome::WINDOW`] episodes.
     pub avg_score: f32,
-    /// Per-episode rewards from the agent's recent history.
+    /// The returns of those episodes, oldest first.
     pub rewards: Vec<f32>,
+}
+
+impl TrainOutcome {
+    /// How many of the run's last episodes the outcome averages.
+    pub const WINDOW: usize = 100;
+
+    /// The outcome of a run whose completed episodes returned `returns`, in
+    /// order: the harness's `train` hands back one summary per episode, and a
+    /// test passes their `return_value`s. With no episode, `avg_score` is `0.0`.
+    #[must_use]
+    // Episode counts are bounded by a test's step budget, far below f32's
+    // 2^24 exact-integer limit, and a return narrows to the f32 the agents
+    // sum their rewards in.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    pub fn from_returns(returns: impl IntoIterator<Item = f64>) -> Self {
+        let all: Vec<f32> = returns.into_iter().map(|r| r as f32).collect();
+        let recent = all[all.len().saturating_sub(Self::WINDOW)..].to_vec();
+        let avg_score = if recent.is_empty() {
+            0.0
+        } else {
+            recent.iter().sum::<f32>() / recent.len() as f32
+        };
+        Self {
+            avg_score,
+            rewards: recent,
+        }
+    }
 }

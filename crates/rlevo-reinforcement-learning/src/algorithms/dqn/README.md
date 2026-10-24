@@ -7,7 +7,7 @@ surface and example scaffolding introduced here.
 
 ## Modules
 
-- [`dqn_agent`](dqn_agent.rs) — `DqnAgent`, `DqnMetrics`, `DqnAgentError`.
+- [`dqn_agent`](dqn_agent.rs) — `DqnAgent` and its `Agent` impl.
 - [`dqn_config`](dqn_config.rs) — `DqnTrainingConfig`, with all
   hyperparameters (batch size, $\gamma$, $\tau$, $\epsilon$ schedule, `learning_starts`,
   `train_frequency`, `double_q`, replay capacity, grad clip).
@@ -15,7 +15,6 @@ surface and example scaffolding introduced here.
   Q-values, or at output rank 3 to a distribution per action, which is what
   C51 and QR-DQN take.
 - [`exploration`](exploration.rs) — multiplicative $\epsilon$-greedy schedule.
-- [`train`](train.rs) — end-to-end collect-learn-sync loop.
 
 ## Implementing `DqnModel`
 

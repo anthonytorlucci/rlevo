@@ -52,9 +52,9 @@
 //! computation via [`compute_target_q_values`], Huber loss, `backward()`,
 //! `GradientsParams::from_grads`, `ModuleOptimizer::step`, and the Polyak
 //! soft update via [`polyak_update`] -- matches `dqn_agent.rs::learn_step`
-//! line for line, using the same public helpers
-//! (`rlevo_reinforcement_learning::utils::{compute_target_q_values,
-//! polyak_update}`) production code calls.
+//! line for line. The two helpers are crate-private, so this file carries
+//! copies of them: the same arithmetic, without `polyak_update`'s
+//! parameter-id checks, which cannot fire on a target cloned from its policy.
 //!
 //! # Sync correctness -- three points, addressed explicitly
 //!
@@ -124,10 +124,11 @@
 #[path = "support/bench_backend.rs"]
 mod bench_backend;
 
+use std::collections::HashMap;
 use std::hint::black_box;
 
 use burn::grad_clipping::GradientClippingConfig;
-use burn::module::Module;
+use burn::module::{Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::nn::loss::HuberLossConfig;
 use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
@@ -147,9 +148,64 @@ use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObserv
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
     DqnModel, MlpQNetwork, MlpQNetworkConfig,
 };
-use rlevo_reinforcement_learning::utils::{compute_target_q_values, polyak_update};
 
 use bench_backend::BenchDevice;
+
+/// The crate's `compute_target_q_values`: `r + gamma * max_a' Q(s', a')`, the
+/// bootstrap dropped on a terminal step.
+fn compute_target_q_values(
+    rewards: Tensor<1>,
+    next_q_max: Tensor<1>,
+    terminated: Tensor<1>,
+    gamma: f32,
+) -> Tensor<1> {
+    let is_terminal = terminated.equal_elem(1.0);
+    let bootstrap = next_q_max.mul_scalar(gamma).mask_fill(is_terminal, 0.0);
+    rewards + bootstrap
+}
+
+/// Collects each active parameter, flattened, on its device and off the graph.
+struct ParamCollector(HashMap<ParamId, Tensor<1>>);
+
+impl ModuleVisitor for ParamCollector {
+    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<D>>) {
+        self.0.insert(
+            param.id,
+            param.val().without_autodiff().flatten::<1>(0, D - 1),
+        );
+    }
+}
+
+/// Blends each target parameter toward the active parameter of the same id.
+struct PolyakMapper {
+    active: HashMap<ParamId, Tensor<1>>,
+    tau: f32,
+}
+
+impl ModuleMapper for PolyakMapper {
+    fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
+        let active = self
+            .active
+            .get(&param.id)
+            .cloned()
+            .expect("bench target is cloned from its policy");
+        let tau = self.tau;
+        param.map(move |target_tensor| {
+            let active_tensor: Tensor<D> = active.reshape(target_tensor.dims());
+            target_tensor.without_autodiff().mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
+        })
+    }
+}
+
+/// The crate's `polyak_update`: `target <- (1 - tau) * target + tau * active`.
+fn polyak_update<M: Module>(active: &M, target: M, tau: f32) -> M {
+    let mut collector = ParamCollector(HashMap::new());
+    active.visit(&mut collector);
+    target.map(&mut PolyakMapper {
+        active: collector.0,
+        tau,
+    })
+}
 
 /// Batch sizes swept per (network, backend) combination. 64 matches
 /// `dqn_bench.rs`'s `dqn_learn_step_batch64`; 256 is added to check whether
@@ -514,8 +570,7 @@ where
     let policy = optimizer.step(LR, policy, grads);
 
     if TAU > 0.0 {
-        target = polyak_update(&policy.valid(), target, TAU)
-            .expect("bench target is cloned from policy");
+        target = polyak_update(&policy.valid(), target, TAU);
     }
 
     // Forced completion probe -- see module doc "Sync correctness" point 2.

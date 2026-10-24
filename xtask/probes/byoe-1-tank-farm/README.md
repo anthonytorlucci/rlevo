@@ -49,7 +49,7 @@ BYOE-STEP 1 PASS scaffold :: probe created at <run>/probe (outside the workspace
 BYOE-STEP 2 PASS add-deps :: rlevo alone is sufficient
 BYOE-STEP 3 PASS implement-environment :: Environment implemented against public API only; the file names nothing outside rlevo::core
 BYOE-STEP 4 PASS post-terminal :: an invalid command returns InvalidAction and changes nothing; a step after the end returns StepAfterEpisodeEnd carrying Terminated after an overflow (step 8) and Truncated after the time limit (step 60); guard from rlevo::core
-BYOE-STEP 5 PASS implement-agent :: the policy implements BenchableAgent with act alone
+BYOE-STEP 5 PASS implement-agent :: the policy implements Agent with act alone
 BYOE-STEP 6 PASS run-suite :: 2 trials, none errored, 3 episodes of 60 steps each, ended by TimeLimit; return/mean -1.467 and -2.893
 BYOE-1/tank-farm passes.
 ```

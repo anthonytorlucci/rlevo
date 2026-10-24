@@ -36,6 +36,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::environment::Environment;
 
@@ -46,24 +47,20 @@ use rlevo_environments::wrappers::TimeLimit;
 
 use rlevo_reinforcement_learning::algorithms::c51::c51_agent::C51Agent;
 use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig;
-use rlevo_reinforcement_learning::algorithms::c51::train::train as train_c51;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
     MlpDistributionalQ, MlpDistributionalQConfig, MlpQNetwork, MlpQNetworkConfig,
 };
-use rlevo_reinforcement_learning::algorithms::dqn::train::train as train_dqn;
 use rlevo_reinforcement_learning::algorithms::ppg::policies::{
     PpgCategoricalPolicyHead, PpgCategoricalPolicyHeadConfig,
 };
 use rlevo_reinforcement_learning::algorithms::ppg::ppg_agent::PpgAgent;
 use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfig;
-use rlevo_reinforcement_learning::algorithms::ppg::train::train_discrete as train_ppg;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
-use rlevo_reinforcement_learning::algorithms::qrdqn::train::train as train_qrdqn;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
 const SEED: u64 = 2026;
@@ -136,7 +133,7 @@ fn train_dqn_agent() -> DqnAcrobotAgent {
     .try_init(&device)
     .expect("valid Q-network config");
     let mut agent: DqnAcrobotAgent = DqnAgent::new(model, config, device).expect("valid config");
-    train_dqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training");
+    train(&mut env, &mut agent, TRAIN_TIMESTEPS, usize::MAX, &mut rng).expect("dqn training");
     agent
 }
 
@@ -170,7 +167,7 @@ fn train_c51_agent() -> C51AcrobotAgent {
     .try_init(&device)
     .expect("valid C51 network config");
     let mut agent: C51AcrobotAgent = C51Agent::new(model, config, device).expect("valid config");
-    train_c51(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("c51 training");
+    train(&mut env, &mut agent, TRAIN_TIMESTEPS, usize::MAX, &mut rng).expect("c51 training");
     agent
 }
 
@@ -204,7 +201,7 @@ fn train_qrdqn_agent() -> QrDqnAcrobotAgent {
     .expect("valid QR-DQN network config");
     let mut agent: QrDqnAcrobotAgent =
         QrDqnAgent::new(model, config, device).expect("valid config");
-    train_qrdqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("qrdqn training");
+    train(&mut env, &mut agent, TRAIN_TIMESTEPS, usize::MAX, &mut rng).expect("qrdqn training");
     agent
 }
 
@@ -248,14 +245,7 @@ fn train_ppg_agent() -> PpgAcrobotAgent {
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpgAcrobotAgent =
         PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config");
-    train_ppg::<_, _, _, _, AcrobotAction, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        TRAIN_TIMESTEPS,
-        0,
-    )
-    .expect("ppg training");
+    train(&mut env, &mut agent, TRAIN_TIMESTEPS, usize::MAX, &mut rng).expect("ppg training");
     agent
 }
 

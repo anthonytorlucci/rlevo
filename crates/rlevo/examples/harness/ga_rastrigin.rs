@@ -202,6 +202,7 @@ fn main() {
 
     let cfg = EvaluatorConfig {
         num_episodes: 1,
+        train_steps: 0,
         num_trials_per_env: 3,
         max_steps: MAX_GENS,
         base_seed: 7,

@@ -17,7 +17,9 @@ use burn::tensor::Device;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
 use rlevo_core::action::ContinuousAction;
+use rlevo_core::agent::Agent;
 use rlevo_core::environment::Environment;
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
@@ -28,7 +30,6 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
 };
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
-use rlevo_reinforcement_learning::algorithms::td3::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
 use rlevo_test_support::assert::assert_improves_over_random;
@@ -104,14 +105,8 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut agent: LinearAgent =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<_, _, _, _, LinearAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
-        .expect("training");
-
-    let stats = agent.stats();
-    TrainOutcome {
-        avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
-    }
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
+    TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value))
 }
 
 /// Mean episode return of a uniform-random `U(-1, 1)` policy on the shared
@@ -199,19 +194,20 @@ fn td3_act_with_matches_deterministic_act() {
         policy_frequency: 2,
         ..Default::default()
     };
-    let agent: LinearAgent =
+    let mut agent: LinearAgent =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     let net = agent.inference_net();
     let mut rng = StdRng::seed_from_u64(seed);
+    // Evaluating `$\Rightarrow$` deterministic mean + bound clip; rng is unused.
+    agent.set_training(false);
     for &x in &[-0.9_f32, -0.3, 0.0, 0.25, 0.8] {
         let obs = LinearObservation { x };
-        // training=false `$\Rightarrow$` deterministic mean + bound clip; rng is unused.
-        let det = agent.act(&obs, false, &mut rng);
+        let det = agent.act(&obs, &mut rng);
         let greedy = agent.act_with(&net, &obs);
         let a = det.as_slice()[0];
         let b = greedy.as_slice()[0];
-        assert!((a - b).abs() < 1e-5, "x={x}: act(false)={a}, act_with={b}");
+        assert!((a - b).abs() < 1e-5, "x={x}: act={a}, act_with={b}");
     }
 }
 
@@ -244,23 +240,24 @@ fn td3_delayed_update_skips_actor_step() {
     let mut snap = env.reset().expect("reset");
     for _ in 0..64 {
         let obs = snap.observation;
-        let action = agent.act(&obs, true, &mut rng);
+        let action = agent.act(&obs, &mut rng);
         let next = env.step(action).expect("step");
         let reward: f32 = (next.reward).into();
-        // `done` drives the episode reset; `terminated` is the Bellman
-        // bootstrap mask. `LinearEnv` only ever truncates, so these differ.
+        // `done` drives the episode reset; `remember` masks the Bellman
+        // bootstrap on the status, and only on termination. `LinearEnv` only ever truncates, so these differ.
         let done = next.status.is_done();
-        let terminated = next.status.is_terminated();
         let next_obs = next.observation;
-        agent.remember(obs, &action, reward, next_obs, terminated);
-        agent.on_env_step();
+        agent.remember(obs, &action, reward, next_obs, next.status);
         snap = if done {
             env.reset().expect("reset")
         } else {
             next
         };
     }
-    assert!(agent.can_learn(), "agent should be past warm-up");
+    assert!(
+        agent.step() >= 32 && agent.buffer_len() >= 8,
+        "agent should be past warm-up"
+    );
 
     // Exactly 10 manual learn_steps → with policy_frequency=2 the actor
     // must fire on 5 of them.
@@ -321,10 +318,10 @@ fn td3_pendulum_improves_over_random() {
     let mut agent: Td3Agent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2> =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, 500_000, 0)
-        .expect("training");
+    let episodes = train(&mut env, &mut agent, 500_000, usize::MAX, &mut rng).expect("training");
 
-    let avg = agent.stats().avg_score().expect("non-empty history");
+    assert!(!episodes.is_empty(), "the run must complete an episode");
+    let avg = TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value)).avg_score;
     // TD3 should comfortably clear a uniform-random torque policy after 500k steps (it reaches
     // `$\approx -150..-300$` here). The wide 300-pt margin keeps the bar meaningful while absorbing
     // cross-platform float drift; the tighter -150 acceptance target stays aspirational.

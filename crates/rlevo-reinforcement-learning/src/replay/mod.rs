@@ -1,37 +1,41 @@
-//! The replay-strategy seam: how stored transitions are held, addressed, and
-//! drawn (ADR 0050).
+//! The replay buffers the off-policy agents store transitions in: how stored
+//! transitions are held, addressed, and drawn (ADR 0050).
+//!
+//! Only [`PrioritizedReplaySettings`], the config opt-in, is public; the
+//! buffers are crate-private (ADR 0095). What follows is their design, for
+//! contributors.
 //!
 //! # What this module owns
 //!
-//! - [`Transition<O, P>`] — the one stored item type, with the action payload
-//!   erased into a type parameter ([`DiscreteTransition`] /
-//!   [`ContinuousTransition`]).
-//! - [`ReplayStrategy<T>`] — the seam. It decides **which items come back**;
+//! - `Transition<O, P>` — the one stored item type, with the action payload
+//!   erased into a type parameter (`DiscreteTransition` /
+//!   `ContinuousTransition`).
+//! - `ReplayStrategy<T>` — the seam. It decides **which items come back**;
 //!   it never sees a `Tensor`, a `Backend`, or a device.
-//! - [`TransitionId`] / [`SampledBatch`] — the sample-identity handles that
+//! - `TransitionId` / `SampledBatch` — the sample-identity handles that
 //!   travel from `sample` to the staging code and (in a later step) back to a
 //!   priority writeback.
-//! - [`UniformReplay<T>`] — the FIFO, uniform-with-replacement implementation
+//! - `UniformReplay<T>` — the FIFO, uniform-with-replacement implementation
 //!   every shipped agent uses today. Built from a literal capacity with
-//!   [`UniformReplay::new`], or from a [`UniformReplayConfig`] — via
-//!   [`UniformReplay::from_config`] — whenever the capacity is runtime-derived
+//!   `UniformReplay::new`, or from a `UniformReplayConfig` — via
+//!   `UniformReplay::from_config` — whenever the capacity is runtime-derived
 //!   or deserialized.
-//! - [`PrioritizedReplay<T>`] — Schaul et al. (2016)'s proportional prioritized
+//! - `PrioritizedReplay<T>` — Schaul et al. (2016)'s proportional prioritized
 //!   replay: `$P(i) \propto p_i^\alpha$` over a sum-tree, Schaul's *stratified* draw (one
 //!   value per equal-mass segment, not i.i.d.), importance weights
 //!   max-normalized over the sampled minibatch, and the `update_priorities`
-//!   feedback edge. Its priorities are [`Priority`] values, finite and strictly
-//!   positive by construction, configured by [`PrioritizedReplayConfig`].
-//! - [`ImportanceExponent`] — the `$\beta$` passed to [`ReplayStrategy::sample`],
+//!   feedback edge. Its priorities are `Priority` values, finite and strictly
+//!   positive by construction, configured by `PrioritizedReplayConfig`.
+//! - `ImportanceExponent` — the `$\beta$` passed to `ReplayStrategy::sample`,
 //!   `finite && [0, 1]` by construction so a non-finite exponent cannot reach
 //!   `powf` and turn the importance weights — and then the loss, and then every
 //!   gradient — into `NaN` (ADR 0051 §3).
-//! - [`ReplayBufferError`] — the error domain for all of the above.
+//! - `ReplayBufferError` — the error domain for all of the above.
 //!
 //! # Choosing a strategy
 //!
-//! [`UniformReplay`] is the default and is what every agent uses today.
-//! [`PrioritizedReplay`] is opt-in and is intended for the **value-based**
+//! `UniformReplay` is the default and is what every agent uses today.
+//! `PrioritizedReplay` is opt-in and is intended for the **value-based**
 //! agents (DQN, C51, QR-DQN), where Rainbow's ablation puts prioritized replay
 //! among the two most crucial of seven components. It is deliberately *not* the
 //! default for DDPG/TD3/SAC: the continuous-control literature is
@@ -54,44 +58,12 @@
 //!
 //! # Seeding
 //!
-//! [`ReplayStrategy::sample`] takes `rng: &mut R` from the caller and holds no
+//! `ReplayStrategy::sample` takes `rng: &mut R` from the caller and holds no
 //! RNG of its own, matching every agent's
 //! `learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R)` signature and the
 //! host-RNG convention of ADR 0029. A buffer that reached for `rand::rng()`
 //! internally could never appear in a reproducibility test.
 //!
-//! # Examples
-//!
-//! ```
-//! use rand::SeedableRng;
-//! use rand::rngs::StdRng;
-//! use rlevo_reinforcement_learning::replay::{
-//!     DiscreteTransition, ImportanceExponent, ReplayStrategy, UniformReplay,
-//! };
-//!
-//! let mut buffer: UniformReplay<DiscreteTransition<f32>> = UniformReplay::new(4);
-//! for step in 0..6 {
-//!     buffer.push(DiscreteTransition {
-//!         obs: step as f32,
-//!         action: 0,
-//!         reward: 1.0,
-//!         next_obs: step as f32 + 1.0,
-//!         terminated: false,
-//!     });
-//! }
-//! // Capacity 4, six pushes: the two oldest transitions were evicted.
-//! assert_eq!(buffer.len(), 4);
-//!
-//! let mut rng = StdRng::seed_from_u64(7);
-//! let batch = buffer
-//!     .sample(4, ImportanceExponent::ONE, &mut rng)
-//!     .expect("four transitions stored");
-//! assert_eq!(batch.ids().len(), 4, "one id per requested draw");
-//! assert!(batch.weights().is_none(), "uniform emits no IS weights");
-//! for &id in batch.ids() {
-//!     assert!(buffer.get(id).is_some(), "a freshly drawn id always resolves");
-//! }
-//! ```
 
 mod config;
 mod error;
@@ -104,20 +76,15 @@ mod sum_tree;
 mod transition;
 mod uniform;
 
-pub use config::{
-    DEFAULT_PRIORITY_EPSILON, DEFAULT_PRIORITY_EXPONENT, PrioritizedReplayConfig,
-    UniformReplayConfig,
-};
-pub use error::ReplayBufferError;
-pub use importance_exponent::{ImportanceExponent, ImportanceExponentError};
-pub use kind::{KindIter, ReplayKind};
-pub use prioritized::PrioritizedReplay;
-pub use priority::{Priority, PriorityError};
-pub use settings::{
-    DEFAULT_BETA_ANNEAL_STEPS, DEFAULT_BETA_END, DEFAULT_BETA_START, PrioritizedReplaySettings,
-};
-pub use transition::{ContinuousTransition, DiscreteTransition, Transition};
-pub use uniform::UniformReplay;
+#[cfg(test)]
+pub(crate) use config::PrioritizedReplayConfig;
+pub(crate) use config::UniformReplayConfig;
+pub(crate) use error::ReplayBufferError;
+pub(crate) use importance_exponent::ImportanceExponent;
+pub(crate) use kind::ReplayKind;
+pub use settings::PrioritizedReplaySettings;
+pub(crate) use transition::{ContinuousTransition, DiscreteTransition};
+pub(crate) use uniform::UniformReplay;
 
 /// Absolute, monotone identifier of a stored transition.
 ///
@@ -136,7 +103,7 @@ pub use uniform::UniformReplay;
 /// counter makes that class of bug unrepresentable for the cost of one
 /// increment per insert.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct TransitionId(u64);
+pub(crate) struct TransitionId(u64);
 
 impl TransitionId {
     /// Constructs an id from an absolute insertion index.
@@ -167,7 +134,7 @@ impl TransitionId {
 ///
 /// [`Slot`]: crate::algorithms::Slot
 #[derive(Clone, Debug, PartialEq)]
-pub struct SampledBatch {
+pub(crate) struct SampledBatch {
     /// Drawn ids, in draw order.
     ids: Vec<TransitionId>,
     /// Per-id importance-sampling weights, or `None` for strategies that emit
@@ -214,12 +181,14 @@ impl SampledBatch {
         self.weights.as_deref()
     }
 
+    #[cfg(test)]
     /// Number of transitions drawn.
     #[must_use]
     pub fn len(&self) -> usize {
         self.ids.len()
     }
 
+    #[cfg(test)]
     /// `true` when no transitions were drawn.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -250,40 +219,18 @@ impl SampledBatch {
 ///
 /// See the [module documentation](self) for an end-to-end
 /// push / sample / resolve cycle against [`UniformReplay`].
-pub trait ReplayStrategy<T> {
+pub(crate) trait ReplayStrategy<T> {
     /// Stores `item`, evicting as needed to stay within capacity.
     fn push(&mut self, item: T);
 
     /// Number of transitions currently stored.
     fn len(&self) -> usize;
 
-    /// `true` when no transitions are stored.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     /// Resolves an id to the transition it names.
     ///
     /// Returns `None` if the id has been evicted or was never issued by this
     /// buffer.
     fn get(&self, id: TransitionId) -> Option<&T>;
-
-    /// Mutable counterpart of [`get`](Self::get), for post-insertion mutation.
-    ///
-    /// Prioritized replay's priority writeback and any future in-place
-    /// relabeling are instances of this one capability, which is why the seam
-    /// carries it from day one rather than growing it later as a breaking
-    /// change.
-    fn get_mut(&mut self, id: TransitionId) -> Option<&mut T>;
-
-    /// Iterates the stored transitions, oldest first.
-    ///
-    /// The explicit `'a` and `T: 'a` are what let the returned opaque iterator
-    /// borrow from `self`; RPITIT cannot infer the relationship between the
-    /// receiver's lifetime and the item type on its own.
-    fn iter<'a>(&'a self) -> impl Iterator<Item = &'a T>
-    where
-        T: 'a;
 
     /// Draws `batch_size` transition ids.
     ///

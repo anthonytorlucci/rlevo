@@ -35,31 +35,6 @@
 //! where every positive priority maps to `1.0` — would make a zero-priority transition the sole
 //! exception to "`$\alpha$` = 0 is uniform".
 //!
-//! # Examples
-//!
-//! ```
-//! use rlevo_reinforcement_learning::replay::Priority;
-//!
-//! // `new` is for compile-time-known literals and panics on a bad one.
-//! assert_eq!(Priority::new(1.0).get(), 1.0);
-//!
-//! // `try_new` is for runtime values — including TD errors off a network.
-//! assert!(Priority::try_new(1e-6).is_ok());
-//! assert!(Priority::try_new(0.0).is_err()); // zero starves
-//! assert!(Priority::try_new(-1.0).is_err()); // negative breaks the CDF scan
-//! assert!(Priority::try_new(f32::NAN).is_err()); // the pinned-at-zero defect
-//! assert!(Priority::try_new(f32::INFINITY).is_err()); // poisons the total
-//!
-//! // `from_td_error` applies Schaul's `p_i = |delta_i| + epsilon`.
-//! let p = Priority::from_td_error(-0.25, 1e-6).unwrap();
-//! assert!((p.get() - 0.250_001).abs() < 1e-6);
-//!
-//! // A converged transition keeps a positive priority, so it is still revisited.
-//! assert_eq!(Priority::from_td_error(0.0, 1e-6).unwrap().get(), 1e-6);
-//!
-//! // A `NaN` TD error is rejected at the boundary, not stored.
-//! assert!(Priority::from_td_error(f32::NAN, 1e-6).is_err());
-//! ```
 
 use serde::{Deserialize, Serialize};
 

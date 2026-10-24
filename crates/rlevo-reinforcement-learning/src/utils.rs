@@ -139,7 +139,7 @@ pub fn compute_target_quantiles(
 // Polyak averaging
 // ---------------------------------------------------------------------------
 
-/// Error returned by [`polyak_update`] when the `active` and `target` networks
+/// Error returned by `polyak_update` when the `active` and `target` networks
 /// have mismatched [`ParamId`] topologies.
 ///
 /// Both variants signal that `target` was not derived from `active` (a fresh

@@ -75,6 +75,7 @@ impl<T> std::fmt::Debug for ReplayKind<T> {
 }
 
 impl<T> ReplayKind<T> {
+    #[cfg(test)]
     /// Builds a uniform buffer holding at most `capacity` transitions, from a
     /// **compile-time-known** value.
     ///
@@ -195,6 +196,7 @@ impl<T> ReplayKind<T> {
     }
 }
 
+#[cfg(test)]
 /// Iterator over the stored transitions of either [`ReplayKind`] variant.
 ///
 /// [`ReplayStrategy::iter`] is RPITIT, so a `match` cannot delegate it directly —
@@ -209,6 +211,7 @@ pub enum KindIter<A, B> {
     Prioritized(B),
 }
 
+#[cfg(test)]
 impl<A, B, I> Iterator for KindIter<A, B>
 where
     A: Iterator<Item = I>,
@@ -246,34 +249,10 @@ impl<T> ReplayStrategy<T> for ReplayKind<T> {
         }
     }
 
-    fn is_empty(&self) -> bool {
-        match self {
-            Self::Uniform(u) => u.is_empty(),
-            Self::Prioritized(p) => p.is_empty(),
-        }
-    }
-
     fn get(&self, id: TransitionId) -> Option<&T> {
         match self {
             Self::Uniform(u) => u.get(id),
             Self::Prioritized(p) => p.get(id),
-        }
-    }
-
-    fn get_mut(&mut self, id: TransitionId) -> Option<&mut T> {
-        match self {
-            Self::Uniform(u) => u.get_mut(id),
-            Self::Prioritized(p) => p.get_mut(id),
-        }
-    }
-
-    fn iter<'a>(&'a self) -> impl Iterator<Item = &'a T>
-    where
-        T: 'a,
-    {
-        match self {
-            Self::Uniform(u) => KindIter::Uniform(u.iter()),
-            Self::Prioritized(p) => KindIter::Prioritized(p.iter()),
         }
     }
 
@@ -291,6 +270,20 @@ impl<T> ReplayStrategy<T> for ReplayKind<T> {
 }
 
 #[cfg(test)]
+impl<T> ReplayKind<T> {
+    /// Iterates the stored transitions, oldest first.
+    pub(crate) fn iter<'a>(&'a self) -> impl Iterator<Item = &'a T>
+    where
+        T: 'a,
+    {
+        match self {
+            Self::Uniform(u) => KindIter::Uniform(u.iter()),
+            Self::Prioritized(p) => KindIter::Prioritized(p.iter()),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::ReplayKind;
     use crate::MAX_BUFFER_CAPACITY;
@@ -300,6 +293,7 @@ mod tests {
     };
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rlevo_core::environment::EpisodeStatus;
 
     fn transition(label: f32) -> DiscreteTransition<f32> {
         DiscreteTransition {
@@ -307,7 +301,7 @@ mod tests {
             action: 0,
             reward: 1.0,
             next_obs: label + 1.0,
-            terminated: false,
+            status: EpisodeStatus::Running,
         }
     }
 

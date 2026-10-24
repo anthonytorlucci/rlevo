@@ -1,9 +1,9 @@
 //! Smoke tests for the evaluator run loop (suite → trial → report path).
 
 use rand::Rng;
+use rlevo_core::agent::Agent;
 use rlevo_core::base::{Action, Observation};
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
-use rlevo_core::fitness::BenchableAgent;
 use rlevo_core::reward::ScalarReward;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_harness::reporter::logging::LoggingReporter;
@@ -77,7 +77,7 @@ struct ConstAgent {
     value: f64,
 }
 
-impl BenchableAgent<ToyObs, ToyAction> for ConstAgent {
+impl Agent<ToyObs, ToyAction> for ConstAgent {
     fn act(&mut self, _obs: &ToyObs, _rng: &mut dyn Rng) -> ToyAction {
         ToyAction(self.value)
     }
@@ -88,6 +88,7 @@ impl BenchableAgent<ToyObs, ToyAction> for ConstAgent {
 fn basic_cfg() -> EvaluatorConfig {
     EvaluatorConfig {
         num_episodes: 4,
+        train_steps: 0,
         num_trials_per_env: 2,
         max_steps: 10,
         base_seed: 123,
@@ -151,7 +152,7 @@ fn determinism_same_seed_same_metrics() {
 #[derive(Debug)]
 struct PanicAgent;
 
-impl BenchableAgent<ToyObs, ToyAction> for PanicAgent {
+impl Agent<ToyObs, ToyAction> for PanicAgent {
     fn act(&mut self, _obs: &ToyObs, _rng: &mut dyn Rng) -> ToyAction {
         panic!("intentional");
     }

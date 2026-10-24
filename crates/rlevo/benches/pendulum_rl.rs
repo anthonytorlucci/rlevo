@@ -33,6 +33,8 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
+use rlevo_core::agent::Agent as _;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::environment::Environment;
 
@@ -44,23 +46,19 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingCon
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
     MlpActor, MlpActorConfig, MlpCritic, MlpCriticConfig,
 };
-use rlevo_reinforcement_learning::algorithms::ddpg::train::train as train_ddpg;
 use rlevo_reinforcement_learning::algorithms::ppo::policies::{
     TanhGaussianPolicyHead, TanhGaussianPolicyHeadConfig,
 };
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
-use rlevo_reinforcement_learning::algorithms::ppo::train::train_continuous as train_ppo;
 use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
 use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::sac::sac_policy::{
     SquashedGaussianPolicyHead, SquashedGaussianPolicyHeadConfig,
 };
-use rlevo_reinforcement_learning::algorithms::sac::train::train as train_sac;
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
-use rlevo_reinforcement_learning::algorithms::td3::train::train as train_td3;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
 const SEED: u64 = 2026;
@@ -145,14 +143,7 @@ fn train_ppo_agent() -> PpoAgent_ {
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpoAgent_ =
         PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config");
-    train_ppo::<_, _, _, _, PendulumAction, 1, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        TRAIN_TIMESTEPS,
-        0,
-    )
-    .expect("ppo training");
+    train(&mut env, &mut agent, TRAIN_TIMESTEPS, usize::MAX, &mut rng).expect("ppo training");
     agent
 }
 
@@ -190,14 +181,7 @@ fn train_ddpg_agent() -> DdpgAgent_ {
     };
     let mut agent: DdpgAgent_ =
         DdpgAgent::new(actor, critic, config, device).expect("valid config");
-    train_ddpg::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        TRAIN_TIMESTEPS,
-        0,
-    )
-    .expect("ddpg training");
+    train(&mut env, &mut agent, TRAIN_TIMESTEPS, usize::MAX, &mut rng).expect("ddpg training");
     agent
 }
 
@@ -244,14 +228,7 @@ fn train_td3_agent() -> Td3Agent_ {
     };
     let mut agent: Td3Agent_ =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
-    train_td3::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        TRAIN_TIMESTEPS,
-        0,
-    )
-    .expect("td3 training");
+    train(&mut env, &mut agent, TRAIN_TIMESTEPS, usize::MAX, &mut rng).expect("td3 training");
     agent
 }
 
@@ -300,14 +277,7 @@ fn train_sac_agent() -> SacAgent_ {
     };
     let mut agent: SacAgent_ =
         SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
-    train_sac::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        TRAIN_TIMESTEPS,
-        0,
-    )
-    .expect("sac training");
+    train(&mut env, &mut agent, TRAIN_TIMESTEPS, usize::MAX, &mut rng).expect("sac training");
     agent
 }
 
@@ -379,7 +349,12 @@ fn random_action(rng: &mut StdRng) -> PendulumAction {
     PendulumAction::new(torque).expect("valid random torque")
 }
 
-fn print_quality_comparison(ppo: &PpoAgent_, ddpg: &DdpgAgent_, td3: &Td3Agent_, sac: &SacAgent_) {
+fn print_quality_comparison(
+    ppo: &PpoAgent_,
+    ddpg: &DdpgAgent_,
+    td3: &Td3Agent_,
+    sac: &mut SacAgent_,
+) {
     let mut rng = StdRng::seed_from_u64(SEED);
     let rand_ret = evaluate(|_| random_action(&mut rng));
 
@@ -388,8 +363,8 @@ fn print_quality_comparison(ppo: &PpoAgent_, ddpg: &DdpgAgent_, td3: &Td3Agent_,
     // samples from the stochastic policy — that injects exploration noise into
     // the score; the deterministic mean is the policy we actually want to
     // measure. The value-based actors run far cheaper on the plain device,
-    // skipping the per-step autodiff graph. SAC's `act(_, false, _)` already
-    // runs deterministically on its own plain-device snapshot, so it stays as-is.
+    // skipping the per-step autodiff graph. SAC, evaluating, acts on its
+    // policy's mean.
     let ppo_infer = ppo.inference_net();
     let ppo_ret = evaluate(|obs| {
         let row = ppo.act_greedy_env_row_with(&ppo_infer, obs);
@@ -403,7 +378,7 @@ fn print_quality_comparison(ppo: &PpoAgent_, ddpg: &DdpgAgent_, td3: &Td3Agent_,
     let td3_ret = evaluate(|obs| td3.act_with(&td3_infer, obs));
 
     let mut r = StdRng::seed_from_u64(SEED.wrapping_add(4));
-    let sac_ret = evaluate(|obs| sac.act(obs, false, &mut r));
+    let sac_ret = evaluate(|obs| sac.act(obs, &mut r));
 
     println!();
     println!(
@@ -427,7 +402,7 @@ fn bench_policies(
     ppo: &PpoAgent_,
     ddpg: &DdpgAgent_,
     td3: &Td3Agent_,
-    sac: &SacAgent_,
+    sac: &mut SacAgent_,
 ) {
     // Snapshot each actor onto the plain (non-autodiff) device once; per-step
     // inference then skips autodiff-graph construction entirely, the dominant
@@ -478,7 +453,7 @@ fn bench_policies(
     group.bench_with_input(BenchmarkId::new("sac", steps), &steps, |b, &steps| {
         b.iter(|| {
             let mut rng = StdRng::seed_from_u64(SEED);
-            rollout_steps(black_box(steps), |obs| sac.act(obs, false, &mut rng));
+            rollout_steps(black_box(steps), |obs| sac.act(obs, &mut rng));
         });
     });
 
@@ -510,11 +485,14 @@ fn main() {
     let ppo = train_ppo_agent();
     let ddpg = train_ddpg_agent();
     let td3 = train_td3_agent();
-    let sac = train_sac_agent();
+    // SAC has no plain-device snapshot: it is evaluated through `Agent`, on
+    // its policy's mean.
+    let mut sac = train_sac_agent();
+    sac.set_training(false);
 
-    print_quality_comparison(&ppo, &ddpg, &td3, &sac);
+    print_quality_comparison(&ppo, &ddpg, &td3, &mut sac);
 
     let mut criterion = Criterion::default().configure_from_args();
-    bench_policies(&mut criterion, &ppo, &ddpg, &td3, &sac);
+    bench_policies(&mut criterion, &ppo, &ddpg, &td3, &mut sac);
     criterion.final_summary();
 }

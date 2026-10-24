@@ -127,6 +127,7 @@ fn de_factory(seed: u64) -> EvolutionaryLoop<DifferentialEvolution, FromLandscap
 fn cfg() -> EvaluatorConfig {
     EvaluatorConfig {
         num_episodes: 1,
+        train_steps: 0,
         num_trials_per_env: 2,
         max_steps: MAX_GENS,
         base_seed: 17,

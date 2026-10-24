@@ -18,21 +18,6 @@
 /// The enum is `#[non_exhaustive]`: downstream `match` expressions must carry a
 /// wildcard arm, so a future variant is not a breaking change.
 ///
-/// # Examples
-///
-/// ```
-/// use rlevo_reinforcement_learning::replay::ReplayBufferError;
-///
-/// let err = ReplayBufferError::InsufficientData {
-///     requested: 64,
-///     available: 8,
-/// };
-/// assert_eq!(
-///     err.to_string(),
-///     "Insufficient data: requested 64, available 8"
-/// );
-/// ```
-///
 /// # Why there is no tensor or batch variant
 ///
 /// This enum previously carried `TensorConversionError(String)` and

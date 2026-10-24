@@ -37,7 +37,7 @@ impl GaussianNoise {
 
     /// The current standard deviation.
     #[must_use]
-    pub fn sigma(&self) -> f32 {
+    pub fn sigma(self) -> f32 {
         self.sigma
     }
 
@@ -52,7 +52,7 @@ impl GaussianNoise {
     // by construction.
     #[allow(clippy::cast_possible_truncation)]
     pub fn apply<R: Rng + ?Sized>(
-        &self,
+        self,
         mean: &[f32],
         low: &[f32],
         high: &[f32],

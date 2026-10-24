@@ -4,9 +4,10 @@
 //! network, an Adam optimizer, a uniform replay buffer, and the `$\epsilon$`-greedy exploration
 //! schedule shared with DQN. Action selection uses the expected Q-value
 //! `$\sum_i z_i \cdot \text{softmax}(\text{logits}_i)$`; the learning step projects the bootstrap
-//! distribution onto the fixed atom support (see [`crate::algorithms::c51::projection`]) and
+//! distribution onto the fixed atom support (see `crate::algorithms::c51::projection`) and
 //! minimises the categorical cross-entropy against the policy's log-probabilities.
 
+use rlevo_core::agent::{Agent, Transition};
 use std::marker::PhantomData;
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
@@ -14,11 +15,11 @@ use burn::tensor::activation;
 use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
-use crate::metrics::{AgentStats, PerformanceRecord};
 use crate::replay::{DiscreteTransition, ReplayKind, ReplayStrategy, UniformReplayConfig};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
+use rlevo_core::environment::EpisodeStatus;
 
 use crate::algorithms::c51::c51_config::C51TrainingConfig;
 use crate::algorithms::c51::loss::{
@@ -32,94 +33,6 @@ use crate::algorithms::shared::{
     reduce_weighted_loss,
 };
 use crate::utils::{PolyakError, polyak_update};
-
-/// Error variants returned by [`C51Agent`] operations.
-///
-/// Two things can go wrong, and each has a construction site.
-/// [`InvalidAction`](C51AgentError::InvalidAction) is built in
-/// [`crate::algorithms::c51::train`], where an environment `reset`/`step`
-/// rejection is converted into this domain. [`Polyak`](C51AgentError::Polyak)
-/// arrives through `?` in [`C51Agent::learn_step`] — the agent's only fallible
-/// method — when the policy and target networks have mismatched parameter
-/// topologies.
-///
-/// # Why there is no tensor-conversion variant
-///
-/// This enum previously carried `TensorConversionFailed(String)`, which nothing
-/// ever constructed and nothing could: the tensor host-reads on the action path
-/// live in [`act`](C51Agent::act), [`act_greedy`](C51Agent::act_greedy) and
-/// [`act_greedy_with`](C51Agent::act_greedy_with), all of which return a bare
-/// `A` rather than a `Result`. With no error channel in the signature there is
-/// nowhere for the variant to be returned from, so those reads use the
-/// infallible form that `docs/rules.md` §4 sanctions for a read that "cannot
-/// fail by construction (e.g. a tensor the same function just built)".
-///
-/// Making action selection fallible is a breaking change, deferred until
-/// `act`/`act_greedy`/`act_greedy_with` themselves return `Result` — a
-/// signature break across every call site, not something to front-run here.
-/// When it lands, the variant that returns must carry a structured payload,
-/// not a `String`: the Error Handling section of `docs/rules.md` prefers
-/// structured error types over string-based ones.
-///
-/// # Why there is no buffer or I/O variant
-///
-/// `Buffer(#[from] ReplayBufferError)` was unreachable by design.
-/// [`learn_step`](C51Agent::learn_step) samples with
-/// `let Ok(batch) = self.buffer.sample(..) else { return Ok(None) };`, and the
-/// only variant `sample` can produce is
-/// [`ReplayBufferError::InsufficientData`](crate::replay::ReplayBufferError::InsufficientData),
-/// which means "skip this learn step", not "the step failed". `Ok(None)` is the
-/// correct channel for a warm-up buffer; propagating it would misreport an
-/// ordinary warm-up as an error.
-///
-/// `Io(#[from] std::io::Error)` anticipated checkpointing that does not exist:
-/// there is no `save`, no `load`, no `Recorder` and no `std::fs` anywhere under
-/// `algorithms/`, and ADR 0014 §6 defers checkpointing producer wiring to
-/// Tier D.
-///
-/// The enum is `#[non_exhaustive]`, so adding a variant later is not a breaking
-/// change — checkpointing is the shape that would plausibly need one. The bar
-/// for adding it is a real construction site, not an anticipated failure mode;
-/// an unconstructible variant is what this section exists to keep from
-/// recurring.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum C51AgentError {
-    /// The sampled or requested action is outside the valid action space.
-    #[error("Invalid action: {0}")]
-    InvalidAction(String),
-    /// The target soft-update failed because the policy and target networks
-    /// have mismatched parameter topologies.
-    #[error(transparent)]
-    Polyak(#[from] PolyakError),
-}
-
-/// Per-episode statistics emitted by the C51 training loop.
-#[derive(Debug, Clone, Copy)]
-pub struct C51Metrics {
-    /// Total reward collected during the episode.
-    pub reward: f32,
-    /// Number of environment steps taken.
-    pub steps: usize,
-    /// Most recent categorical cross-entropy loss.
-    pub policy_loss: f32,
-    /// Exploration rate at the end of the episode.
-    pub epsilon: f32,
-    /// Mean expected Q-value `E[Z]` across the most recent learn step.
-    pub q_mean: f32,
-    /// Mean entropy of the predicted return distribution at the taken
-    /// action (natural-log units). Low values flag distribution collapse.
-    pub entropy: f32,
-}
-
-impl PerformanceRecord for C51Metrics {
-    fn score(&self) -> f32 {
-        self.reward
-    }
-    fn duration(&self) -> usize {
-        self.steps
-    }
-}
 
 /// Summary values returned by a single [`C51Agent::learn_step`].
 #[derive(Debug, Clone, Copy)]
@@ -142,14 +55,14 @@ pub struct LearnOutcome {
 ///
 /// # Field notes
 ///
-/// - `policy_net` is held in a [`Slot`], the newtype that owns a network across
+/// - `policy_net` is held in a `Slot`, the newtype that owns a network across
 ///   Burn's by-value [`ModuleOptimizer::step`](burn::optim::ModuleOptimizer::step). Every
 ///   read goes through `Slot::get`, and the module leaves the field only for the
 ///   duration of the `step` call itself inside `Slot::step_with` — the forward
 ///   pass, loss, and `backward` all run on a borrow, so a panic in any of them
 ///   leaves the agent intact. The one exception is a panic *inside* `step`,
 ///   which poisons the slot permanently; that window is irreducible and is
-///   documented on [`Slot`].
+///   documented on `Slot`.
 /// - `target_net` is a [`valid`](burn::module::Module::valid) snapshot of the policy, on the
 ///   plain device, so computing bootstrap distributions never builds an
 ///   autodiff graph.
@@ -174,7 +87,6 @@ where
     /// `config.target_update`'s cadence counts (ADR 0059). Advanced
     /// unconditionally, including on a non-finite-loss skip.
     gradient_updates: usize,
-    stats: AgentStats<C51Metrics>,
     /// Non-finite-loss guard for the cross-entropy loss site (ADR 0056).
     /// Skips the update on every occurrence; the `warn!` escalates by decades —
     /// skips 1, 10, 100, … — each carrying the running total (ADR 0072 §1),
@@ -203,6 +115,10 @@ where
     /// it; see the comment in [`act_greedy`](Self::act_greedy).
     obs_scratch: Vec<f32>,
     _action: PhantomData<A>,
+    /// Whether the [`Agent`] impl explores and learns (`true`, the state a
+    /// new agent starts in) or acts greedily and learns nothing; see
+    /// [`Agent::set_training`].
+    training: bool,
 }
 
 impl<M, O, A, const OR: usize, const BS: usize> std::fmt::Debug for C51Agent<M, O, A, OR, BS>
@@ -262,7 +178,6 @@ where
             config.epsilon_end,
             config.epsilon_decay,
         );
-        let stats = AgentStats::<C51Metrics>::new(100);
         let buffer = match &config.prioritized_replay {
             None => ReplayKind::uniform_from_config(UniformReplayConfig {
                 capacity: config.replay_buffer_capacity,
@@ -270,6 +185,7 @@ where
             Some(per) => ReplayKind::prioritized(per.buffer_config(config.replay_buffer_capacity))?,
         };
         Ok(Self {
+            training: true,
             policy_net: Slot::new(policy_net),
             target_net,
             optimizer,
@@ -280,7 +196,6 @@ where
             plain_device,
             step: 0,
             gradient_updates: 0,
-            stats,
             loss_guard: FiniteLossGuard::new("c51/loss"),
             reward_guard: FiniteRewardGuard::new("c51/remember"),
             obs_guard: FiniteObsGuard::ingestion("c51/remember"),
@@ -293,16 +208,6 @@ where
     /// Current exploration rate (`$\epsilon$`).
     pub fn epsilon(&self) -> f64 {
         self.exploration.value()
-    }
-
-    /// Current agent statistics.
-    pub fn stats(&self) -> &AgentStats<C51Metrics> {
-        &self.stats
-    }
-
-    /// Records one completed episode into the running statistics.
-    pub fn record_episode(&mut self, metrics: C51Metrics) {
-        self.stats.record(metrics);
     }
 
     /// Number of transitions currently stored.
@@ -428,7 +333,7 @@ where
     /// inside an earlier optimizer step; an exploring call returns a random
     /// action without reading the network. Such an agent is poisoned and must
     /// be rebuilt — see [`Slot`].
-    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> A {
+    fn explore(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> A {
         if self.exploration.should_explore(rng) {
             // Guarded here rather than once at the top of the function: the
             // greedy path below delegates to `act_greedy`, which guards itself,
@@ -486,7 +391,7 @@ where
     // sign; where an index round-trips through f32 it stays far below the 2^24
     // exact-integer limit. `from_index` bounds-checks on the way back.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn act_greedy(&self, obs: &O) -> A {
+    fn act_greedy(&self, obs: &O) -> A {
         // Function-local scratch, deliberately: `act_greedy` takes `&self` and
         // so cannot use the `obs_scratch` field `remember` uses. Sharing one
         // buffer through a `RefCell` or a `Mutex` is NOT the fix — agents must
@@ -515,7 +420,7 @@ where
     /// Returns a frozen inference handle for use with
     /// [`act_greedy_with`](Self::act_greedy_with). Action selection never needs
     /// gradients, so running it on the plain device avoids the per-call
-    /// autodiff graph construction that [`act_greedy`](Self::act_greedy)
+    /// autodiff graph construction that `act_greedy`
     /// incurs. Snapshot once after training, then reuse across many steps —
     /// the snapshot goes stale if the policy is updated again.
     ///
@@ -523,7 +428,7 @@ where
     ///
     /// Panics if the policy network was lost to a panic inside an earlier
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
-    /// [`Slot`].
+    /// `Slot`.
     pub fn inference_net(&self) -> M {
         self.policy().valid()
     }
@@ -538,7 +443,7 @@ where
 
     /// Greedy action selection against a pre-snapshotted plain-device network.
     ///
-    /// Equivalent to [`act_greedy`](Self::act_greedy) but runs on the
+    /// Equivalent to `act_greedy` but runs on the
     /// plain device via [`inference_net`](Self::inference_net) and
     /// reuses the [`inference_support`](Self::inference_support) tensor, which
     /// is dramatically cheaper for repeated single-observation inference.
@@ -546,7 +451,7 @@ where
     /// # Non-finite observations
     ///
     /// Counted and warned about, never substituted — see
-    /// [`act_greedy`](Self::act_greedy).
+    /// `act_greedy`.
     // Action indices only. `argmax` yields a non-negative index below
     // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
     // sign; where an index round-trips through f32 it stays far below the 2^24
@@ -571,17 +476,19 @@ where
     /// Appends a transition to the replay buffer, evicting the oldest entry
     /// when the buffer is at capacity.
     ///
+    /// Each call counts one environment step, whether the transition is
+    /// stored or dropped: the counter `learning_starts` gates learning on.
+    ///
     /// # Arguments
     ///
-    /// - `terminated` — pass [`EpisodeStatus::is_terminated`], **not**
-    ///   [`EpisodeStatus::is_done`]. Only a true environmental termination may zero
-    ///   the Bellman bootstrap; on a truncation (time-limit cutoff) `next_obs`
-    ///   is a genuine continuation state whose value must still be
-    ///   bootstrapped. See [`Transition::terminated`].
+    /// - `status` — the snapshot's status, unchanged. When the transition is
+    ///   sampled, only [`EpisodeStatus::Terminated`] zeroes the Bellman
+    ///   bootstrap; after a truncation (a time-limit cut) `next_obs` is a
+    ///   genuine continuation state whose value is still bootstrapped. See
+    ///   [`Transition::status`].
     ///
-    /// [`Transition::terminated`]: crate::replay::Transition::terminated
-    /// [`EpisodeStatus::is_terminated`]: rlevo_core::environment::EpisodeStatus::is_terminated
-    /// [`EpisodeStatus::is_done`]: rlevo_core::environment::EpisodeStatus::is_done
+    /// [`Transition::status`]: rlevo_core::agent::Transition::status
+    /// [`EpisodeStatus::Terminated`]: rlevo_core::environment::EpisodeStatus::Terminated
     ///
     /// # Behavior
     ///
@@ -595,7 +502,17 @@ where
     /// A non-finite **observation** — a `NaN` or `$\pm\infty$` anywhere in the host row of *either*
     /// `obs` or `next_obs` — is discarded on the same terms, and counted separately by
     /// [`dropped_observations`](Self::dropped_observations) (ADR 0067).
-    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
+    pub fn remember(
+        &mut self,
+        obs: O,
+        action: &A,
+        reward: f32,
+        next_obs: O,
+        status: EpisodeStatus,
+    ) {
+        // Every step offered counts, stored or dropped: `learning_starts` and
+        // the replay schedule read environment steps, not stored transitions.
+        self.step += 1;
         if !self.reward_guard.admit(reward) {
             return;
         }
@@ -612,7 +529,7 @@ where
             action: action.to_index(),
             reward,
             next_obs,
-            terminated,
+            status,
         });
     }
 
@@ -673,7 +590,7 @@ where
     /// Number of action selections made from a non-finite observation.
     ///
     /// The counterpart to [`dropped_observations`](Self::dropped_observations)
-    /// on the [`act`](Self::act) / [`act_greedy`](Self::act_greedy) /
+    /// on the [`act`](Self::act) / `act_greedy` /
     /// [`act_greedy_with`](Self::act_greedy_with) path, and **not** a drop
     /// count: per ADR 0067 §Decision 4 the action was computed, returned to the
     /// caller, and left unchanged. Substituting a plausible in-domain action
@@ -682,7 +599,7 @@ where
     /// A non-zero count means every affected step is *unattributable*: on the
     /// CPU backend the network silently erased the observation and returned a
     /// finite, valid-looking action anyway (see
-    /// [`act_greedy`](Self::act_greedy)). Discard the affected episode's return
+    /// `act_greedy`). Discard the affected episode's return
     /// rather than trusting it, and fix the observation source.
     ///
     /// # Comparability across algorithms
@@ -719,32 +636,30 @@ where
     /// Test-only view of the Bellman bootstrap masks currently held in the
     /// replay buffer, oldest first.
     ///
-    /// Exists so the `train`-loop tests can assert that a *truncated* step was
+    /// Exists so the driven tests can assert that a *truncated* step was
     /// recorded with `terminated = false` — the invariant that separates a
     /// time-limit cutoff from a real MDP termination.
     #[cfg(test)]
     pub(crate) fn replay_terminated_flags(&self) -> Vec<bool> {
-        self.buffer.iter().map(|t| t.terminated).collect()
+        self.buffer
+            .iter()
+            .map(|t| t.status.is_terminated())
+            .collect()
     }
 
     /// Decays `$\epsilon$` by one step.
-    pub fn decay_exploration(&mut self) {
+    fn decay_exploration(&mut self) {
         self.exploration.decay();
     }
 
-    /// Advances the global step counter. Called once per env step.
-    pub fn on_env_step(&mut self) {
-        self.step += 1;
-    }
-
     /// Returns `true` when the agent has enough transitions to run a learn step.
-    pub fn can_learn(&self) -> bool {
+    fn can_learn(&self) -> bool {
         self.buffer.len() >= self.config.batch_size && self.step >= self.config.learning_starts
     }
 
     /// Returns `true` when the agent's internal clock matches
     /// `config.train_frequency`.
-    pub fn should_train(&self) -> bool {
+    fn should_train(&self) -> bool {
         self.config.train_frequency > 0 && self.step.is_multiple_of(self.config.train_frequency)
     }
 
@@ -759,7 +674,7 @@ where
     ///    `argmax E[Z]` (the double-DQN selection step).
     /// 3. Project the bootstrap distribution through the Bellman operator
     ///    onto the fixed support via
-    ///    [`project_distribution`].
+    ///    `project_distribution`.
     /// 4. Run the policy network on current-observations (autodiff device).
     /// 5. Compute categorical cross-entropy between the projected target and
     ///    the policy's log-softmax probabilities at the taken action.
@@ -774,7 +689,7 @@ where
     /// # Returns
     ///
     /// `Some(LearnOutcome)` with loss, mean Q-value, and distribution entropy when a gradient step
-    /// was taken. Returns `None` without side-effects when [`can_learn`](Self::can_learn) is false
+    /// was taken. Returns `None` without side-effects when `can_learn` is false
     /// (buffer too small or step count below `learning_starts`), and also when the computed loss is
     /// non-finite (NaN/`$\pm$`Inf): in that case the backward pass, optimizer step, target update,
     /// and PER writeback are all skipped (ADR 0056) and [`skipped_updates`](Self::skipped_updates)
@@ -788,16 +703,16 @@ where
     ///
     /// Panics if the agent was poisoned by a panic *inside* a previous
     /// optimizer step — the one window in which the network is out of its
-    /// [`Slot`]. Such an agent cannot be recovered and must be rebuilt; see
-    /// [`Slot`] for why. Steps 1–6 above all run against a borrow of the
+    /// `Slot`. Such an agent cannot be recovered and must be rebuilt; see
+    /// `Slot` for why. Steps 1–6 above all run against a borrow of the
     /// network, so a panic in any of them (a shape mismatch, a device error, a
     /// failed host read) leaves the agent fully usable.
     ///
     /// # Errors
     ///
-    /// Returns [`C51AgentError::Polyak`] if the target soft-update finds a
+    /// Returns a [`PolyakError`] if the target soft-update finds a
     /// parameter-topology mismatch between the policy and target networks (see
-    /// [`polyak_update`]). Every in-tree target is
+    /// `polyak_update`). Every in-tree target is
     /// cloned from its policy, so this cannot occur for agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
@@ -813,7 +728,7 @@ where
     pub fn learn_step(
         &mut self,
         rng: &mut (impl Rng + ?Sized),
-    ) -> Result<Option<LearnOutcome>, C51AgentError> {
+    ) -> Result<Option<LearnOutcome>, PolyakError> {
         if !self.can_learn() {
             return Ok(None);
         }
@@ -850,7 +765,7 @@ where
             t.next_obs.write_host_row(&mut next_flat);
             action_idxs.push(t.action as i64);
             rewards.push(t.reward);
-            terminated.push(if t.terminated { 1.0 } else { 0.0 });
+            terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
         let mut batched_shape: Vec<usize> = Vec::with_capacity(BS);
@@ -953,7 +868,7 @@ where
         // finiteness check costs no extra sync. A non-finite loss skips
         // `backward()`, the optimizer step, the target soft-update, and the PER
         // writeback (Burn would otherwise fold NaN into the weights silently),
-        // and returns `None` — the train loop keeps its last healthy reported
+        // and returns `None` — the caller keeps its last healthy reported
         // metrics rather than advancing them with a NaN, and never counts this
         // as an applied update. The `warn!` is the surfacing mechanism.
         if !self.loss_guard.check(loss_value) {
@@ -1008,6 +923,50 @@ where
             q_mean,
             entropy: entropy_value,
         }))
+    }
+}
+
+/// Driven through [`Agent`], the agent explores `$\epsilon$`-greedily and
+/// learns while training, and acts greedily otherwise.
+///
+/// Each step [`on_transition`](Agent::on_transition) stores the transition,
+/// advances the step counter, takes a learning step when
+/// `should_train` says so, and decays `$\epsilon$`. While
+/// evaluating it does nothing.
+impl<M, O, A, const OR: usize, const BS: usize> Agent<O, A> for C51Agent<M, O, A, OR, BS>
+where
+    M: DqnModel<BS, 3>,
+    O: Observation<OR> + TensorConvertible<OR>,
+    A: DiscreteAction<1>,
+{
+    fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
+        if self.training {
+            self.explore(obs, rng)
+        } else {
+            self.act_greedy(obs)
+        }
+    }
+
+    fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
+        if !self.training {
+            return;
+        }
+        self.remember(
+            t.obs.clone(),
+            t.action,
+            t.reward,
+            t.next_obs.clone(),
+            t.status,
+        );
+        if self.should_train() {
+            self.learn_step(rng)
+                .expect("a target network cloned from its policy shares its parameter ids");
+        }
+        self.decay_exploration();
+    }
+
+    fn set_training(&mut self, training: bool) {
+        self.training = training;
     }
 }
 
@@ -1166,7 +1125,7 @@ mod tests {
                 &TestAction(i % TEST_ACTIONS),
                 1.0,
                 TestObs([x + 1.0, -x]),
-                false,
+                EpisodeStatus::Running,
             );
         }
         agent
@@ -1204,7 +1163,7 @@ mod tests {
                 &TestAction(i % TEST_ACTIONS),
                 1.0,
                 TestObs([x + 1.0, -x]),
-                false,
+                EpisodeStatus::Running,
             );
         }
         agent
@@ -1400,7 +1359,7 @@ mod tests {
         );
     }
 
-    /// The counter is *not* the env-step counter: `on_env_step` must not move
+    /// The counter is *not* the env-step counter: `remember` must not move
     /// it, and a `learn_step` that cannot learn must not either. If these two
     /// drifted together the ADR 0059 unit change would be invisible — a cadence
     /// read in env steps instead of gradient updates silently rescales every
@@ -1408,10 +1367,17 @@ mod tests {
     #[test]
     fn test_c51_gradient_counter_is_not_the_env_step_counter() {
         let mut agent = primed_agent(TargetUpdate::polyak(0.005, 1));
+        let before = agent.step();
         for _ in 0..5 {
-            agent.on_env_step();
+            agent.remember(
+                TestObs([0.0, 0.0]),
+                &TestAction(0),
+                1.0,
+                TestObs([1.0, 0.0]),
+                EpisodeStatus::Running,
+            );
         }
-        assert_eq!(agent.step(), 5);
+        assert_eq!(agent.step(), before + 5);
         assert_eq!(
             agent.gradient_updates(),
             0,
@@ -1433,26 +1399,6 @@ mod tests {
             0,
             "a learn step that never reaches a loss is not an attempted update"
         );
-    }
-
-    #[test]
-    fn test_metrics_performance_record_returns_reward_and_steps() {
-        let m = C51Metrics {
-            reward: 42.0,
-            steps: 7,
-            policy_loss: 0.5,
-            epsilon: 0.1,
-            q_mean: 1.0,
-            entropy: 2.5,
-        };
-        assert_eq!(m.score(), 42.0);
-        assert_eq!(m.duration(), 7);
-    }
-
-    #[test]
-    fn test_error_display_uses_thiserror_messages() {
-        let err = C51AgentError::InvalidAction("bad index".into());
-        assert_eq!(err.to_string(), "Invalid action: bad index");
     }
 
     // -------- non-finite-loss guard (ADR 0056) --------
@@ -1507,7 +1453,7 @@ mod tests {
             target_weights(&agent).iter().all(|w| w.is_finite()),
             "the target net must stay finite — the policy NaN must not reach it"
         );
-        let action = agent.act(&TestObs([0.2, -0.2]), &mut rng);
+        let action = agent.explore(&TestObs([0.2, -0.2]), &mut rng);
         assert!(
             action.is_valid(),
             "act must still return a valid action after a skipped step"
@@ -1589,7 +1535,7 @@ mod tests {
             &TestAction(0),
             f32::NAN,
             TestObs([1.0, 0.0]),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1607,7 +1553,7 @@ mod tests {
             &TestAction(1),
             1.0,
             TestObs([2.0, 0.0]),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1651,7 +1597,13 @@ mod tests {
     fn test_c51_remember_drops_a_nonfinite_obs() {
         let mut agent = obs_guard_agent();
 
-        agent.remember(nan_obs(), &TestAction(0), 1.0, TestObs([1.0, 0.0]), false);
+        agent.remember(
+            nan_obs(),
+            &TestAction(0),
+            1.0,
+            TestObs([1.0, 0.0]),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             0,
@@ -1668,7 +1620,13 @@ mod tests {
             "the reward was finite: the reward counter must not move"
         );
 
-        agent.remember(TestObs([0.0, 0.0]), &TestAction(1), 1.0, nan_obs(), false);
+        agent.remember(
+            TestObs([0.0, 0.0]),
+            &TestAction(1),
+            1.0,
+            nan_obs(),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             0,
@@ -1681,7 +1639,7 @@ mod tests {
             &TestAction(1),
             1.0,
             TestObs([2.0, 0.0]),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1702,7 +1660,13 @@ mod tests {
     fn test_c51_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
         let mut agent = obs_guard_agent();
 
-        agent.remember(nan_obs(), &TestAction(0), f32::NAN, nan_obs(), false);
+        agent.remember(
+            nan_obs(),
+            &TestAction(0),
+            f32::NAN,
+            nan_obs(),
+            EpisodeStatus::Running,
+        );
 
         assert_eq!(agent.buffer_len(), 0, "the transition must not be stored");
         assert_eq!(
@@ -1725,7 +1689,7 @@ mod tests {
         let agent = obs_guard_agent();
         let mut rng = StdRng::seed_from_u64(7);
 
-        let action = agent.act(&nan_obs(), &mut rng);
+        let action = agent.explore(&nan_obs(), &mut rng);
         assert!(
             action.is_valid(),
             "ADR 0067 §Decision 4: the action is returned unchanged, not substituted"
@@ -1832,5 +1796,123 @@ mod tests {
             params_are_plain(&agent.inference_net()),
             "`inference_net` is a plain snapshot"
         );
+    }
+}
+
+#[cfg(test)]
+mod driven_tests {
+    use super::*;
+
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    /// Episodes end every `PERIOD` steps; `STEPS` spans three whole episodes.
+    const PERIOD: usize = 3;
+    const STEPS: usize = 9;
+
+    use crate::algorithms::bootstrap_mask::{
+        DiscreteMaskEnv, MaskDiscreteAction, MaskObservation, atom_net, drive,
+    };
+    use crate::algorithms::dqn::dqn_model::MlpDistributionalQ;
+
+    /// Drives the agent through its `Agent` hooks against a clock env whose
+    /// episodes all end with `end_status`, and returns the bootstrap masks
+    /// it stored.
+    ///
+    /// `learning_starts` is pushed past the step budget so no gradient step
+    /// ever runs — this guard is about *which predicate reaches `remember`*,
+    /// not about learning.
+    fn recorded_masks(end_status: EpisodeStatus) -> Vec<bool> {
+        let device = Device::flex();
+        let config = C51TrainingConfig {
+            learning_starts: 1_000_000,
+            replay_buffer_capacity: 64,
+            ..C51TrainingConfig::default()
+        };
+        let net = atom_net(config.num_atoms, &device);
+        let mut agent =
+            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+                net, config, device,
+            )
+            .expect("default config is valid");
+        let mut env = DiscreteMaskEnv::new(PERIOD, end_status);
+        let mut rng = StdRng::seed_from_u64(7);
+        drive(&mut env, &mut agent, STEPS, &mut rng);
+        agent.replay_terminated_flags()
+    }
+
+    /// The episode boundaries this fixture produces: steps 3, 6 and 9.
+    fn episode_end_steps() -> Vec<bool> {
+        (1..=STEPS).map(|s| s.is_multiple_of(PERIOD)).collect()
+    }
+
+    /// A genuine environmental termination *must* zero the bootstrap.
+    ///
+    /// This also pins the fixture's episode cadence, which is what makes the
+    /// truncation test below non-vacuous: it proves three of these nine steps
+    /// really do end an episode.
+    #[test]
+    fn test_train_termination_sets_bootstrap_mask() {
+        assert_eq!(
+            recorded_masks(EpisodeStatus::Terminated),
+            episode_end_steps(),
+            "an environmental termination must zero the Bellman bootstrap"
+        );
+    }
+
+    /// A truncation must **not** zero the bootstrap.
+    ///
+    /// Same env, same cadence, same `is_done()` pattern as the test above —
+    /// only `is_terminated()` differs. Masking on `is_done()` here would
+    /// reproduce `episode_end_steps()` and bias every Q-value downward on any
+    /// time-limited env (Pardo et al., ICML 2018, Eq. 6).
+    #[test]
+    fn test_train_truncation_leaves_bootstrap_mask_clear() {
+        let flags = recorded_masks(EpisodeStatus::Truncated);
+        assert_eq!(
+            flags.len(),
+            STEPS,
+            "every step must reach the replay buffer"
+        );
+        assert!(
+            flags.iter().all(|f| !f),
+            "truncation must not zero the bootstrap; got {flags:?}"
+        );
+    }
+
+    /// Driven through [`Agent`], the agent explores while training and acts
+    /// greedily once `set_training(false)` turns training off.
+    ///
+    /// At the default `epsilon_start` of 1.0 every training step explores, a
+    /// uniform draw over two actions, so some of 64 calls leave the greedy
+    /// action; evaluating, every call is the greedy one. The calls are
+    /// method calls, so an inherent `act` would resolve before the trait's.
+    #[test]
+    fn test_c51_act_explores_while_training_and_is_greedy_after() {
+        let device = Device::flex();
+        let config = C51TrainingConfig::default();
+        let net = atom_net(config.num_atoms, &device);
+        let mut agent =
+            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+                net, config, device,
+            )
+            .expect("default config is valid");
+        let obs = MaskObservation::new([0.3, -0.7]);
+        let greedy = agent.act_greedy(&obs);
+        let mut rng = StdRng::seed_from_u64(7);
+
+        let explored = (0..64)
+            .filter(|_| agent.act(&obs, &mut rng) != greedy)
+            .count();
+        assert!(explored > 0, "a training step at epsilon 1 must explore");
+
+        agent.set_training(false);
+        for _ in 0..64 {
+            assert_eq!(
+                agent.act(&obs, &mut rng),
+                greedy,
+                "an evaluating agent acts greedily"
+            );
+        }
     }
 }

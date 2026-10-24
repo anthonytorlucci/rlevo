@@ -16,7 +16,9 @@ use burn::tensor::Device;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
 use rlevo_core::action::ContinuousAction;
+use rlevo_core::agent::Agent;
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
@@ -26,7 +28,6 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingCon
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
     MlpActor, MlpActorConfig, MlpCritic, MlpCriticConfig,
 };
-use rlevo_reinforcement_learning::algorithms::ddpg::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
 use rlevo_test_support::assert::assert_improves_over_random;
@@ -99,14 +100,8 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut agent: LinearAgent =
         DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
-    train::<_, _, _, _, LinearAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
-        .expect("training");
-
-    let stats = agent.stats();
-    TrainOutcome {
-        avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
-    }
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
+    TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value))
 }
 
 /// Mean episode return of a uniform-random `U(-1, 1)` policy on the shared
@@ -181,18 +176,20 @@ fn ddpg_act_with_matches_deterministic_act() {
         policy_frequency: 2,
         ..Default::default()
     };
-    let agent: LinearAgent = DdpgAgent::new(actor, critic, config, device).expect("valid config");
+    let mut agent: LinearAgent =
+        DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
     let net = agent.inference_net();
     let mut rng = StdRng::seed_from_u64(seed);
+    // Evaluating `$\Rightarrow$` deterministic mean + bound clip; rng is unused.
+    agent.set_training(false);
     for &x in &[-0.9_f32, -0.3, 0.0, 0.25, 0.8] {
         let obs = LinearObservation { x };
-        // training=false `$\Rightarrow$` deterministic mean + bound clip; rng is unused.
-        let det = agent.act(&obs, false, &mut rng);
+        let det = agent.act(&obs, &mut rng);
         let greedy = agent.act_with(&net, &obs);
         let a = det.as_slice()[0];
         let b = greedy.as_slice()[0];
-        assert!((a - b).abs() < 1e-5, "x={x}: act(false)={a}, act_with={b}");
+        assert!((a - b).abs() < 1e-5, "x={x}: act={a}, act_with={b}");
     }
 }
 
@@ -239,10 +236,10 @@ fn ddpg_pendulum_improves_over_random() {
     let mut agent: DdpgAgent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2> =
         DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
-    train::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, 50_000, 0)
-        .expect("training");
+    let episodes = train(&mut env, &mut agent, 50_000, usize::MAX, &mut rng).expect("training");
 
-    let avg = agent.stats().avg_score().expect("non-empty history");
+    assert!(!episodes.is_empty(), "the run must complete an episode");
+    let avg = TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value)).avg_score;
     // Compare against an actual uniform-random torque policy rather than a
     // hard-coded number; DDPG should clear it with margin after 50k steps.
     let baseline = random_pendulum(seed);

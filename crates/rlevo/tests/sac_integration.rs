@@ -19,6 +19,8 @@ use burn::tensor::{Device, Tensor};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
+use rlevo_core::agent::Agent;
 use rlevo_core::environment::Environment;
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
@@ -30,7 +32,6 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     SampleOutput, SquashedGaussianPolicy,
 };
-use rlevo_reinforcement_learning::algorithms::sac::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
 use rlevo_test_support::assert::assert_improves_over_random;
@@ -142,16 +143,14 @@ fn prime_buffer(agent: &mut LinearAgent, env: &mut LinearEnv, rng: &mut StdRng, 
     let mut snap = env.reset().expect("reset");
     for _ in 0..steps {
         let obs = snap.observation;
-        let action = agent.act(&obs, true, rng);
+        let action = agent.act(&obs, rng);
         let next = env.step(action).expect("step");
         let reward: f32 = (next.reward).into();
-        // `done` drives the episode reset; `terminated` is the Bellman
-        // bootstrap mask. `LinearEnv` only ever truncates, so these differ.
+        // `done` drives the episode reset; `remember` masks the Bellman
+        // bootstrap on the status, and only on termination. `LinearEnv` only ever truncates, so these differ.
         let done = next.status.is_done();
-        let terminated = next.status.is_terminated();
         let next_obs = next.observation;
-        agent.remember(obs, &action, reward, next_obs, terminated);
-        agent.on_env_step();
+        agent.remember(obs, &action, reward, next_obs, next.status);
         snap = if done {
             env.reset().expect("reset")
         } else {
@@ -192,14 +191,8 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let mut agent: LinearAgent =
         SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<_, _, _, _, LinearAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
-        .expect("training");
-
-    let stats = agent.stats();
-    TrainOutcome {
-        avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
-    }
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
+    TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value))
 }
 
 /// Mean episode return of a uniform-random `U(-1, 1)` policy on the shared
@@ -280,7 +273,10 @@ fn sac_alpha_moves_under_autotune() {
 
     // Prime the buffer past warm-up so learn_step proceeds.
     prime_buffer(&mut agent, &mut env, &mut rng, 128);
-    assert!(agent.can_learn(), "agent should be past warm-up");
+    assert!(
+        agent.step() >= 32 && agent.buffer_len() >= 16,
+        "agent should be past warm-up"
+    );
 
     let before = agent.last_alpha();
     for _ in 0..200 {
@@ -378,10 +374,10 @@ fn sac_pendulum_improves_over_random() {
         2,
     > = SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
-    train::<_, _, _, _, PendulumAction, 1, 2, 1, 2>(&mut agent, &mut env, &mut rng, 30_000, 0)
-        .expect("training");
+    let episodes = train(&mut env, &mut agent, 30_000, usize::MAX, &mut rng).expect("training");
 
-    let avg = agent.stats().avg_score().expect("non-empty history");
+    assert!(!episodes.is_empty(), "the run must complete an episode");
+    let avg = TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value)).avg_score;
     // Reduced from the former 500k-step / 256-wide macro run (~9 min even at 50k) to a 30k-step /
     // 64-wide budget that finishes in ~2 min: SAC runs a full update (two critics + policy +
     // `$\alpha$`) every env step, so per-step grad cost — not step count — dominates wall-clock,

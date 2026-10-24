@@ -45,25 +45,6 @@
 //! gradients is a method-choice nobody documented. The invariant has to travel
 //! with the *value*, which is what a newtype does.
 //!
-//! # Examples
-//!
-//! ```
-//! use rlevo_reinforcement_learning::replay::ImportanceExponent;
-//!
-//! // `new` is for compile-time-known literals and panics on a bad one.
-//! assert_eq!(ImportanceExponent::new(0.4).get(), 0.4);
-//!
-//! // The annealed endpoint is a named constant, not a magic literal.
-//! assert_eq!(ImportanceExponent::ONE.get(), 1.0);
-//!
-//! // `try_new` is for runtime values — including an evaluated schedule.
-//! assert!(ImportanceExponent::try_new(0.0).is_ok()); // no correction
-//! assert!(ImportanceExponent::try_new(1.0).is_ok()); // full correction
-//! assert!(ImportanceExponent::try_new(-0.1).is_err());
-//! assert!(ImportanceExponent::try_new(1.1).is_err());
-//! assert!(ImportanceExponent::try_new(f32::NAN).is_err()); // the poisoning defect
-//! ```
-//!
 //! [`Priority`]: super::Priority
 
 use serde::{Deserialize, Serialize};

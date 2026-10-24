@@ -78,8 +78,7 @@ critical subset):
 | `policies/gaussian.rs` | `TanhGaussianPolicyHead` built-in. |
 | `rollout.rs` | `RolloutBuffer` + free `compute_gae`. |
 | `losses.rs` | Stateless loss / diagnostic functions. |
-| `ppo_agent.rs` | `PpoAgent` with `act`, `record_step`, `finalize_rollout`, `update`. |
-| `train.rs` | End-to-end `train_discrete` / `train_continuous` entry points. |
+| `ppo_agent.rs` | `PpoAgent` and its `Agent` impls, one per shipped head. |
 
 The trait surface is deliberately scoped to this module rather than promoted
 to a crate-level "stochastic policy" abstraction: each algorithm in

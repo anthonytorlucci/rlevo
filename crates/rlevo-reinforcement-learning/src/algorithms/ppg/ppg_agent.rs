@@ -2,32 +2,35 @@
 //!
 //! Owns the policy network (categorical logits head + auxiliary value head),
 //! a separate main value network, two Adam optimizers, the PPO
-//! [`RolloutBuffer`], an [`AuxRolloutBuffer`] accumulating the last
-//! `n_iteration` rollouts, and the configuration. One iteration consists of:
+//! `RolloutBuffer`, an `AuxRolloutBuffer` accumulating the last
+//! `n_iteration` rollouts, and the configuration. It implements [`Agent`],
+//! through which a driver steps it; while training, its hooks run one
+//! iteration per rollout:
 //!
-//! 1. [`PpgAgent::act`] / [`PpgAgent::record_step`] — collect a rollout.
-//! 2. [`PpgAgent::finalize_rollout`] — compute GAE (shared with PPO).
-//! 3. [`PpgAgent::snapshot_into_aux_buffer`] — snapshot observations and
+//! 1. `act` / `PpgAgent::record_step` — collect a rollout.
+//! 2. `PpgAgent::finalize_rollout` — compute GAE (shared with PPO).
+//! 3. `PpgAgent::snapshot_into_aux_buffer` — snapshot observations and
 //!    target returns into the auxiliary buffer.
-//! 4. [`PpgAgent::policy_phase_update`] — PPO policy-phase update (clipped
-//!    surrogate + value loss), identical to [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update).
-//! 5. [`PpgAgent::maybe_aux_phase`] — if the auxiliary buffer holds
+//! 4. `PpgAgent::policy_phase_update` — PPO policy-phase update (clipped
+//!    surrogate + value loss), identical to `PpoAgent::update`.
+//! 5. `PpgAgent::maybe_aux_phase` — if the auxiliary buffer holds
 //!    `n_iteration` rollouts, compute the `$\pi_{old}$` logits once, by running the
 //!    current (post-policy-phase) policy over every buffered observation, then
 //!    run `e_aux` epochs of auxiliary updates
 //!    (main-value MSE + aux-value MSE + `$\beta \cdot KL(\pi_{old} \Vert \pi_{new})$`) and drain
 //!    the buffer.
 //!
-//! The policy-phase loop is code-wise parallel to [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update) but
+//! The policy-phase loop is code-wise parallel to `PpoAgent::update` but
 //! kept in a separate function so `PpoAgent` remains untouched and the
 //! snapshot-before-clear hook can slot in cleanly.
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
+use rlevo_core::action::DiscreteAction;
+use rlevo_core::agent::{Agent, Transition};
 
 use crate::algorithms::shared::{FiniteLossGuard, Slot};
-use crate::metrics::{AgentStats, PerformanceRecord};
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
@@ -44,122 +47,7 @@ use crate::algorithms::ppo::ppo_agent::{ActOutcome, PpoUpdateStats};
 use crate::algorithms::ppo::ppo_config::annealed_learning_rate;
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
-use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
-
-/// Error variants returned by [`PpgAgent`] operations.
-///
-/// This enum is deliberately one variant wide. The PPG train loop
-/// ([`crate::algorithms::ppg::train`]) surfaces exactly one failure — an
-/// environment `reset`/`step` that returns `Err` — so the enum carries exactly
-/// one variant, [`Environment`](PpgAgentError::Environment), constructed at the
-/// single `env_error` helper in that module. This is the same shape, and the
-/// same reasoning, as
-/// [`ReplayBufferError`](crate::replay::ReplayBufferError) one layer down: the
-/// width of an error enum is the number of ways its owner can actually fail,
-/// not the number of ways one might imagine it failing.
-///
-/// # Why there is no tensor-conversion variant
-///
-/// This enum previously carried `TensorConversionFailed(String)`, which nothing
-/// ever constructed and nothing could. The agent's host-reading methods have no
-/// error channel by signature: [`PpgAgent::act`] returns a bare [`ActOutcome`]
-/// and [`PpgAgent::act_greedy`] / [`PpgAgent::act_greedy_env_row_with`] return
-/// `Vec<f32>`. None is a `Result`, so a failing host-read has nowhere to go.
-/// Those reads use the `.expect("<named invariant>")` form that the Error
-/// Handling section of `docs/rules.md` sanctions for a host-read that cannot
-/// fail by construction — the tensor being read is one the same function just
-/// built on the same device.
-///
-/// Making those signatures fallible is tracked separately (see ADR 0057,
-/// which resolved the off-policy half and left `act` and the on-policy agents
-/// panic-based as the explicit residual). When that lands, the variant returns
-/// carrying a structured payload, **not** a `String`. The Error Handling
-/// section of `docs/rules.md` prefers structured variants over string-based
-/// errors, so re-adding a `String` payload would reintroduce the smell along
-/// with the variant.
-///
-/// # Why there is no config variant
-///
-/// This enum previously carried `InvalidConfig(String)`, duplicating a job
-/// another type already does. [`PpgAgent::new`] validates its [`PpgConfig`]
-/// through [`Validate`] and returns `Result<Self, E>` with `E` =
-/// [`rlevo_core::config::ConfigError`], so an inconsistent setting —
-/// `aux_batch_size == 0`, say, or anything the delegated
-/// [`PpoTrainingConfig`](crate::algorithms::ppo::ppo_config::PpoTrainingConfig)
-/// check rejects — is caught *before* an agent exists. No `PpgAgent` can be
-/// holding a config bad enough to produce this variant, because such a config
-/// never yields a `PpgAgent`.
-///
-/// # Why there is no I/O variant
-///
-/// This enum previously carried `Io(#[from] std::io::Error)` for "saving or
-/// loading model weights". No such code exists: nothing under
-/// [`crate::algorithms`] defines a `save`, a `load`, a `Recorder`, or touches
-/// `std::fs`. ADR 0014 defers checkpointing and resume-from-checkpoint. The
-/// variant returns with the feature that needs it, not before.
-///
-/// # Known limitation: the `Environment` payload is a `String`
-///
-/// The surviving variant carries a `String` where
-/// [`rlevo_core::environment::EnvironmentError`] is the domain type;
-/// the Error Handling section of `docs/rules.md` would prefer
-/// `Environment(#[from] EnvironmentError)`.
-/// `train.rs` currently calls `err.to_string()`, discarding the structured
-/// error and its [`source`](std::error::Error::source) chain. This is **known
-/// and tracked**, scoped as the same fix across all eight
-/// algorithms — it is a breaking change to the payload type and is
-/// deliberately out of scope here. Do not read the `String` as endorsed.
-///
-/// # Adding a variant
-///
-/// The enum is `#[non_exhaustive]`, so adding a variant later is not a breaking
-/// change and downstream `match` expressions must already carry a wildcard arm.
-/// The bar for adding one is a real construction site — an anticipated failure
-/// mode is what the three sections above exist to keep out.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum PpgAgentError {
-    /// Env-side failure surfaced through the train loop.
-    #[error("Environment error: {0}")]
-    Environment(String),
-}
-
-/// Per-episode statistics emitted by the PPG training loop.
-#[derive(Debug, Clone, Copy)]
-pub struct PpgMetrics {
-    /// Undiscounted total reward for this episode.
-    pub reward: f32,
-    /// Number of environment steps in this episode.
-    pub steps: usize,
-    /// Mean policy (clipped surrogate) loss from the most recent policy-phase
-    /// update preceding this episode's end.
-    pub policy_loss: f32,
-    /// Mean value loss from the most recent policy-phase update.
-    pub value_loss: f32,
-    /// Mean per-step policy entropy from the most recent policy-phase update.
-    pub entropy: f32,
-    /// Approximate KL divergence from the most recent policy-phase update.
-    pub approx_kl: f32,
-    /// Fraction of samples that hit the PPO clip boundary.
-    pub clip_frac: f32,
-    /// Most recent auxiliary-phase main-value loss (`0.0` if none has run yet).
-    pub aux_main_value_loss: f32,
-    /// Most recent auxiliary-phase aux-value-head loss.
-    pub aux_value_loss: f32,
-    /// Most recent auxiliary-phase distillation KL.
-    pub aux_policy_kl: f32,
-    /// Current learning rate (after annealing).
-    pub learning_rate: f32,
-}
-
-impl PerformanceRecord for PpgMetrics {
-    fn score(&self) -> f32 {
-        self.reward
-    }
-    fn duration(&self) -> usize {
-        self.steps
-    }
-}
+use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd, gather_f32};
 
 /// Summary of one auxiliary phase (across `e_aux` epochs and its minibatches).
 #[derive(Debug, Clone, Copy)]
@@ -191,7 +79,7 @@ pub struct AuxPhaseStats {
 /// Owns the policy network (`P`, which must implement both
 /// [`PpoPolicy`] and
 /// [`PpgAuxValueHead`]), a separate main value network (`V`), two Adam
-/// optimizers, a PPO [`RolloutBuffer`], an [`AuxRolloutBuffer`], and the
+/// optimizers, a PPO `RolloutBuffer`, an `AuxRolloutBuffer`, and the
 /// [`PpgConfig`].
 ///
 /// # Type parameters
@@ -206,20 +94,18 @@ pub struct AuxPhaseStats {
 ///
 /// # Usage
 ///
-/// Construct with [`PpgAgent::new`], then drive the training loop via
-/// [`train_discrete`](crate::algorithms::ppg::train::train_discrete) or
-/// manually via the five-step sequence described in the module header.
+/// Construct with [`PpgAgent::new`], then step it through its [`Agent`] impl.
 ///
 /// # Network ownership
 ///
-/// The policy and value networks live in [`Slot`]s because Burn's
+/// The policy and value networks live in `Slot`s because Burn's
 /// `ModuleOptimizer::step` consumes the module by value. In both the policy phase
-/// ([`policy_phase_update`](Self::policy_phase_update)) and the auxiliary phase
-/// ([`maybe_aux_phase`](Self::maybe_aux_phase)), every fallible operation — the
+/// (`policy_phase_update`) and the auxiliary phase
+/// (`maybe_aux_phase`), every fallible operation — the
 /// forward pass, the losses, `backward`, and `GradientsParams::from_grads` —
 /// runs on a borrow, so a panic there leaves both networks intact and the agent
 /// usable. Only a panic *inside* the optimizer step itself poisons a slot; that
-/// window is irreducible and terminal for the agent (see [`Slot`]).
+/// window is irreducible and terminal for the agent (see `Slot`).
 pub struct PpgAgent<P, V, O, const OR: usize, const BOR: usize>
 where
     P: PpoPolicy<BOR> + PpgAuxValueHead<BOR>,
@@ -248,7 +134,6 @@ where
     /// annealing tick.
     policy_phase_lr: f64,
     step: usize,
-    stats: AgentStats<PpgMetrics>,
     last_aux: Option<AuxPhaseStats>,
     /// Non-finite-loss guard for the policy-phase policy-loss site (ADR 0056).
     /// Consulted once per minibatch: the skip fires on every non-finite
@@ -263,6 +148,17 @@ where
     /// (`$\text{aux\_v\_loss} + \beta \cdot KL$`); its input is host-*derived* from the two summands
     /// already read, adding no sync (ADR 0056, Decision 5).
     aux_total_guard: FiniteLossGuard,
+    /// Whether the [`Agent`] impl explores and learns (`true`, the state a
+    /// new agent starts in) or acts greedily and learns nothing; see
+    /// [`Agent::set_training`].
+    training: bool,
+    /// The sample [`Agent::act`] drew while training, which
+    /// [`Agent::on_transition`] then records with the step it produced.
+    pending: Option<ActOutcome>,
+    /// The next observation of the rollout's last step while that step
+    /// leaves its episode `Running`, kept so the step can still be truncated
+    /// if the driver ends the episode there; see `close_open_step`.
+    continuation: Option<O>,
 }
 
 impl<P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug for PpgAgent<P, V, O, OR, BOR>
@@ -302,7 +198,7 @@ where
     ///
     /// Panics if the policy network was lost to a panic inside an earlier
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
-    /// [`Slot`].
+    /// `Slot`.
     pub fn inference_net(&self) -> P {
         self.policy().valid()
     }
@@ -311,7 +207,7 @@ where
     /// pre-snapshotted network on the plain device — no sampling, no autodiff
     /// graph.
     ///
-    /// Equivalent to [`act_greedy`](Self::act_greedy) (the categorical mode is
+    /// Equivalent to `act_greedy` (the categorical mode is
     /// the argmax over logits, and `raw_to_env_row` is the identity for the
     /// discrete head) but skips per-step autodiff-graph construction, which
     /// dominates cost at batch size 1. Use this for evaluation and throughput.
@@ -373,7 +269,6 @@ where
 
         let buffer = RolloutBuffer::new(capacity, action_dim);
         let aux_buffer = AuxRolloutBuffer::new();
-        let stats = AgentStats::<PpgMetrics>::new(100);
         // What `current_learning_rate()` returns at `iteration == 0`: the
         // annealed rate at tick zero is the base rate, and with annealing off it
         // is the base rate throughout. Seeding the field here keeps a
@@ -382,6 +277,10 @@ where
         let policy_phase_lr = config.ppo.learning_rate;
 
         Ok(Self {
+            training: true,
+
+            pending: None,
+            continuation: None,
             policy: Slot::new(policy),
             value: Slot::new(value),
             policy_optim,
@@ -395,7 +294,6 @@ where
             total_iterations,
             policy_phase_lr,
             step: 0,
-            stats,
             last_aux: None,
             policy_loss_guard: FiniteLossGuard::new("ppg/policy_loss"),
             value_loss_guard: FiniteLossGuard::new("ppg/value_loss"),
@@ -438,18 +336,17 @@ where
     /// ADR 0072).
     ///
     /// Counts the `ppg/policy_loss` site only, and counts **minibatches**: the guard is consulted
-    /// once per minibatch inside [`policy_phase_update`](Self::policy_phase_update), so one phase
+    /// once per minibatch inside `policy_phase_update`, so one phase
     /// can contribute up to `$\text{update\_epochs} \times \text{num\_minibatches}$` to this total.
     /// It is a lifetime count over every policy phase the agent has run, never reset.
     ///
     /// # Relationship to the reported mean
     ///
-    /// [`PpoUpdateStats::policy_loss`] divides by the `policy_healthy` count of
+    /// The policy phase's reported mean loss divides by the `policy_healthy` count of
     /// that *single* call — the per-call complement of this counter, not a
     /// duplicate of it. This accessor answers "how much of the run's step budget
     /// never reached the optimizer", which no per-call mean can express.
     ///
-    /// [`PpoUpdateStats::policy_loss`]: crate::algorithms::ppo::ppo_agent::PpoUpdateStats::policy_loss
     #[must_use]
     pub const fn skipped_policy_updates(&self) -> u64 {
         self.policy_loss_guard.skipped()
@@ -472,7 +369,7 @@ where
     /// (ADR 0056, ADR 0072).
     ///
     /// The `ppg/aux_main_value_loss` site, counted per minibatch inside
-    /// [`maybe_aux_phase`](Self::maybe_aux_phase).
+    /// `maybe_aux_phase`.
     ///
     /// # Not comparable with the policy-phase counters
     ///
@@ -493,7 +390,7 @@ where
     ///
     /// The `ppg/aux_total_loss` site: the aux-value MSE plus `$\beta \cdot KL$`
     /// distillation term, counted per minibatch inside
-    /// [`maybe_aux_phase`](Self::maybe_aux_phase) on the same cadence caveat as
+    /// `maybe_aux_phase` on the same cadence caveat as
     /// [`skipped_aux_value_updates`](Self::skipped_aux_value_updates).
     ///
     /// # One guard, two reported quantities
@@ -519,13 +416,12 @@ where
     /// Decisions 2 and 3).
     ///
     /// PPG has more loss sites than any other agent in the crate, so this
-    /// aggregate — not any single per-site accessor — is what the training loop
-    /// emits. It exists so that adding a fifth guarded site cannot silently drop
+    /// aggregate — not any single per-site accessor — is what its progress
+    /// event logs. It exists so that adding a fifth guarded site cannot silently drop
     /// out of the reported metric: the sum is written once, here, rather than
     /// re-derived at each call site.
     ///
-    /// The sum is `saturating_add`ed rather than `+`ed, matching
-    /// [`AgentStats::record`]: a counter that pins at `u64::MAX` is a better
+    /// The sum is `saturating_add`ed rather than `+`ed: a counter that pins at `u64::MAX` is a better
     /// failure mode for a long-lived agent than one that wraps in release or
     /// panics under `overflow-checks`. Reaching the ceiling is not physically
     /// attainable here, so the saturation is a convention, not a live concern.
@@ -534,9 +430,9 @@ where
     ///
     /// One skipped **minibatch** at one site — not one skipped phase call. Policy-phase sites
     /// accumulate over `$\text{update\_epochs} \times \text{num\_minibatches}$` per
-    /// [`policy_phase_update`](Self::policy_phase_update); auxiliary-phase sites over
+    /// `policy_phase_update`; auxiliary-phase sites over
     /// `$e_{aux} \times$` (auxiliary minibatches) per firing of
-    /// [`maybe_aux_phase`](Self::maybe_aux_phase), which is itself on a `n_iteration` cadence.
+    /// `maybe_aux_phase`, which is itself on a `n_iteration` cadence.
     /// Because the four terms are measured against different denominators, the aggregate is a
     /// **health signal**, not a rate: read it as "this many optimizer steps were bought and not
     /// received", and use the per-site accessors to attribute them.
@@ -546,12 +442,10 @@ where
     /// Every guard is consulted on an attempt that was already made — the
     /// forward pass and loss ran — so a skip is always a subset of an attempt
     /// and the subtraction can never underflow. The per-call complements are the
-    /// `*_healthy` locals behind [`PpoUpdateStats`] and [`AuxPhaseStats`]: they
+    /// `*_healthy` locals behind the policy phase's statistics and [`AuxPhaseStats`]: they
     /// denominate that one call's means, while this counter is the lifetime
     /// total. Complements, not duplicates.
     ///
-    /// [`AgentStats::record`]: crate::metrics::AgentStats::record
-    /// [`PpoUpdateStats`]: crate::algorithms::ppo::ppo_agent::PpoUpdateStats
     #[must_use]
     pub const fn skipped_updates(&self) -> u64 {
         self.policy_loss_guard
@@ -559,16 +453,6 @@ where
             .saturating_add(self.value_loss_guard.skipped())
             .saturating_add(self.aux_main_value_guard.skipped())
             .saturating_add(self.aux_total_guard.skipped())
-    }
-
-    /// Per-episode statistics accumulated over the last 100 episodes.
-    pub fn stats(&self) -> &AgentStats<PpgMetrics> {
-        &self.stats
-    }
-
-    /// Records one completed episode's metrics into the rolling stats window.
-    pub fn record_episode(&mut self, metrics: PpgMetrics) {
-        self.stats.record(metrics);
     }
 
     /// The active configuration.
@@ -610,12 +494,12 @@ where
     /// reaching exactly `0.0` at `iteration == total_iterations`.
     ///
     /// This is a *forward-looking* read: it is a pure function of `iteration`,
-    /// which [`policy_phase_update`](Self::policy_phase_update) increments on
+    /// which `policy_phase_update` increments on
     /// its way out. Called after an update, it therefore reports one annealing
     /// tick *past* the rate that update applied — and at the end of a run it
     /// reports `0.0`. Anything that must step at the rate of the phase that just
     /// ran reads `policy_phase_lr` instead; that is exactly what the auxiliary
-    /// phase does (see [`maybe_aux_phase`](Self::maybe_aux_phase)).
+    /// phase does (see `maybe_aux_phase`).
     pub fn current_learning_rate(&self) -> f64 {
         if self.config.ppo.anneal_lr {
             annealed_learning_rate(
@@ -644,7 +528,7 @@ where
     /// Panics if the policy or value network was lost to a panic inside an
     /// earlier optimizer step. Such an agent is poisoned and must be rebuilt —
     /// see [`Slot`].
-    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
+    fn sample(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
         let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
         let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
 
@@ -653,7 +537,6 @@ where
         let env_row = self.policy().raw_to_env_row(&raw_row);
 
         let log_prob = sample.log_prob.into_scalar::<f32>();
-        let entropy = sample.entropy.into_scalar::<f32>();
 
         let value_raw: Tensor<OR> = obs.to_tensor(&self.device);
         let value_t: Tensor<BOR> = value_raw.unsqueeze::<BOR>();
@@ -663,9 +546,36 @@ where
             raw_row,
             env_row,
             log_prob,
-            entropy,
             value,
         }
+    }
+
+    /// Logs one policy phase, and the auxiliary phase when it ran, at `info`
+    /// under the metric registry's names. The two `log_std` extrema read
+    /// `None` for every PPG run, PPG being discrete-only, and are logged so a
+    /// Gaussian head is observable the day one lands (ADR 0049).
+    fn log_update(&self, stats: &PpoUpdateStats, aux: Option<AuxPhaseStats>) {
+        tracing::info!(
+            step = self.step,
+            env_steps_sampled = self.step,
+            iteration = self.iteration,
+            policy_loss = stats.policy_loss,
+            value_loss = stats.value_loss,
+            entropy = stats.entropy,
+            approx_kl = stats.approx_kl,
+            clip_frac = stats.clip_frac,
+            epochs_run = stats.epochs_run,
+            min_log_std = ?stats.min_log_std,
+            max_log_std = ?stats.max_log_std,
+            // Cumulative over all four PPG loss sites (ADR 0072), two of which
+            // are in the auxiliary phase.
+            skipped_updates = self.skipped_updates(),
+            learning_rate = self.current_learning_rate(),
+            aux_ran = aux.is_some(),
+            aux_value_loss = aux.map_or(0.0, |a| a.aux_value_loss),
+            aux_policy_kl = aux.map_or(0.0, |a| a.policy_kl),
+            "ppg training progress"
+        );
     }
 
     /// Greedy (deterministic) action for one observation — the categorical mode.
@@ -686,7 +596,7 @@ where
     /// optimizer step. Such an agent is poisoned and must be rebuilt — see
     /// [`Slot`].
     #[allow(clippy::cast_precision_loss)]
-    pub fn act_greedy(&self, obs: &O) -> Vec<f32> {
+    fn act_greedy(&self, obs: &O) -> Vec<f32> {
         let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
         let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
         let logits: Tensor<2> = PpgAuxValueHead::logits(self.policy(), batched); // (1, A)
@@ -710,7 +620,7 @@ where
     /// was lost to a panic inside an earlier optimizer step — the bootstrap
     /// forward reads it. Such an agent is poisoned and must be rebuilt — see
     /// [`Slot`].
-    pub fn record_step(
+    fn record_step(
         &mut self,
         obs: O,
         action: &ActOutcome,
@@ -757,7 +667,7 @@ where
     /// value network was lost to a panic inside an earlier optimizer step —
     /// the bootstrap forward reads it. Such an agent is poisoned and must be
     /// rebuilt — see [`Slot`].
-    pub fn finalize_rollout(&mut self, last_obs: &O) {
+    fn finalize_rollout(&mut self, last_obs: &O) {
         let last_value = if self.buffer.last_step_ended() {
             0.0
         } else {
@@ -780,7 +690,7 @@ where
     /// [`Self::maybe_aux_phase`] against the post-policy-phase policy, so
     /// the distillation preserves (rather than undoes) the policy-phase's
     /// learning.
-    pub fn snapshot_into_aux_buffer(&mut self) {
+    fn snapshot_into_aux_buffer(&mut self) {
         if self.buffer.is_empty() {
             return;
         }
@@ -817,7 +727,7 @@ where
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    pub fn policy_phase_update(&mut self, rng: &mut (impl Rng + ?Sized)) -> PpoUpdateStats {
+    fn policy_phase_update(&mut self, rng: &mut (impl Rng + ?Sized)) -> PpoUpdateStats {
         let cfg = self.config.ppo.clone();
         let batch_size = self.buffer.len();
         let mb_size = (batch_size / cfg.num_minibatches.max(1)).max(1);
@@ -869,18 +779,10 @@ where
                 let actions: P::ActionTensor =
                     P::action_tensor_from_flat(&action_flat, n, &self.device);
 
-                let old_lp: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.log_probs(), chunk, &self.device);
-                let old_v: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.values(), chunk, &self.device);
-                let returns: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.returns(), chunk, &self.device);
-                let advs_raw: Tensor<1> =
-                    self.buffer
-                        .gather_f32(self.buffer.advantages(), chunk, &self.device);
+                let old_lp: Tensor<1> = gather_f32(self.buffer.log_probs(), chunk, &self.device);
+                let old_v: Tensor<1> = gather_f32(self.buffer.values(), chunk, &self.device);
+                let returns: Tensor<1> = gather_f32(self.buffer.returns(), chunk, &self.device);
+                let advs_raw: Tensor<1> = gather_f32(self.buffer.advantages(), chunk, &self.device);
                 let advs = if cfg.normalize_advantages {
                     normalize_advantages(advs_raw)
                 } else {
@@ -1036,7 +938,7 @@ where
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    pub fn maybe_aux_phase(&mut self, rng: &mut (impl Rng + ?Sized)) -> Option<AuxPhaseStats> {
+    fn maybe_aux_phase(&mut self, rng: &mut (impl Rng + ?Sized)) -> Option<AuxPhaseStats> {
         if !self.aux_buffer.is_ready(self.config.n_iteration) {
             return None;
         }
@@ -1198,6 +1100,92 @@ where
         }
         out
     }
+
+    /// Truncates the rollout's last step when the driver ends its episode
+    /// without the environment ending it: at the driver's `max_steps` cut, or
+    /// when it switches phase. That step was recorded `Running`, so GAE would
+    /// otherwise bootstrap from, and carry the advantage recursion into, the
+    /// next step recorded, the first of a new episode after its reset. It
+    /// bootstraps from its own next observation instead (ADR 0048).
+    fn close_open_step(&mut self) {
+        if let Some(next_obs) = self.continuation.take() {
+            let bootstrap_value = self.value_of(&next_obs);
+            self.buffer.truncate_last_step(bootstrap_value);
+        }
+    }
+}
+
+/// Driven through [`Agent`], the agent samples from its policy while
+/// training and acts on the most probable action otherwise.
+///
+/// Each training step [`on_transition`](Agent::on_transition) records the
+/// step with the sample [`act`](Agent::act) drew. When the rollout holds
+/// `num_steps` steps it finishes the rollout on the step's `next_obs`, keeps
+/// it for the auxiliary phase, runs the policy phase, and runs the auxiliary
+/// phase when its cadence is due. A rollout the driver leaves unfinished is
+/// not used. While evaluating it does nothing.
+///
+/// A step after which the driver ends the episode, or switches phase,
+/// without the environment ending it becomes a truncation that bootstraps
+/// from its own next observation, so the advantages never run across the
+/// driver's reset into the next episode.
+///
+/// # Panics
+///
+/// `on_transition` panics, while training, when no [`act`](Agent::act)
+/// preceded it: there is no sample to record.
+impl<V, O, A, const OR: usize> Agent<O, A>
+    for PpgAgent<crate::algorithms::ppg::policies::PpgCategoricalPolicyHead, V, O, OR, 2>
+where
+    V: PpoValue<2>,
+    O: Observation<OR> + TensorConvertible<OR>,
+    A: DiscreteAction<1>,
+{
+    fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
+        if self.training {
+            let sample = self.sample(obs, rng);
+            let action = crate::algorithms::ppo::policies::categorical::discrete_action_from_row::<
+                1,
+                A,
+            >(&sample.env_row);
+            self.pending = Some(sample);
+            action
+        } else {
+            crate::algorithms::ppo::policies::categorical::discrete_action_from_row::<1, A>(
+                &self.act_greedy(obs),
+            )
+        }
+    }
+
+    fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
+        if !self.training {
+            return;
+        }
+        let sample = self
+            .pending
+            .take()
+            .expect("a training step's act precedes its on_transition");
+        self.record_step(t.obs.clone(), &sample, t.reward, t.next_obs, t.status);
+        if self.buffer.len() == self.config.ppo.num_steps {
+            self.finalize_rollout(t.next_obs);
+            self.snapshot_into_aux_buffer();
+            let stats = self.policy_phase_update(rng);
+            let aux = self.maybe_aux_phase(rng);
+            self.log_update(&stats, aux);
+            self.continuation = None;
+        } else {
+            self.continuation = (!t.status.is_done()).then(|| t.next_obs.clone());
+        }
+    }
+
+    fn on_episode_end(&mut self, _status: EpisodeStatus) {
+        self.close_open_step();
+    }
+
+    fn set_training(&mut self, training: bool) {
+        self.close_open_step();
+        self.training = training;
+    }
 }
 
 #[cfg(test)]
@@ -1333,12 +1321,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_ppg_agent_error_display_uses_thiserror_messages() {
-        let err = PpgAgentError::Environment("boom".into());
-        assert_eq!(err.to_string(), "Environment error: boom");
-    }
-
     /// Regression: PPG builds its optimizers from
     /// `config.ppo.clip_grad` itself rather than delegating to `PpoAgent`, so
     /// this wiring can rot independently of the PPO copy — assert it here too.
@@ -1437,7 +1419,7 @@ mod tests {
             let x = i as f32 * 0.1;
             let obs = TestObs([x, 1.0 - x]);
             let next = TestObs([x + 0.1, 0.9 - x]);
-            let outcome = agent.act(&obs, rng);
+            let outcome = agent.sample(&obs, rng);
             agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
             last = next;
         }
@@ -1999,6 +1981,50 @@ mod tests {
             max_delta > 0.0,
             "the terminal auxiliary phase left every policy parameter bit-exactly unchanged \
              (max |Δw| = {max_delta}) — that is what stepping at lr = 0.0 does"
+        );
+    }
+
+    /// As PPO's: a driver that ends an episode the environment did not end,
+    /// at its `max_steps` cut or by switching phase, leaves the last step
+    /// recorded `Running`, and that step must become a truncation so GAE does
+    /// not run on into the next episode's first step.
+    #[test]
+    fn test_ppg_driver_end_truncates_an_open_step() {
+        use crate::algorithms::bootstrap_mask::MaskDiscreteAction as Act;
+
+        let mut agent = agent_with_clip_grad(None);
+        let mut rng = StdRng::seed_from_u64(0);
+        let (obs, next) = (TestObs([0.1, -0.2]), TestObs([0.3, 0.4]));
+        let step = |agent: &mut TestAgent, rng: &mut StdRng| {
+            let action: Act = agent.act(&obs, rng);
+            agent.on_transition(
+                Transition {
+                    obs: &obs,
+                    action: &action,
+                    reward: 1.0,
+                    next_obs: &next,
+                    status: EpisodeStatus::Running,
+                },
+                rng,
+            );
+        };
+
+        step(&mut agent, &mut rng);
+        assert!(
+            !agent.buffer.last_step_ended(),
+            "the step was recorded Running"
+        );
+        Agent::<TestObs, Act>::on_episode_end(&mut agent, EpisodeStatus::Truncated);
+        assert!(
+            agent.buffer.last_step_ended(),
+            "a cut after a Running step must end the step"
+        );
+
+        step(&mut agent, &mut rng);
+        Agent::<TestObs, Act>::set_training(&mut agent, false);
+        assert!(
+            agent.buffer.last_step_ended(),
+            "leaving training after a Running step must end the step"
         );
     }
 }

@@ -14,6 +14,7 @@ use burn::tensor::Device;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_environments::wrappers::TimeLimit;
 use rlevo_reinforcement_learning::algorithms::ppg::policies::{
@@ -21,7 +22,6 @@ use rlevo_reinforcement_learning::algorithms::ppg::policies::{
 };
 use rlevo_reinforcement_learning::algorithms::ppg::ppg_agent::PpgAgent;
 use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfig;
-use rlevo_reinforcement_learning::algorithms::ppg::train::train_discrete;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
 
@@ -108,13 +108,8 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, 128, total, 32);
-    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
-        .expect("training");
-    let stats = agent.stats();
-    TrainOutcome {
-        avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
-    }
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
+    TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value))
 }
 
 #[test]
@@ -131,13 +126,12 @@ fn ppg_without_aux_phase_matches_ppo_baseline() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total, 10_000);
-    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
-        .expect("training");
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
     assert!(
         agent.last_aux_phase().is_none(),
         "aux phase should not have fired with n_iteration=10000"
     );
-    let avg = agent.stats().avg_score().unwrap_or(0.0);
+    let avg = TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value)).avg_score;
     assert!(
         avg >= 80.0,
         "expected avg reward >= 80 (PPO-parity), got {avg:.2}"
@@ -181,8 +175,7 @@ fn ppg_aux_phase_actually_runs() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total, n_iteration);
-    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
-        .expect("training");
+    train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
     assert!(
         agent.iteration() >= n_iteration,
         "should have completed at least n_iteration={n_iteration} policy phases, got {}",
@@ -242,21 +235,13 @@ fn ppg_cartpole_produces_finite_rewards() {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total, 4);
-    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, total, 0)
-        .expect("training");
-    let history = agent.stats().recent_history();
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
     assert_all_finite(
         "reward",
-        &history.iter().map(|m| m.reward).collect::<Vec<_>>(),
+        &TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value)).rewards,
     );
-    assert_all_finite(
-        "policy_loss",
-        &history.iter().map(|m| m.policy_loss).collect::<Vec<_>>(),
-    );
-    assert_all_finite(
-        "value_loss",
-        &history.iter().map(|m| m.value_loss).collect::<Vec<_>>(),
-    );
+    // Every loss stayed finite: no update was skipped for a non-finite one.
+    assert_eq!(agent.skipped_updates(), 0, "a loss went non-finite");
 }
 
 // ---------------------------------------------------------------------------
@@ -286,8 +271,7 @@ fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
     let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL, N_ITERATION);
-    train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(&mut agent, &mut env, &mut rng, TOTAL, 0)
-        .expect("training");
+    train(&mut env, &mut agent, TOTAL, usize::MAX, &mut rng).expect("training");
 
     // The run must actually reach the terminal iteration, or the regression
     // below is checking an interior aux phase that never had the bug.
@@ -395,33 +379,20 @@ rl_learning_test! {
 }
 
 // ---------------------------------------------------------------------------
-// Progress-logging cadence (log_every/num_steps divisibility)
+// Progress logging
 // ---------------------------------------------------------------------------
 //
-// PPG shares the PPO watermark, so this is the twin of
-// `ppo_progress_logs_when_log_every_does_not_divide_num_steps` in
-// `ppo_integration.rs`. The event-capture plumbing is shared via
-// `rlevo_test_support::capture::FieldCapture`.
-//
-// PPG is worth covering separately: its progress payload also reads the
-// auxiliary-phase result, which is loop-local and had to be hoisted so the
-// terminal line reports it rather than claiming `aux_ran = false`.
+// The TUI example's panels read the agent's per-update `tracing` event. This
+// pins that the event is reached once per update, at each rollout boundary,
+// and that a rollout the budget leaves unfinished logs nothing.
 
 #[test]
-fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
-    // The configuration that exposed the old cadence bug: `lcm(128, 100) =
-    // 3200`, so the old divisibility gate emitted ZERO lines for a run this
-    // short.
+fn ppg_logs_one_progress_line_per_update() {
     const NUM_STEPS: usize = 128;
-    const LOG_EVERY: usize = 100;
-    // Chosen so that no boundary of the run -- 128, 256, 384, 512, 640, 650 --
-    // is a multiple of `LOG_EVERY`. A total that happened to be a multiple of
-    // 100 would let the old gate fire on the terminal boundary by coincidence,
-    // making this test pass against the bug it exists to catch.
+    // Five whole rollouts, then a 10-step tail that never fills a sixth.
     const TOTAL: usize = 650;
     const SEED: u64 = 7;
-    // Small enough that the auxiliary phase actually fires during the run, so
-    // the hoisted `aux` is exercised rather than being `None` throughout.
+    // The auxiliary phase runs on every second update; it shares the update's line.
     const N_ITERATION: usize = 2;
 
     let _guard = flex_guard();
@@ -431,48 +402,8 @@ fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
         let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
         let mut rng = StdRng::seed_from_u64(SEED);
         let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL, N_ITERATION);
-        train_discrete::<_, _, _, _, CartPoleAction, 1, 2>(
-            &mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY,
-        )
-        .expect("training");
+        train(&mut env, &mut agent, TOTAL, usize::MAX, &mut rng).expect("training");
     });
 
-    let steps = capture.values();
-
-    // (1) The literal regression this test guards: zero lines under the old
-    // gate.
-    assert!(
-        !steps.is_empty(),
-        "a {TOTAL}-step PPG run with log_every = {LOG_EVERY} must emit at least one progress \
-         line, but emitted none (the old divisibility gate fired only on multiples of \
-         lcm({NUM_STEPS}, {LOG_EVERY}) = 3200)"
-    );
-
-    // (2) The terminal line: the run's final policy-phase stats must be
-    // reported even though the closing rollout is partial.
-    assert_eq!(
-        steps.last().copied(),
-        Some(TOTAL as u64),
-        "the final progress line must report the terminal step {TOTAL}, got {steps:?}"
-    );
-
-    // (3) Cadence: a boundary-gated logger cannot hit `log_every` exactly, but
-    // it must never fall a whole extra rollout behind it. The terminal line is
-    // exempt — it is deliberately early, by design.
-    let mut previous = 0_u64;
-    for &step in &steps[..steps.len() - 1] {
-        let gap = step - previous;
-        assert!(
-            gap >= LOG_EVERY as u64,
-            "progress lines must be at least log_every = {LOG_EVERY} steps apart, \
-             got a gap of {gap} at step {step} in {steps:?}"
-        );
-        assert!(
-            gap < (LOG_EVERY + NUM_STEPS) as u64,
-            "progress lines must never lag more than one rollout past log_every \
-             (< {}), got a gap of {gap} at step {step} in {steps:?}",
-            LOG_EVERY + NUM_STEPS
-        );
-        previous = step;
-    }
+    assert_eq!(capture.values(), vec![128, 256, 384, 512, 640]);
 }

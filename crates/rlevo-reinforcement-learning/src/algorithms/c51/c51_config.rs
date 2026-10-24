@@ -77,15 +77,15 @@ pub struct C51TrainingConfig {
     /// Maximum number of transitions retained in the replay buffer.
     ///
     /// Must be non-zero and at most
-    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY). The ceiling is not
+    /// `MAX_BUFFER_CAPACITY`. The ceiling is not
     /// a taste judgement: a misconfigured value (a unit slip, a `usize::MAX`
     /// sentinel) either aborts on a failed allocation or wraps the `SumTree`'s
-    /// node arithmetic. Both bounds are checked by [`UniformReplayConfig`],
+    /// node arithmetic. Both bounds are checked by `UniformReplayConfig`,
     /// which `validate` delegates to, and which shares its ceiling with
     /// `PrioritizedReplayConfig` so toggling
     /// [`prioritized_replay`](Self::prioritized_replay) cannot move the
     /// accept/reject boundary. See
-    /// [`MAX_BUFFER_CAPACITY`](crate::MAX_BUFFER_CAPACITY) for why `$2^{32}$`
+    /// `MAX_BUFFER_CAPACITY` for why `$2^{32}$`
     /// is the bound.
     pub replay_buffer_capacity: usize,
 
@@ -121,7 +121,7 @@ pub struct C51TrainingConfig {
     /// two differ by the per-sample target entropy `$H(\text{target})$` (Rainbow,
     /// "prioritize transitions by the KL loss, since this is what the algorithm
     /// is minimizing"; see
-    /// [`categorical_kl_per_sample`](crate::algorithms::c51::loss::categorical_kl_per_sample)).
+    /// `categorical_kl_per_sample`).
     ///
     /// **Literature-recommended exponent.** Rainbow pairs the KL priority with
     /// `$\omega = 0.5$` (its `priority_exponent` here), and reports performance is "very
@@ -135,7 +135,7 @@ pub struct C51TrainingConfig {
 impl C51TrainingConfig {
     /// Spacing between adjacent atoms: `$\left (v_{\max} - v_{\min} \right ) / \left ( \text{num_atoms} - 1 \right )$`.
     ///
-    /// Delegates to [`atom_spacing`] so the support this config builds and the
+    /// Delegates to `atom_spacing` so the support this config builds and the
     /// bin indices the categorical projection computes share one definition of
     /// `$\Delta z$` — an ULP of disagreement between the two is enough to push a
     /// scatter index off the end of the support.

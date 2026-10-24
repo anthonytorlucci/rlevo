@@ -77,11 +77,10 @@ Lives in core so `rlevo-evolution` (which implements it) and `rlevo-harness` (wh
 
 ### `fitness` — Evaluation & Fitness Traits
 
-The agent/landscape side of the benchmark harness, also hoisted into core per ADR 0004. (Note: the `BatchFitnessFn` evolutionary trait lives in `rlevo-evolution` per ADR 0002 — it is **not** in this crate.)
+The landscape side of the benchmark harness and the metric type, also hoisted into core per ADR 0004. (Note: the `BatchFitnessFn` evolutionary trait lives in `rlevo-evolution` per ADR 0002 — it is **not** in this crate.)
 
 | Trait / Type | Description |
 |---|---|
-| `BenchableAgent<Obs, Act>` | Minimal inference interface (`act`) for an externally-driven evaluator; deterministic given a harness-owned RNG |
 | `Landscape` | Self-evaluating numerical landscape (Sphere, Ackley, Rastrigin) carrying both parameters and `f(x)` |
 | `MetricsProvider` | Reports method-specific `Metric` values at trial boundaries |
 | `Metric` | Method-specific signal emitted by an agent or aggregator |
@@ -105,9 +104,14 @@ Small validated newtypes and helpers shared across config validation in environm
 | `Probability` / `ProbabilityError` | Validated `[0, 1]` newtype |
 | `NonNegativeRate` / `NonNegativeRateError` | Validated non-negative `f32` newtype (learning rates, decay rates, etc.) |
 
-### `agent` — Agent Traits (reserved)
+### `agent` — The Agent Seam
 
-Placeholder module reserved for a future unified agent trait hierarchy (`act` / `learn` / checkpoint). Empty while the unified agent trait hierarchy stabilizes — concrete algorithms currently live in `rlevo-reinforcement-learning` and `rlevo-evolution` and will migrate behind these traits once the API stabilizes.
+| Trait / Type | Description |
+|---|---|
+| `Agent<Obs, Act>` | What a driver steps: `act` is required; `on_transition`, `on_episode_end`, `set_training` and `emit_metrics` default to doing nothing, so a frozen policy is one method long |
+| `Transition<O, A>` | One step: `obs`, `action`, `reward`, `next_obs` and the environment's `status`, unchanged. A driver shows the borrowed form; a replay buffer stores an owned one |
+
+Every random draw an agent makes comes from the `rng` the driver passes, so a seed reproduces a run. The RL agents of `rlevo-reinforcement-learning` implement `Agent`, and `rlevo-harness` drives it.
 
 ### `render` — Rendering Abstractions
 
@@ -200,10 +204,9 @@ impl Environment<1, 1> for MyEnv {
 ### Replay Buffer
 
 Replay lives in `rlevo-reinforcement-learning`, not `rlevo-core` (per ADR 0003 —
-replay and metrics moved to where they are consumed). The replay-strategy
-seam is `rlevo_reinforcement_learning::replay` (ADR 0050): `ReplayStrategy`, the
-default `UniformReplay`, and the opt-in `PrioritizedReplay`. See that crate's
-README for the API and the config-level PER opt-in.
+replay moved to where it is consumed). The buffers are that crate's own
+(ADR 0095); an agent's config opts into prioritized replay with
+`PrioritizedReplaySettings`. See that crate's README.
 
 ## Academic References
 

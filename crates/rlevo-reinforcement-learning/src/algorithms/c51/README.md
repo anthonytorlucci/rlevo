@@ -13,13 +13,12 @@ optimizer) and adds:
 
 ## Modules
 
-- [`c51_agent`](c51_agent.rs) — `C51Agent`, `C51Metrics`, `C51AgentError`.
+- [`c51_agent`](c51_agent.rs) — `C51Agent` and its `Agent` impl.
 - [`c51_config`](c51_config.rs) — `C51TrainingConfig`, with all
   hyperparameters, including `num_atoms`, `v_min`, `v_max`.
 - [`projection`](projection.rs) — `project_distribution` (Algorithm 1,
   Bellemare et al. 2017) implemented via Burn's `scatter`.
 - [`loss`](loss.rs) — `categorical_cross_entropy_per_sample` free function.
-- [`train`](train.rs) — end-to-end collect-learn-sync loop.
 
 ## Implementing the network
 
