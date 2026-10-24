@@ -10,8 +10,8 @@
 //! Add a new metric by editing the table in `rlevo-metrics-registry`, not here.
 
 pub use rlevo_metrics_registry::{
-    CANONICAL_METRICS, Cadence, MetricDescriptor, MetricKind, Trend, descriptor, hint_for,
-    is_canonical_metric, is_per_generation, title_for, trend_for,
+    CANONICAL_METRICS, Cadence, MetricDescriptor, MetricKind, descriptor, is_canonical_metric,
+    is_per_generation, title_for,
 };
 
 #[cfg(test)]

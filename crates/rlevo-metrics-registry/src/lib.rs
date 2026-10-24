@@ -42,53 +42,6 @@ pub enum MetricKind {
     Shared,
 }
 
-/// How to read a metric's live curve — the framing a viewer needs to answer
-/// *"is a rising sparkline good news?"* at a glance.
-///
-/// This is deliberately **not** the optimiser's two-state objective sense
-/// (`rlevo_core::objective::ObjectiveSense`, `Minimize`/`Maximize`). Many RL
-/// training diagnostics — policy entropy, approximate KL, clip fraction — have
-/// no "better" direction at all: they are health signals with a *healthy
-/// range*, and forcing them into minimise/maximise would misinform. Hence the
-/// third [`Trend::Diagnostic`] state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Trend {
-    /// Up is progress — episode return, fitness, explained variance. A rising
-    /// sparkline means the agent/population is improving.
-    HigherIsBetter,
-    /// Down is progress — a loss the algorithm is actively driving toward zero
-    /// (value loss, TD loss). A falling sparkline is the intended behaviour.
-    LowerIsBetter,
-    /// No inherent "better" direction — a health signal to watch for a range or
-    /// stability, not to maximise or minimise (entropy, approx KL, clip
-    /// fraction, raw policy loss). Reading the [`MetricDescriptor::hint`]
-    /// matters more than the slope.
-    Diagnostic,
-}
-
-impl Trend {
-    /// A single-character glyph summarising the reading direction, for a
-    /// space-constrained panel title.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use rlevo_metrics_registry::Trend;
-    ///
-    /// assert_eq!(Trend::HigherIsBetter.glyph(), "↑");
-    /// assert_eq!(Trend::LowerIsBetter.glyph(), "↓");
-    /// assert_eq!(Trend::Diagnostic.glyph(), "•");
-    /// ```
-    #[must_use]
-    pub const fn glyph(self) -> &'static str {
-        match self {
-            Trend::HigherIsBetter => "↑",
-            Trend::LowerIsBetter => "↓",
-            Trend::Diagnostic => "•",
-        }
-    }
-}
-
 /// How often a metric is sampled, which decides whether the report applies a
 /// rolling-mean overlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -117,25 +70,6 @@ pub struct MetricDescriptor {
     pub title: &'static str,
     /// Optional unit suffix (e.g. `"steps/s"`), `None` when dimensionless.
     pub unit: Option<&'static str>,
-    /// How to read the live curve — see [`Trend`]. Defaults to
-    /// [`Trend::Diagnostic`] for rows that do not opt into a direction.
-    pub trend: Trend,
-    /// One-line interpretation a viewer can show beside the title
-    /// (e.g. `"rising = agent learning"`). Empty when the raw title says
-    /// enough on its own.
-    pub hint: &'static str,
-}
-
-impl MetricDescriptor {
-    /// Attach a [`Trend`] reading and an interpretation `hint`, consuming and
-    /// returning `self` so the [`CANONICAL_METRICS`] table stays a chain of
-    /// terse const expressions.
-    #[must_use]
-    const fn reads(mut self, trend: Trend, hint: &'static str) -> Self {
-        self.trend = trend;
-        self.hint = hint;
-        self
-    }
 }
 
 /// The canonical metric table, ordered for a stable report panel layout.
@@ -149,59 +83,47 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Policy loss",
-    )
-    .reads(Trend::Diagnostic, "noisy; watch reward, not this"),
+    ),
     d(
         "value_loss",
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Value loss",
-    )
-    .reads(Trend::LowerIsBetter, "falls as the critic fits returns"),
-    d("loss", MetricKind::Rl, Cadence::PerUpdate, "Loss")
-        .reads(Trend::Diagnostic, "combined objective; read components"),
+    ),
+    d("loss", MetricKind::Rl, Cadence::PerUpdate, "Loss"),
     d(
         "entropy",
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Policy entropy",
-    )
-    .reads(Trend::Diagnostic, "drifts down; collapse = premature"),
-    d("approx_kl", MetricKind::Rl, Cadence::PerUpdate, "Approx KL")
-        .reads(Trend::Diagnostic, "keep small & stable (~0.01–0.02)"),
+    ),
+    d("approx_kl", MetricKind::Rl, Cadence::PerUpdate, "Approx KL"),
     d(
         "clip_frac",
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Clip fraction",
-    )
-    .reads(Trend::Diagnostic, "small = updates within clip range"),
+    ),
     // ---- RL value/policy diagnostics (v6) ----
     d(
         "explained_variance",
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Explained variance",
-    )
-    .reads(
-        Trend::HigherIsBetter,
-        "→1 = value fits; <0 = worse than mean",
     ),
     d(
         "old_approx_kl",
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Approx KL (pre-update)",
-    )
-    .reads(Trend::Diagnostic, "keep small & stable (~0.01–0.02)"),
+    ),
     // ---- Per-iteration training stats (v6) ----
     d(
         "episode_return_mean",
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Episode return (mean)",
-    )
-    .reads(Trend::HigherIsBetter, "rising = agent learning"),
+    ),
     d(
         "episode_return_std",
         MetricKind::Rl,
@@ -239,8 +161,7 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
         Cadence::PerUpdate,
         "Throughput",
         "steps/s",
-    )
-    .reads(Trend::HigherIsBetter, "sampling speed; no learning signal"),
+    ),
     d(
         "learning_rate",
         MetricKind::Rl,
@@ -253,8 +174,7 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
         MetricKind::Shared,
         Cadence::PerEpisode,
         "Episode return",
-    )
-    .reads(Trend::HigherIsBetter, "higher = agent learning"),
+    ),
     du(
         "episode_length",
         MetricKind::Shared,
@@ -270,17 +190,12 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
         "s",
     ),
     // ---- DQN family (v6) ----
-    d("td_loss", MetricKind::Rl, Cadence::PerUpdate, "TD loss")
-        .reads(Trend::LowerIsBetter, "falls as Q fits the targets"),
+    d("td_loss", MetricKind::Rl, Cadence::PerUpdate, "TD loss"),
     d(
         "q_values",
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Q-values (mean)",
-    )
-    .reads(
-        Trend::Diagnostic,
-        "should track true returns; watch for blow-up",
     ),
     // ---- SAC family (v6) ----
     d(
@@ -288,15 +203,13 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Critic 1 loss",
-    )
-    .reads(Trend::LowerIsBetter, "falls as the critic fits"),
+    ),
     d(
         "qf2_loss",
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Critic 2 loss",
-    )
-    .reads(Trend::LowerIsBetter, "falls as the critic fits"),
+    ),
     d(
         "actor_loss",
         MetricKind::Rl,
@@ -335,22 +248,20 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
         "Update count",
         "updates",
     ),
-    // ---- Update health (#346, ADR 0072) ----
+    // ---- Update health (ADR 0072) ----
     // Placed last in the RL region, immediately after `n_updates`: the two are
     // literal complements (attempts beside skips), so the report renders their
     // panels adjacent, and appending here leaves every existing row's relative
     // order unchanged — panel layout stays byte-identical. It must stay inside
     // the RL region for `MetricKind` grouping to put it in the RL section.
+    // The count is cumulative: a flat line is healthy, and any rise means a
+    // non-finite loss discarded an update.
     du(
         "skipped_updates",
         MetricKind::Rl,
         Cadence::PerUpdate,
         "Skipped updates",
         "updates",
-    )
-    .reads(
-        Trend::LowerIsBetter,
-        "cumulative; flat = healthy, any rise = non-finite loss discarded an update",
     ),
     // ---- Evolution training stats (per generation) ----
     d(
@@ -358,29 +269,25 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
         MetricKind::Eo,
         Cadence::PerGeneration,
         "Best fitness",
-    )
-    .reads(Trend::HigherIsBetter, "rising = population improving"),
+    ),
     d(
         "mean_fitness",
         MetricKind::Eo,
         Cadence::PerGeneration,
         "Mean fitness",
-    )
-    .reads(Trend::HigherIsBetter, "rising = population improving"),
+    ),
     d(
         "worst_fitness",
         MetricKind::Eo,
         Cadence::PerGeneration,
         "Worst fitness",
-    )
-    .reads(Trend::HigherIsBetter, "rising = whole population lifts"),
+    ),
     d(
         "best_fitness_ever",
         MetricKind::Eo,
         Cadence::PerGeneration,
         "Best fitness (ever)",
-    )
-    .reads(Trend::HigherIsBetter, "monotone incumbent; never decreases"),
+    ),
 ];
 
 /// Const constructor for a unit-less descriptor — keeps the table terse.
@@ -396,8 +303,6 @@ const fn d(
         cadence,
         title,
         unit: None,
-        trend: Trend::Diagnostic,
-        hint: "",
     }
 }
 
@@ -415,8 +320,6 @@ const fn du(
         cadence,
         title,
         unit: Some(unit),
-        trend: Trend::Diagnostic,
-        hint: "",
     }
 }
 
@@ -464,46 +367,6 @@ pub fn title_for(name: &str) -> &str {
     match descriptor(name) {
         Some(d) => d.title,
         None => name,
-    }
-}
-
-/// How to read the metric's live curve, falling back to [`Trend::Diagnostic`]
-/// for names that are unregistered or opted out of a direction.
-///
-/// # Examples
-///
-/// ```rust
-/// use rlevo_metrics_registry::{trend_for, Trend};
-///
-/// assert_eq!(trend_for("episode_return"), Trend::HigherIsBetter);
-/// assert_eq!(trend_for("value_loss"), Trend::LowerIsBetter);
-/// assert_eq!(trend_for("approx_kl"), Trend::Diagnostic);
-/// assert_eq!(trend_for("not_a_metric"), Trend::Diagnostic);
-/// ```
-#[must_use]
-pub fn trend_for(name: &str) -> Trend {
-    match descriptor(name) {
-        Some(d) => d.trend,
-        None => Trend::Diagnostic,
-    }
-}
-
-/// One-line interpretation hint for a metric, or `""` when the title is
-/// self-explanatory or the name is unregistered.
-///
-/// # Examples
-///
-/// ```rust
-/// use rlevo_metrics_registry::hint_for;
-///
-/// assert_eq!(hint_for("episode_return"), "higher = agent learning");
-/// assert_eq!(hint_for("not_a_metric"), "");
-/// ```
-#[must_use]
-pub fn hint_for(name: &str) -> &'static str {
-    match descriptor(name) {
-        Some(d) => d.hint,
-        None => "",
     }
 }
 
@@ -577,22 +440,12 @@ mod tests {
     }
 
     #[test]
-    fn skipped_updates_is_an_rl_per_update_counter_read_lower_is_better() {
+    fn skipped_updates_is_an_rl_per_update_counter() {
         let d = descriptor("skipped_updates").expect("registered");
         assert_eq!(d.kind, MetricKind::Rl);
         assert_eq!(d.cadence, Cadence::PerUpdate);
         assert_eq!(d.unit, Some("updates"));
-        assert_eq!(d.trend, Trend::LowerIsBetter);
-        assert!(!d.hint.is_empty(), "d.hint must not be empty");
         assert!(!is_per_generation("skipped_updates"));
-        // The counter is cumulative, so a flat line reads as "healthy", not as
-        // "no data". Losing that word from the hint makes the panel
-        // unreadable — pin it.
-        assert!(
-            d.hint.contains("cumulative"),
-            "hint must say the counter is cumulative, got {:?}",
-            d.hint
-        );
     }
 
     #[test]
@@ -612,41 +465,5 @@ mod tests {
     fn title_falls_back_to_raw_name() {
         assert_eq!(title_for("policy_loss"), "Policy loss");
         assert_eq!(title_for("unknown_metric"), "unknown_metric");
-    }
-
-    #[test]
-    fn reward_family_reads_higher_is_better() {
-        for name in ["episode_return", "episode_return_mean", "best_fitness"] {
-            assert_eq!(trend_for(name), Trend::HigherIsBetter, "{name}");
-            assert!(!hint_for(name).is_empty(), "{name} should carry a hint");
-        }
-    }
-
-    #[test]
-    fn losses_read_lower_is_better_or_diagnostic() {
-        // A loss the algorithm actively drives down.
-        assert_eq!(trend_for("value_loss"), Trend::LowerIsBetter);
-        // PPO's raw policy loss is not a progress signal — kept diagnostic.
-        assert_eq!(trend_for("policy_loss"), Trend::Diagnostic);
-    }
-
-    #[test]
-    fn diagnostics_have_no_direction() {
-        for name in ["entropy", "approx_kl", "clip_frac"] {
-            assert_eq!(trend_for(name), Trend::Diagnostic, "{name}");
-        }
-    }
-
-    #[test]
-    fn unregistered_and_bare_rows_default_to_diagnostic_no_hint() {
-        assert_eq!(trend_for("not_a_metric"), Trend::Diagnostic);
-        assert_eq!(hint_for("not_a_metric"), "");
-    }
-
-    #[test]
-    fn glyphs_are_distinct_per_direction() {
-        assert_ne!(Trend::HigherIsBetter.glyph(), Trend::LowerIsBetter.glyph());
-        assert_ne!(Trend::HigherIsBetter.glyph(), Trend::Diagnostic.glyph());
-        assert_ne!(Trend::LowerIsBetter.glyph(), Trend::Diagnostic.glyph());
     }
 }
