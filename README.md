@@ -120,15 +120,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let snapshot = env.reset()?;
     println!("Initial observation: {:?}", snapshot.observation);
 
-    loop {
+    let status = loop {
         // Replace with your policy — here we sample a random action
         let index = rng.random_range(0..CartPoleAction::ACTION_COUNT);
         let snapshot = env.step(CartPoleAction::from_index(index))?;
 
         if snapshot.status.is_done() {
-            break;
+            break snapshot.status;
         }
-    }
+    };
+    println!("Episode over: {status:?}");
     Ok(())
 }
 ```

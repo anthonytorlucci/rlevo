@@ -1,0 +1,11 @@
+[package]
+name = "learner-1"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Keeps cargo from adopting the probe into a workspace above the scratch root.
+[workspace]
+
+# `xtask` appends the README Quick Start's `toml` block below, as written:
+# the dependencies a learner pastes. Step 2 reads them.

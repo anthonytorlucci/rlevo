@@ -6,7 +6,8 @@
 //! `cargo` invocation can observe (the scaffold, the dependency list, a
 //! build). The probe binary owns the steps that need its code to run, and
 //! reports them by label, never by number, so renumbering touches this file
-//! alone.
+//! alone. A listing copied from the documentation reports nothing: `xtask`
+//! reads its run from its exit status and a line it prints ([`LEARNER1`]).
 //!
 //! A build failure is reported at the step whose code failed. The probe is
 //! one crate, so one build cannot say which step broke; each step's code
@@ -21,7 +22,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -215,6 +216,30 @@ pub const BYOA1B: Walk = Walk {
     ],
 };
 
+/// Learner-1: a learner's walk, from an empty directory to a run of a
+/// listing in the documentation, copied as written.
+pub const LEARNER1: Walk = Walk {
+    prefix: "LEARNER-STEP",
+    steps: &[
+        SCAFFOLD,
+        ADD_DEPS,
+        Step {
+            label: "build-listing",
+            fatal: true,
+        },
+        Step {
+            label: "run-listing",
+            fatal: true,
+        },
+    ],
+    levels: &[Level {
+        feature: None,
+        step: "build-listing",
+        built: Some("the listing compiles as written"),
+        reports: &["run-listing"],
+    }],
+};
+
 /// A build level of the probe crate.
 #[derive(Debug)]
 pub struct Level {
@@ -249,12 +274,19 @@ pub enum Outcome {
 /// The walk's result: what each step found, by label.
 pub type Outcomes = BTreeMap<&'static str, Outcome>;
 
+/// The steps a probe binary reported, by label, in the order it printed them.
+type Reported = Vec<(String, Outcome)>;
+
 /// Take `walk` with the probe at `probe_dir`, whose graph has already
 /// resolved from the stage.
 ///
 /// `contract`, when given, is the base level's source file, relative to the
 /// probe, which must name nothing outside `rlevo::core`. A breach is
 /// reported at the base level's step.
+///
+/// `sentinel`, when given, means the binary is a listing that prints no step
+/// lines. The steps its levels report pass when it exits zero having printed
+/// a line that starts with `sentinel` on stdout.
 ///
 /// # Errors
 ///
@@ -267,6 +299,7 @@ pub fn run(
     binary: &str,
     resolved: &Resolved,
     contract: Option<&str>,
+    sentinel: Option<&str>,
 ) -> Result<Outcomes> {
     let mut outcomes = Outcomes::new();
     outcomes.insert(
@@ -323,7 +356,21 @@ pub fn run(
         let executable = target_dir
             .join("debug")
             .join(format!("{binary}{}", std::env::consts::EXE_SUFFIX));
-        let (status, reported) = run_binary(&executable, probe_dir)?;
+        let (ended, reported) = run_binary(&executable, probe_dir)?;
+        let status = describe(ended);
+        if let Some(sentinel) = sentinel {
+            let outcome = listing_outcome(
+                ended.is_some_and(|ended| ended.success()),
+                &status,
+                &fs::read_to_string(probe_dir.join("probe-stdout.log"))?,
+                &fs::read_to_string(probe_dir.join("probe-stderr.log"))?,
+                sentinel,
+            );
+            for label in expected {
+                outcomes.entry(label).or_insert_with(|| outcome.clone());
+            }
+            return Ok(outcomes);
+        }
         for (label, outcome) in reported {
             let Some(step) = walk.steps.iter().find(|step| step.label == label) else {
                 bail!("the probe reported a step this walk does not have: `{label}`");
@@ -466,8 +513,8 @@ fn first_error(messages: &str) -> Option<String> {
 ///
 /// Its streams go to files beside the probe, which a kept run keeps. The
 /// binary is killed at [`RUN_LIMIT`]: a defect in a probe must fail the run,
-/// and a hang reads as flake.
-fn run_binary(executable: &Path, probe_dir: &Path) -> Result<(String, Vec<(String, Outcome)>)> {
+/// and a hang reads as flake. The exit status is `None` when it was killed.
+fn run_binary(executable: &Path, probe_dir: &Path) -> Result<(Option<ExitStatus>, Reported)> {
     let log = probe_dir.join("probe-stderr.log");
     let mut child = Command::new(executable)
         .current_dir(probe_dir)
@@ -479,14 +526,14 @@ fn run_binary(executable: &Path, probe_dir: &Path) -> Result<(String, Vec<(Strin
         .with_context(|| format!("could not start {}", executable.display()))?;
 
     let started = Instant::now();
-    let status = loop {
+    let ended = loop {
         if let Some(status) = child.try_wait()? {
-            break format!("it exited with {status}");
+            break Some(status);
         }
         if started.elapsed() > RUN_LIMIT {
             child.kill()?;
             child.wait()?;
-            break format!("it was killed after {} s", RUN_LIMIT.as_secs());
+            break None;
         }
         thread::sleep(Duration::from_millis(50));
     };
@@ -494,7 +541,39 @@ fn run_binary(executable: &Path, probe_dir: &Path) -> Result<(String, Vec<(Strin
         .lines()
         .filter_map(parse_step_line)
         .collect();
-    Ok((status, reported))
+    Ok((ended, reported))
+}
+
+/// How the binary ended, in words.
+fn describe(ended: Option<ExitStatus>) -> String {
+    ended.map_or_else(
+        || format!("it was killed after {} s", RUN_LIMIT.as_secs()),
+        |status| format!("it exited with {status}"),
+    )
+}
+
+/// A listing's run: it must exit zero and print a line that starts with
+/// `sentinel`. Exit zero alone would pass a program that printed a usage
+/// banner and did nothing. A failure carries the last line on stderr, where
+/// a `main` that returns an error prints it.
+fn listing_outcome(
+    exited_zero: bool,
+    status: &str,
+    stdout: &str,
+    stderr: &str,
+    sentinel: &str,
+) -> Outcome {
+    let printed = stdout.lines().find(|line| line.starts_with(sentinel));
+    match (exited_zero, printed) {
+        (true, Some(line)) => Outcome::Pass(format!("it exited zero and printed `{line}`")),
+        (true, None) => Outcome::Fail(format!(
+            "it exited zero and printed no line starting `{sentinel}`"
+        )),
+        (false, _) => match stderr.lines().rev().find(|line| !line.trim().is_empty()) {
+            Some(last) => Outcome::Fail(format!("{status}: {last}")),
+            None => Outcome::Fail(status.to_string()),
+        },
+    }
 }
 
 /// Parse `PROBE-STEP <label> <PASS|FAIL> :: <detail>`.
@@ -592,6 +671,54 @@ mod tests {
         assert_eq!(parse_step_line("INFO trial 0 finished"), None);
         assert_eq!(parse_step_line("PROBE-STEP run-suite MAYBE :: x"), None);
         assert_eq!(parse_step_line("PROBE-STEP run-suite PASS"), None);
+    }
+
+    #[test]
+    fn test_a_listing_that_exits_zero_and_prints_the_sentinel_passes() {
+        assert_eq!(
+            listing_outcome(
+                true,
+                "it exited with exit status: 0",
+                "start\nEpisode over: Terminated\n",
+                "",
+                "Episode over: "
+            ),
+            Outcome::Pass("it exited zero and printed `Episode over: Terminated`".to_string())
+        );
+    }
+
+    #[test]
+    fn test_a_listing_that_exits_zero_without_the_sentinel_fails() {
+        assert_eq!(
+            listing_outcome(
+                true,
+                "it exited with exit status: 0",
+                "usage: quickstart\n",
+                "",
+                "Episode over: "
+            ),
+            Outcome::Fail(
+                "it exited zero and printed no line starting `Episode over: `".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_a_listing_that_fails_carries_its_last_stderr_line() {
+        assert_eq!(
+            listing_outcome(
+                false,
+                "it exited with exit status: 1",
+                "Episode over: Terminated\n",
+                "warning\nError: bad config\n\n",
+                "Episode over: "
+            ),
+            Outcome::Fail("it exited with exit status: 1: Error: bad config".to_string())
+        );
+        assert_eq!(
+            listing_outcome(false, "it was killed after 300 s", "", "", "Episode over: "),
+            Outcome::Fail("it was killed after 300 s".to_string())
+        );
     }
 
     #[test]
