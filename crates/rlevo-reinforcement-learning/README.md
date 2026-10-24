@@ -4,9 +4,14 @@
 
 Deep reinforcement learning algorithms for the `rlevo` workspace.
 
-This crate ports the [CleanRL](https://github.com/vwxyzjn/cleanrl) algorithm set into Rust using the [Burn](https://burn.dev) deep learning framework. The design follows CleanRL's *single-file-per-algorithm* pedagogical model: each algorithm lives under `src/algorithms/<algo>/` and its training loop is a linear, readable `train.rs` function. That being said, `rlevo` embraces the DRY (do not repeat yourself) paradigm and abstracts concepts wherever possible.
+This crate ports the [CleanRL](https://github.com/vwxyzjn/cleanrl) algorithm set into Rust using the [Burn](https://burn.dev) deep learning framework. The design follows CleanRL's *single-file-per-algorithm* pedagogical model: each algorithm lives under `src/algorithms/<algo>/`. That being said, `rlevo` embraces the DRY (do not repeat yourself) paradigm and abstracts concepts wherever possible: every agent implements `rlevo_core::agent::Agent`, so one loop drives all eight.
 
 All algorithms operate over the `rlevo-core` environment and agent abstractions. An agent takes the Burn `Device` you build and trains on its autodiff form, so the same code runs on `flex` (CPU, bit-deterministic) and `wgpu` (GPU, within `1e-5` relative tolerance). This crate selects neither: through the `rlevo` umbrella, the `flex` (default) or `wgpu` feature does, and depending on this crate directly you add `burn` with a backend feature yourself (this crate turns on Burn's `optim`, which brings `autodiff`).
+
+
+### Training an agent
+
+A driver steps an agent through `Agent`: `act` for each step, `on_transition` to show it what happened, `on_episode_end` when an episode ends, and `set_training` to switch exploration and learning on or off. The harness has two drivers. `rlevo::harness::evaluator::train(&mut env, &mut agent, steps, max_steps, &mut rng)` trains an agent you keep, and returns the episodes it completed. `Evaluator::run_suite` with `EvaluatorConfig::train_steps` set trains a fresh agent per trial, then evaluates it. The six off-policy agents also keep `remember` and `learn_step` public, for a caller that paces learning itself.
 
 ---
 
@@ -26,7 +31,6 @@ Key components:
 | `dqn_model.rs` | `DqnModel` Burn `Module` trait, shared with C51 and QR-DQN at output rank 3; the default networks `MlpQNetwork` and `MlpDistributionalQ` |
 | `dqn_agent.rs` | `DqnAgent` — `act` / `remember` / `learn_step` |
 | `exploration.rs` | `EpsilonGreedy` schedule (shared with C51, QR-DQN) |
-| `train.rs` | End-to-end training loop |
 
 Default hyperparameters match the Nature DQN paper:
 
@@ -64,7 +68,6 @@ Key components:
 | `c51_agent.rs` | `C51Agent` — `act` / `remember` / `learn_step` |
 | `projection.rs` | `project_distribution` — Bellman projection onto atom support |
 | `loss.rs` | `categorical_cross_entropy_per_sample` loss |
-| `train.rs` | End-to-end training loop |
 
 Distributional-specific hyperparameters:
 
@@ -96,7 +99,6 @@ Key components:
 | `qrdqn_config.rs` | `QrDqnTrainingConfig` |
 | `qrdqn_agent.rs` | `QrDqnAgent` — `act` / `remember` / `learn_step` |
 | `quantile_loss.rs` | `quantile_huber_loss_per_sample` |
-| `train.rs` | End-to-end training loop |
 
 Distributional-specific hyperparameters:
 
@@ -140,7 +142,6 @@ Key components:
 | `rollout.rs` | `RolloutBuffer` + free `compute_gae` |
 | `losses.rs` | `clipped_surrogate`, `clipped_value_loss`, `approx_kl`, `clip_fraction` |
 | `ppo_agent.rs` | `PpoAgent` — `act`, `record_step`, `finalize_rollout`, `update` |
-| `train.rs` | `train_discrete` / `train_continuous` entry points |
 
 Default hyperparameters follow CleanRL's `ppo.py`:
 
@@ -205,7 +206,6 @@ Key components:
 | `aux_buffer.rs` | `AuxRolloutBuffer` accumulating rollouts between auxiliary phases |
 | `losses.rs` | `policy_kl_categorical` — behavioural-cloning / KL distillation loss (the value losses are PPO's) |
 | `ppg_agent.rs` | `PpgAgent` — policy-phase + auxiliary-phase updates |
-| `train.rs` | End-to-end training loop |
 
 The PPG-specific hyperparameters layer on top of PPO's defaults:
 
@@ -237,7 +237,6 @@ Key components:
 | `ddpg_model.rs` | `DeterministicPolicy` actor trait + `ContinuousQ` critic trait; the default networks `MlpActor` and `MlpCritic` |
 | `exploration.rs` | `GaussianNoise` (shared with TD3) |
 | `ddpg_agent.rs` | `DdpgAgent` — `act` / `remember` / `learn_step` |
-| `train.rs` | End-to-end collect-learn loop with warm-up |
 
 Default hyperparameters follow CleanRL:
 
@@ -274,7 +273,6 @@ Key components:
 | `td3_model.rs` | Re-exports `DeterministicPolicy` + `ContinuousQ` from `ddpg::ddpg_model` |
 | `target_smoothing.rs` | `smoothed_target_action` — clipped Gaussian noise on target actor |
 | `td3_agent.rs` | `Td3Agent` — twin critics + delayed actor update |
-| `train.rs` | End-to-end collect-learn loop |
 
 TD3 inherits DDPG's defaults and adds target-smoothing parameters:
 
@@ -306,7 +304,6 @@ Key components:
 | `sac_policy.rs` | `SquashedGaussianPolicyHead` stochastic actor |
 | `sac_alpha.rs` | `LogAlpha` — learnable log-temperature with auto-tuning toward `target_entropy` |
 | `sac_agent.rs` | `SacAgent` — twin-critic updates + entropy-regularised actor loss |
-| `train.rs` | End-to-end collect-learn loop |
 
 Default hyperparameters follow CleanRL:
 
@@ -401,17 +398,6 @@ assert!(cfg.prioritized_replay.is_some());
 Prioritized Experience Replay follows the algorithm of Schaul et al.:
 
 > T. Schaul, J. Quan, I. Antonoglou, and D. Silver, "Prioritized experience replay," in Proc. Int. Conf. Learn. Represent. (ICLR), 2016. [arXiv:1511.05952](https://arxiv.org/abs/1511.05952)
-
-### Performance Tracking (`metrics`)
-
-Episode-level outcome tracking for training loops. Moved here from `rlevo-core` per ADR 0003.
-
-| Item | Description |
-|------|-------------|
-| `PerformanceRecord` | Per-episode outcome: `score() -> f32`, `duration() -> usize` |
-| `AgentStats<T>` | Running counters (`total_episodes`, `total_steps`, `best_score`) with a configurable sliding-window average (`avg_score`) |
-| `AgentStats::finite_avg_score` | The same window average over its **finite** entries only, paired with `non_finite_recent_len` (the count of what was excluded). `avg_score` deliberately transits a `NaN`/$\pm\infty$ score as a detection channel (ADR 0065, Decision 4); reach for this pair when *reporting* a curve rather than *detecting* a problem (ADR 0070) |
-| `AgentStats::finite_best_score` | The **lifetime** best score over `is_finite()` episodes only (`None` until something finite is recorded), paired with `non_finite_episodes` — a **monotone lifetime** count that never heals, deliberately unlike the windowed, self-healing `non_finite_recent_len`. `best_score` latches a $+\infty$ score **permanently** by decision: `f32::max` discards a `NaN` operand but propagates $+\infty$, and the best is never evicted by the window. It is left that way because $+\infty$ *is* the true maximum observed — filtering under that name would report a number the run contradicts (ADR 0061, ADR 0071) |
 
 ---
 

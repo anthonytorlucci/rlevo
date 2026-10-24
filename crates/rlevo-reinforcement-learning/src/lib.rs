@@ -9,12 +9,12 @@
 //!
 //! - [`algorithms::dqn`] — Deep Q-Network: config, model trait, and agent.
 //! - [`algorithms::c51`] — Categorical DQN (distributional): config, model
-//!   trait, categorical projection, agent, and training loop.
+//!   trait, categorical projection, and agent.
 //! - [`algorithms::qrdqn`] — Quantile Regression DQN (distributional):
-//!   config, model trait, quantile Huber loss, agent, and training loop.
+//!   config, model trait, quantile Huber loss, and agent.
 //! - [`algorithms::ppo`] — Proximal Policy Optimization (on-policy
 //!   policy-gradient): config, policy/value traits, tanh-Gaussian + categorical
-//!   built-in heads, rollout buffer with GAE, and training loop.
+//!   built-in heads, and rollout buffer with GAE.
 //! - [`algorithms::ppg`] — Phasic Policy Gradient (on-policy with an auxiliary
 //!   phase): extends PPO with a periodic auxiliary phase that retrains the
 //!   value function plus an auxiliary value head on the policy network,
@@ -97,7 +97,7 @@ pub mod algorithms {
     pub use shared::Slot;
 
     /// Shared test scaffolding for the truncation-vs-termination bootstrap
-    /// guard in the six off-policy `train` loops.
+    /// guard in the six off-policy agents.
     #[cfg(test)]
     pub(crate) mod bootstrap_mask;
 
@@ -108,7 +108,6 @@ pub mod algorithms {
         pub mod dqn_config;
         pub mod dqn_model;
         pub mod exploration;
-        pub mod train;
     }
 
     pub mod c51 {
@@ -118,7 +117,6 @@ pub mod algorithms {
         pub mod c51_config;
         pub mod loss;
         pub mod projection;
-        pub mod train;
     }
 
     pub mod qrdqn {
@@ -127,7 +125,6 @@ pub mod algorithms {
         pub mod qrdqn_agent;
         pub mod qrdqn_config;
         pub mod quantile_loss;
-        pub mod train;
     }
 
     pub mod ppo {
@@ -140,7 +137,6 @@ pub mod algorithms {
         pub mod ppo_policy;
         pub mod ppo_value;
         pub mod rollout;
-        pub mod train;
     }
 
     pub mod ddpg {
@@ -158,7 +154,6 @@ pub mod algorithms {
         pub mod ddpg_config;
         pub mod ddpg_model;
         pub mod exploration;
-        pub mod train;
     }
 
     pub mod td3 {
@@ -179,7 +174,6 @@ pub mod algorithms {
         pub mod td3_agent;
         pub mod td3_config;
         pub mod td3_model;
-        pub mod train;
     }
 
     pub mod sac {
@@ -199,7 +193,6 @@ pub mod algorithms {
         pub mod sac_config;
         pub mod sac_model;
         pub mod sac_policy;
-        pub mod train;
     }
 
     pub mod ppg {
@@ -218,11 +211,9 @@ pub mod algorithms {
         pub mod ppg_agent;
         pub mod ppg_config;
         pub mod ppg_policy;
-        pub mod train;
     }
 }
 
-pub mod metrics;
 pub mod replay;
 pub mod target;
 pub mod utils;

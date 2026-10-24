@@ -3,11 +3,9 @@
 //! The agent owns the policy network, value network, a pair of Adam
 //! optimizers (one per network), a CPU-resident
 //! [`RolloutBuffer`], and the
-//! configuration. Call [`PpoAgent::act`] to sample one action, then push the
-//! same-step data into the buffer via [`PpoAgent::record_step`]. Call
-//! [`PpoAgent::finalize_rollout`] at rollout end and
-//! [`PpoAgent::update`] to run the PPO optimization epochs. The full loop is
-//! assembled in [`crate::algorithms::ppo::train`].
+//! configuration. It implements [`Agent`] for its two shipped heads, through
+//! which a driver steps it: each training step records the sample `act` drew,
+//! and a full rollout is finished and used to update both networks.
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
@@ -16,136 +14,24 @@ use rlevo_core::action::{ContinuousAction, DiscreteAction};
 use rlevo_core::agent::{Agent, Transition};
 
 use crate::algorithms::shared::{FiniteLossGuard, Slot};
-use crate::metrics::{AgentStats, PerformanceRecord};
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 
-use crate::algorithms::ppo::policies;
 use crate::algorithms::ppo::losses::{
     approx_kl, clip_fraction, clipped_surrogate, clipped_value_loss, explained_variance,
     normalize_advantages, old_approx_kl, unclipped_value_loss,
 };
+use crate::algorithms::ppo::policies;
 use crate::algorithms::ppo::ppo_config::{PpoTrainingConfig, annealed_learning_rate};
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
 use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 
-/// Error variants returned by [`PpoAgent`] operations.
-///
-/// This enum is deliberately one variant wide. The PPO train loop
-/// ([`crate::algorithms::ppo::train`]) surfaces exactly one failure — an
-/// environment `reset`/`step` that returns `Err` — so the enum carries exactly
-/// one variant, [`Environment`](PpoAgentError::Environment), constructed at the
-/// single `env_error` helper in that module. This is the same shape, and the
-/// same reasoning, as
-/// [`ReplayBufferError`](crate::replay::ReplayBufferError) one layer down: the
-/// width of an error enum is the number of ways its owner can actually fail,
-/// not the number of ways one might imagine it failing.
-///
-/// # Why there is no tensor-conversion variant
-///
-/// This enum previously carried `TensorConversionFailed(String)`, which nothing
-/// ever constructed and nothing could. The agent's host-reading methods have no
-/// error channel by signature: [`PpoAgent::act`] returns a bare [`ActOutcome`]
-/// and [`PpoAgent::act_greedy_env_row_with`] returns `Vec<f32>`. Neither is a
-/// `Result`, so a failing host-read has nowhere to go. Those reads use the
-/// `.expect("<named invariant>")` form that `docs/rules.md` §4 sanctions for a
-/// host-read that cannot fail by construction — the tensor being read is one
-/// the same function just built on the same device.
-///
-/// Making those signatures fallible would resolve this (see ADR 0057, which
-/// resolved the off-policy half and left `act` and the on-policy agents
-/// panic-based as the explicit residual). When that lands, the variant returns
-/// carrying a structured payload, **not** a `String`. The Error Handling
-/// section of `docs/rules.md` prefers structured variants over string-based
-/// errors, so re-adding a `String` payload would reintroduce the smell along
-/// with the variant.
-///
-/// # Why there is no config variant
-///
-/// This enum previously carried `InvalidConfig(String)`, duplicating a job
-/// another type already does. [`PpoAgent::new`] validates its
-/// [`PpoTrainingConfig`] through [`Validate`] and returns `Result<Self, E>`
-/// with `E` = [`rlevo_core::config::ConfigError`], so an inconsistent setting —
-/// `num_minibatches == 0`, say — is rejected *before* an agent exists. No
-/// `PpoAgent` can be holding a config bad enough to produce this variant,
-/// because such a config never yields a `PpoAgent`. (The deleted variant's own
-/// doc cited `minibatch_size > batch_size`, a state that cannot arise:
-/// [`PpoTrainingConfig::minibatch_size`] is *derived* from `num_steps`,
-/// `num_envs`, and `num_minibatches` and floored at `1`.)
-///
-/// # Why there is no I/O variant
-///
-/// This enum previously carried `Io(#[from] std::io::Error)` for "saving or
-/// loading model weights". No such code exists: nothing under
-/// [`crate::algorithms`] defines a `save`, a `load`, a `Recorder`, or touches
-/// `std::fs`. ADR 0014 defers checkpointing and resume-from-checkpoint to
-/// Tier D. The variant returns with the feature that needs it, not before.
-///
-/// # Known limitation: the `Environment` payload is a `String`
-///
-/// The surviving variant carries a `String` where
-/// [`rlevo_core::environment::EnvironmentError`] is the domain type;
-/// `docs/rules.md` §4 would prefer `Environment(#[from] EnvironmentError)`.
-/// `train.rs` currently calls `err.to_string()`, discarding the structured
-/// error and its [`source`](std::error::Error::source) chain. This is a known
-/// gap that scopes the same fix across all eight algorithms — it is a
-/// breaking change to the payload type and is deliberately out of scope
-/// here. Do not read the `String` as endorsed.
-///
-/// # Adding a variant
-///
-/// The enum is `#[non_exhaustive]`, so adding a variant later is not a breaking
-/// change and downstream `match` expressions must already carry a wildcard arm.
-/// The bar for adding one is a real construction site — an anticipated failure
-/// mode is what the three sections above exist to keep out.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum PpoAgentError {
-    /// Env-side failure surfaced through the train loop.
-    #[error("Environment error: {0}")]
-    Environment(String),
-}
-
-/// Per-episode statistics emitted by the PPO training loop.
-///
-/// Implements [`PerformanceRecord`] so it accumulates into
-/// [`AgentStats`]: `score` returns the episode reward and `duration` the
-/// step count.
-#[derive(Debug, Clone, Copy)]
-pub struct PpoMetrics {
-    /// Total reward collected during the episode.
-    pub reward: f32,
-    /// Number of environment steps taken.
-    pub steps: usize,
-    /// Most recent mean clipped-surrogate policy loss.
-    pub policy_loss: f32,
-    /// Most recent mean value-function loss.
-    pub value_loss: f32,
-    /// Most recent mean policy entropy.
-    pub entropy: f32,
-    /// Most recent approx-KL between old and new policies.
-    pub approx_kl: f32,
-    /// Most recent clip fraction (share of ratios outside `$[1 - \epsilon, 1 + \epsilon]$`).
-    pub clip_frac: f32,
-    /// Current learning rate (after annealing).
-    pub learning_rate: f32,
-}
-
-impl PerformanceRecord for PpoMetrics {
-    fn score(&self) -> f32 {
-        self.reward
-    }
-    fn duration(&self) -> usize {
-        self.steps
-    }
-}
-
 /// Single-step output used by the rollout loop to step the env and push into
 /// the buffer.
 #[derive(Debug, Clone)]
-pub struct ActOutcome {
+pub(crate) struct ActOutcome {
     /// Pre-squash (Gaussian) or raw-index (Categorical) action
     /// representation — the form stored in the rollout buffer.
     pub raw_row: Vec<f32>,
@@ -154,40 +40,14 @@ pub struct ActOutcome {
     pub env_row: Vec<f32>,
     /// Log-prob of the sampled action under the sampling policy.
     pub log_prob: f32,
-    /// Entropy of the sampling policy at this observation.
-    pub entropy: f32,
     /// Value-network prediction `V(s)` used as the bootstrap.
     pub value: f32,
 }
 
-/// Summary of one PPO update (across all epochs and minibatches).
-///
-/// # Why `#[non_exhaustive]` on a struct
-///
-/// ADR 0055 §5 reserves `#[non_exhaustive]` for enums, because on a struct it forbids
-/// cross-crate `..Default::default()` and buys no validation guarantee. This
-/// type is the documented exception, on the same reasoning ADR 0060 §4 used to
-/// close `ConstraintKind` *now* rather than later: the break is free today and
-/// one-way tomorrow.
-///
-/// The two premises the rule rests on both fail here. First, this is a
-/// **report-only** type — it is produced by [`PpoAgent::update`] and read by a
-/// training loop; nobody outside this crate constructs one to configure
-/// anything, so the "tuning idiom" the rule protects does not apply. Second,
-/// the `..Default::default()` escape hatch that `#[non_exhaustive]` would
-/// remove did not exist before this change: the type had no [`Default`], and
-/// the two in-workspace placeholder sites spelled out all nine fields by hand.
-/// This change adds the [`Default`] impl at the same time, so `#[non_exhaustive]`
-/// removes nothing and the placeholders shrink to `PpoUpdateStats::default()`.
-///
-/// The concrete purchase: adding `max_log_std` here would otherwise be a
-/// breaking change to every downstream struct literal, and so would the next
-/// diagnostic. A metrics record grows — pinning it closed on the assumption
-/// that it will not is how a report type becomes the reason a diagnostic ships
-/// a major version late.
+/// Summary of one PPO update (across all epochs and minibatches), which the
+/// [`Agent`] impl logs.
 #[derive(Debug, Clone, Copy)]
-#[non_exhaustive]
-pub struct PpoUpdateStats {
+pub(crate) struct PpoUpdateStats {
     /// Mean clipped-surrogate loss across minibatches.
     pub policy_loss: f32,
     /// Mean value-function loss across minibatches.
@@ -240,32 +100,6 @@ pub struct PpoUpdateStats {
     pub max_log_std: Option<f32>,
 }
 
-impl Default for PpoUpdateStats {
-    /// The neutral placeholder: every diagnostic zero, both `$\log \sigma$` extrema
-    /// absent.
-    ///
-    /// Used by the training loops for the pre-first-update value of
-    /// `last_update_stats`, where no update has run yet and there is nothing to
-    /// report. `None` — rather than a fabricated `0.0` — is the honest reading
-    /// for both extrema, and it matches what a categorical policy reports
-    /// forever. Adding a field to [`PpoUpdateStats`] therefore does not
-    /// touch those call sites.
-    fn default() -> Self {
-        Self {
-            policy_loss: 0.0,
-            value_loss: 0.0,
-            entropy: 0.0,
-            approx_kl: 0.0,
-            old_approx_kl: 0.0,
-            clip_frac: 0.0,
-            explained_variance: 0.0,
-            epochs_run: 0,
-            min_log_std: None,
-            max_log_std: None,
-        }
-    }
-}
-
 /// Proximal Policy Optimization agent.
 ///
 /// # Const generics
@@ -277,7 +111,7 @@ impl Default for PpoUpdateStats {
 ///
 /// The policy and value networks live in [`Slot`]s because Burn's
 /// `ModuleOptimizer::step` consumes the module by value. Every fallible operation in
-/// [`update`](Self::update) — the forward pass, the losses, `backward`, and
+/// `update` — the forward pass, the losses, `backward`, and
 /// `GradientsParams::from_grads` — runs on a borrow, so a panic there leaves
 /// both networks intact and the agent usable. Only a panic *inside* the
 /// optimizer step itself poisons a slot; that window is irreducible and
@@ -301,7 +135,6 @@ where
     iteration: usize,
     total_iterations: usize,
     step: usize,
-    stats: AgentStats<PpoMetrics>,
     /// Non-finite-loss guard for the policy-loss site (ADR 0056). Skips
     /// the update on every occurrence; the `warn!` escalates by decades — skips
     /// 1, 10, 100, … — each carrying the running total (ADR 0072 §1), readable
@@ -318,6 +151,10 @@ where
     /// The sample [`Agent::act`] drew while training, which
     /// [`Agent::on_transition`] then records with the step it produced.
     pending: Option<ActOutcome>,
+    /// The next observation of the rollout's last step while that step
+    /// leaves its episode `Running`, kept so the step can still be truncated
+    /// if the driver ends the episode there; see `close_open_step`.
+    continuation: Option<O>,
 }
 
 impl<P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug for PpoAgent<P, V, O, OR, BOR>
@@ -424,12 +261,12 @@ where
         };
 
         let buffer = RolloutBuffer::new(capacity, action_dim);
-        let stats = AgentStats::<PpoMetrics>::new(100);
 
         Ok(Self {
             training: true,
 
             pending: None,
+            continuation: None,
             policy: Slot::new(policy),
             value: Slot::new(value),
             policy_optim,
@@ -441,7 +278,6 @@ where
             iteration: 0,
             total_iterations,
             step: 0,
-            stats,
             policy_loss_guard: FiniteLossGuard::new("ppo/policy_loss"),
             value_loss_guard: FiniteLossGuard::new("ppo/value_loss"),
         })
@@ -469,7 +305,7 @@ where
 
     /// Number of **policy** gradient updates skipped for a non-finite loss.
     ///
-    /// Counted per *minibatch*, not per [`update`](Self::update) — see
+    /// Counted per *minibatch*, not per `update` — see
     /// [`skipped_updates`](Self::skipped_updates) for the unit and for the
     /// attempts-vs-skips relationship.
     #[must_use]
@@ -505,7 +341,7 @@ where
     ///
     /// This is where PPO differs from the off-policy agents, whose guards fire once per learn step.
     /// PPO's guards sit **inside** the `$\text{update\_epochs} \times \text{num\_minibatches}$`
-    /// loop of [`update`](Self::update), so a single `update` call can contribute up to that many
+    /// loop of `update`, so a single `update` call can contribute up to that many
     /// skips per site. Over a run these counters therefore accumulate against
     /// `$\text{iteration}() \times \text{update\_epochs} \times \text{num\_minibatches}$`, not
     /// against `iteration()`. Normalize by that product before comparing this agent's skip rate to
@@ -528,11 +364,11 @@ where
     /// (ADR 0056, ADR 0072). The subtraction can never underflow, because every
     /// skip is first counted as an attempt.
     ///
-    /// # Relationship to the healthy counts behind [`PpoUpdateStats`]
+    /// # Relationship to the healthy counts behind `PpoUpdateStats`
     ///
-    /// [`update`](Self::update) keeps its own per-call `policy_healthy` /
+    /// `update` keeps its own per-call `policy_healthy` /
     /// `value_healthy` minibatch counts and uses them as the **denominators**
-    /// for the two gated means it reports in [`PpoUpdateStats`], so that a
+    /// for the two gated means it reports in `PpoUpdateStats`, so that a
     /// skipped minibatch cannot re-poison `policy_loss` / `value_loss`
     /// (ADR 0056 §3). Those are per-`update`, live only for the duration
     /// of the call, and answer "what did this update apply?". These accessors
@@ -544,16 +380,6 @@ where
     pub const fn skipped_updates(&self) -> u64 {
         self.skipped_policy_updates()
             .saturating_add(self.skipped_value_updates())
-    }
-
-    /// Running per-episode statistics.
-    pub fn stats(&self) -> &AgentStats<PpoMetrics> {
-        &self.stats
-    }
-
-    /// Records a completed episode into the running stats.
-    pub fn record_episode(&mut self, metrics: PpoMetrics) {
-        self.stats.record(metrics);
     }
 
     /// Immutable access to the current config.
@@ -604,7 +430,7 @@ where
     /// Panics if the policy or value network was lost to a panic inside an
     /// earlier optimizer step. Such an agent is poisoned and must be rebuilt —
     /// see [`Slot`].
-    pub fn act(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
+    fn sample(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
         let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
         let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
 
@@ -614,7 +440,6 @@ where
         let env_row = self.policy().raw_to_env_row(&raw_row);
 
         let log_prob = sample.log_prob.into_scalar::<f32>();
-        let entropy = sample.entropy.into_scalar::<f32>();
 
         // Value forward on a fresh copy of the obs tensor.
         let value_raw: Tensor<OR> = obs.to_tensor(&self.device);
@@ -625,7 +450,6 @@ where
             raw_row,
             env_row,
             log_prob,
-            entropy,
             value,
         }
     }
@@ -653,6 +477,7 @@ where
             old_approx_kl = stats.old_approx_kl,
             clip_frac = stats.clip_frac,
             explained_variance = stats.explained_variance,
+            epochs_run = stats.epochs_run,
             min_log_std = ?stats.min_log_std,
             max_log_std = ?stats.max_log_std,
             // Cumulative over both loss sites and counted per minibatch (ADR
@@ -683,7 +508,7 @@ where
     /// was lost to a panic inside an earlier optimizer step — the bootstrap
     /// forward reads it. Such an agent is poisoned and must be rebuilt — see
     /// [`Slot`].
-    pub fn record_step(
+    fn record_step(
         &mut self,
         obs: O,
         action: &ActOutcome,
@@ -732,7 +557,7 @@ where
     /// value network was lost to a panic inside an earlier optimizer step —
     /// the bootstrap forward reads it. Such an agent is poisoned and must be
     /// rebuilt — see [`Slot`].
-    pub fn finalize_rollout(&mut self, last_obs: &O) {
+    fn finalize_rollout(&mut self, last_obs: &O) {
         let last_value = if self.buffer.last_step_ended() {
             0.0
         } else {
@@ -743,8 +568,8 @@ where
     }
 
     /// Runs `$\text{update\_epochs} \times \text{num\_minibatches}$` gradient updates on the
-    /// current rollout, applies LR annealing, then clears the buffer. Returns summary statistics
-    /// used to populate [`PpoMetrics`].
+    /// current rollout, applies LR annealing, then clears the buffer. Returns the update's
+    /// summary statistics, which the [`Agent`] impl logs.
     ///
     /// # Panics
     ///
@@ -762,7 +587,7 @@ where
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    pub fn update(&mut self, rng: &mut (impl Rng + ?Sized)) -> PpoUpdateStats {
+    fn update(&mut self, rng: &mut (impl Rng + ?Sized)) -> PpoUpdateStats {
         let batch_size = self.buffer.len();
         let mb_size = (batch_size / self.config.num_minibatches.max(1)).max(1);
         let lr = self.current_learning_rate();
@@ -957,6 +782,51 @@ where
             max_log_std,
         }
     }
+
+    /// One training step for either shipped head's [`Agent::on_transition`]:
+    /// records the step with the sample [`Agent::act`] drew and, once the
+    /// rollout holds `num_steps` steps, finishes it on `next_obs` and updates
+    /// both networks.
+    ///
+    /// # Panics
+    ///
+    /// Panics when no [`Agent::act`] preceded it: there is no sample to
+    /// record.
+    fn train_on(
+        &mut self,
+        obs: &O,
+        reward: f32,
+        next_obs: &O,
+        status: EpisodeStatus,
+        rng: &mut dyn Rng,
+    ) {
+        let sample = self
+            .pending
+            .take()
+            .expect("a training step's act precedes its on_transition");
+        self.record_step(obs.clone(), &sample, reward, next_obs, status);
+        if self.buffer.len() == self.config.num_steps {
+            self.finalize_rollout(next_obs);
+            let summary = self.update(rng);
+            self.log_update(&summary);
+            self.continuation = None;
+        } else {
+            self.continuation = (!status.is_done()).then(|| next_obs.clone());
+        }
+    }
+
+    /// Truncates the rollout's last step when the driver ends its episode
+    /// without the environment ending it: at the driver's `max_steps` cut, or
+    /// when it switches phase. That step was recorded `Running`, so GAE would
+    /// otherwise bootstrap from, and carry the advantage recursion into, the
+    /// next step recorded, the first of a new episode after its reset. It
+    /// bootstraps from its own next observation instead (ADR 0048).
+    fn close_open_step(&mut self) {
+        if let Some(next_obs) = self.continuation.take() {
+            let bootstrap_value = self.value_of(&next_obs);
+            self.buffer.truncate_last_step(bootstrap_value);
+        }
+    }
 }
 
 /// Driven through [`Agent`], the agent samples from its policy while
@@ -969,11 +839,17 @@ where
 /// updates the policy and value networks. A rollout the driver leaves
 /// unfinished is not used. While evaluating it does nothing.
 ///
+/// A step after which the driver ends the episode, or switches phase,
+/// without the environment ending it becomes a truncation that bootstraps
+/// from its own next observation, so the advantages never run across the
+/// driver's reset into the next episode.
+///
 /// # Panics
 ///
 /// `on_transition` panics, while training, when no [`act`](Agent::act)
 /// preceded it: there is no sample to record.
-impl<V, O, A, const OR: usize> Agent<O, A> for PpoAgent<policies::CategoricalPolicyHead, V, O, OR, 2>
+impl<V, O, A, const OR: usize> Agent<O, A>
+    for PpoAgent<policies::CategoricalPolicyHead, V, O, OR, 2>
 where
     V: PpoValue<2>,
     O: Observation<OR> + TensorConvertible<OR>,
@@ -981,7 +857,7 @@ where
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         if self.training {
-            let sample = Self::act(self, obs, rng);
+            let sample = self.sample(obs, rng);
             let action = policies::categorical::discrete_action_from_row::<1, A>(&sample.env_row);
             self.pending = Some(sample);
             action
@@ -991,22 +867,17 @@ where
     }
 
     fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
-        if !self.training {
-            return;
-        }
-        let sample = self
-            .pending
-            .take()
-            .expect("a training step's act precedes its on_transition");
-        self.record_step(t.obs.clone(), &sample, t.reward, t.next_obs, t.status);
-        if self.buffer.len() == self.config.num_steps {
-            self.finalize_rollout(t.next_obs);
-            let stats = self.update(rng);
-            self.log_update(&stats);
+        if self.training {
+            self.train_on(t.obs, t.reward, t.next_obs, t.status, rng);
         }
     }
 
+    fn on_episode_end(&mut self, _status: EpisodeStatus) {
+        self.close_open_step();
+    }
+
     fn set_training(&mut self, training: bool) {
+        self.close_open_step();
         self.training = training;
     }
 }
@@ -1021,11 +892,17 @@ where
 /// updates the policy and value networks. A rollout the driver leaves
 /// unfinished is not used. While evaluating it does nothing.
 ///
+/// A step after which the driver ends the episode, or switches phase,
+/// without the environment ending it becomes a truncation that bootstraps
+/// from its own next observation, so the advantages never run across the
+/// driver's reset into the next episode.
+///
 /// # Panics
 ///
 /// `on_transition` panics, while training, when no [`act`](Agent::act)
 /// preceded it: there is no sample to record.
-impl<V, O, A, const OR: usize> Agent<O, A> for PpoAgent<policies::TanhGaussianPolicyHead, V, O, OR, 2>
+impl<V, O, A, const OR: usize> Agent<O, A>
+    for PpoAgent<policies::TanhGaussianPolicyHead, V, O, OR, 2>
 where
     V: PpoValue<2>,
     O: Observation<OR> + TensorConvertible<OR>,
@@ -1033,7 +910,7 @@ where
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         if self.training {
-            let sample = Self::act(self, obs, rng);
+            let sample = self.sample(obs, rng);
             let action = policies::gaussian::continuous_action_from_row::<1, A>(&sample.env_row);
             self.pending = Some(sample);
             action
@@ -1043,22 +920,17 @@ where
     }
 
     fn on_transition(&mut self, t: Transition<&O, &A>, rng: &mut dyn Rng) {
-        if !self.training {
-            return;
-        }
-        let sample = self
-            .pending
-            .take()
-            .expect("a training step's act precedes its on_transition");
-        self.record_step(t.obs.clone(), &sample, t.reward, t.next_obs, t.status);
-        if self.buffer.len() == self.config.num_steps {
-            self.finalize_rollout(t.next_obs);
-            let stats = self.update(rng);
-            self.log_update(&stats);
+        if self.training {
+            self.train_on(t.obs, t.reward, t.next_obs, t.status, rng);
         }
     }
 
+    fn on_episode_end(&mut self, _status: EpisodeStatus) {
+        self.close_open_step();
+    }
+
     fn set_training(&mut self, training: bool) {
+        self.close_open_step();
         self.training = training;
     }
 }
@@ -1132,12 +1004,6 @@ mod tests {
             ..Default::default()
         };
         TestAgent::new(policy, value, config, device, 1).expect("valid config")
-    }
-
-    #[test]
-    fn test_ppo_agent_error_display_uses_thiserror_messages() {
-        let err = PpoAgentError::Environment("boom".into());
-        assert_eq!(err.to_string(), "Environment error: boom");
     }
 
     /// Regression: `clip_grad` must reach *both* optimizers.
@@ -1217,7 +1083,7 @@ mod tests {
             let x = i as f32 * 0.1;
             let obs = TestObs([x, 1.0 - x]);
             let next = TestObs([x + 0.1, 0.9 - x]);
-            let outcome = TestAgent::act(agent, &obs, rng);
+            let outcome = agent.sample(&obs, rng);
             agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
             last = next;
         }
@@ -1446,5 +1312,309 @@ mod tests {
             "the aggregate is the sum of two unequal terms: 2 policy + 4 value = 6 \
              (doubling either site would give 4 or 8)"
         );
+    }
+}
+
+/// The update's `log_std` telemetry, end to end on real environments. Here
+/// rather than in the umbrella's tests because `update` is this module's.
+#[cfg(test)]
+mod update_telemetry_tests {
+    use super::*;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use rlevo_core::bounds::Bounds;
+    use rlevo_environments::classic::cartpole::{
+        CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+    };
+    use rlevo_environments::classic::pendulum::{
+        Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
+    };
+    use rlevo_environments::wrappers::TimeLimit;
+
+    use crate::algorithms::ppo::policies::{
+        CategoricalPolicyHead, CategoricalPolicyHeadConfig, TanhGaussianPolicyHead,
+        TanhGaussianPolicyHeadConfig,
+    };
+    use crate::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
+
+    fn value_net(obs_dim: usize, device: &Device) -> MlpValue {
+        MlpValueConfig {
+            obs_dim,
+            hidden: vec![64, 64],
+        }
+        .try_init(device)
+        .expect("valid value network config")
+    }
+
+    fn config(num_steps: usize) -> PpoTrainingConfig {
+        PpoTrainingConfig {
+            num_envs: 1,
+            num_steps,
+            num_minibatches: 4,
+            update_epochs: 4,
+            ..Default::default()
+        }
+    }
+
+    fn pendulum_agent(
+        num_steps: usize,
+    ) -> PpoAgent<TanhGaussianPolicyHead, MlpValue, PendulumObservation, 1, 2> {
+        let device = Device::flex();
+        let policy = TanhGaussianPolicyHeadConfig {
+            obs_dim: 3,
+            hidden: 64,
+            action_dim: 1,
+            log_std_init: 0.0,
+            log_std: Bounds::new(-20.0, 2.0),
+            action_scale: 2.0,
+        }
+        .try_init(&device)
+        .expect("valid head config");
+        let value = value_net(3, &device);
+        PpoAgent::new(policy, value, config(num_steps), device, 1).expect("valid config")
+    }
+
+    fn cart_pole_agent(
+        num_steps: usize,
+    ) -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2> {
+        let device = Device::flex();
+        let policy = CategoricalPolicyHeadConfig {
+            obs_dim: 4,
+            hidden: 64,
+            num_actions: 2,
+        }
+        .try_init(&device)
+        .expect("valid head config");
+        let value = value_net(4, &device);
+        PpoAgent::new(policy, value, config(num_steps), device, 1).expect("valid config")
+    }
+
+    /// Drives one real PPO update and checks that the `log_std` telemetry added
+    /// alongside the `log_std` clamp is actually populated end-to-end.
+    ///
+    /// The clamp turns a `NaN` blow-up into a silently frozen `$\sigma$`, so the `log_std` extrema are
+    /// the only signal a user has that the policy is collapsing — or diverging. A `None` here on a
+    /// Gaussian head — or a value outside the head's configured bounds — would mean the metric is wired
+    /// up but dead, which is worse than not having it.
+    ///
+    /// **Both** extrema are checked. `max_log_std` is not decoration: a minimum
+    /// reports the healthiest dim, so a head with a dim pinned at `log_std_max`
+    /// reads perfectly normal on `min_log_std` alone. This is the only
+    /// end-to-end path through `PpoAgent::update` on a real backend, so it is where
+    /// a `max_log_std` that is computed but never assigned would be caught.
+    ///
+    /// Deliberately tiny (64 steps, one update): this asserts plumbing, not
+    /// learning, so it runs in CI rather than behind `#[ignore]`.
+    #[test]
+    fn ppo_pendulum_update_reports_log_std_extrema() {
+        use crate::algorithms::ppo::policies::gaussian::continuous_action_from_row;
+        use rlevo_core::environment::Environment;
+
+        let seed: u64 = 11;
+        let num_steps = 64_usize;
+
+        let mut env = TimeLimit::new(
+            Pendulum::with_config(PendulumConfig {
+                seed,
+                ..PendulumConfig::default()
+            })
+            .expect("valid config"),
+            200,
+        );
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut agent = pendulum_agent(num_steps);
+
+        let mut snapshot = env.reset().expect("reset");
+        for _ in 0..num_steps {
+            let obs_now = snapshot.observation;
+            let act = agent.sample(&obs_now, &mut rng);
+            let next = env
+                .step(continuous_action_from_row::<1, PendulumAction>(
+                    &act.env_row,
+                ))
+                .expect("step");
+            let reward: f32 = (next.reward).into();
+            let status = next.status;
+            agent.record_step(obs_now, &act, reward, &next.observation, status);
+            snapshot = if status.is_done() {
+                env.reset().expect("reset")
+            } else {
+                next
+            };
+        }
+        agent.finalize_rollout(&snapshot.observation);
+
+        let stats = agent.update(&mut rng);
+        let min_log_std = stats
+            .min_log_std
+            .expect("a Gaussian head must report min_log_std");
+        assert!(
+            min_log_std.is_finite(),
+            "min_log_std must be finite, got {min_log_std}"
+        );
+        // The head was built with log_std_min = -20.0 / log_std_max = 2.0, and the
+        // metric reports the *clamped* value, so it can never leave that interval.
+        assert!(
+            (-20.0..=2.0).contains(&min_log_std),
+            "min_log_std {min_log_std} must lie within the head's configured bounds"
+        );
+        // A single update from log_std_init = 0.0 cannot plausibly reach the floor;
+        // if it has, the clamp is binding immediately and the run is already dead.
+        assert!(
+            min_log_std > -1.0,
+            "log_std collapsed to {min_log_std} after one update; the clamp is binding"
+        );
+
+        // The ceiling-side metric, mirroring every assertion above.
+        let max_log_std = stats
+            .max_log_std
+            .expect("a Gaussian head must report max_log_std");
+        assert!(
+            max_log_std.is_finite(),
+            "max_log_std must be finite, got {max_log_std}"
+        );
+        assert!(
+            (-20.0..=2.0).contains(&max_log_std),
+            "max_log_std {max_log_std} must lie within the head's configured bounds"
+        );
+        // Symmetrically to the floor check: one update from log_std_init = 0.0
+        // cannot plausibly reach the ceiling either.
+        assert!(
+            max_log_std < 1.0,
+            "log_std diverged to {max_log_std} after one update; the clamp is binding"
+        );
+        // Pendulum has action_dim = 1, so the two extrema are the same element and
+        // must agree exactly. This pins that both metrics read the *same* parameter
+        // vector — but it deliberately does not claim to catch a transposed
+        // `.0`/`.1` projection, which is invisible at one dim; that is covered by
+        // `max_log_std_sees_the_ceiling_that_min_log_std_cannot` in the head's own
+        // unit tests, where the dims differ.
+        assert!(
+            (min_log_std - max_log_std).abs() < 1e-6,
+            "a 1-dim head's extrema are the same element: min {min_log_std} vs max {max_log_std}"
+        );
+    }
+
+    /// The discrete head has no `$\log \sigma$`, so the shared `PpoUpdateStats` field must come back
+    /// `None` rather than a meaningless number.
+    #[test]
+    fn ppo_cartpole_update_reports_no_min_log_std() {
+        use crate::algorithms::ppo::policies::categorical::discrete_action_from_row;
+        use rlevo_core::environment::Environment;
+
+        let seed: u64 = 11;
+        let num_steps = 64_usize;
+
+        let mut env = TimeLimit::new(
+            CartPole::with_config(CartPoleConfig {
+                seed,
+                ..CartPoleConfig::default()
+            })
+            .expect("valid config"),
+            500,
+        );
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut agent = cart_pole_agent(num_steps);
+
+        let mut snapshot = env.reset().expect("reset");
+        for _ in 0..num_steps {
+            let obs_now = snapshot.observation;
+            let act = agent.sample(&obs_now, &mut rng);
+            let next = env
+                .step(discrete_action_from_row::<1, CartPoleAction>(&act.env_row))
+                .expect("step");
+            let reward: f32 = (next.reward).into();
+            let status = next.status;
+            agent.record_step(obs_now, &act, reward, &next.observation, status);
+            snapshot = if status.is_done() {
+                env.reset().expect("reset")
+            } else {
+                next
+            };
+        }
+        agent.finalize_rollout(&snapshot.observation);
+
+        let stats = agent.update(&mut rng);
+        assert!(
+            stats.min_log_std.is_none(),
+            "a categorical head has no log_std, got {:?}",
+            stats.min_log_std
+        );
+    }
+
+    /// Takes one step through the `Agent` hooks from `obs`, and returns the
+    /// snapshot the environment produced.
+    fn hook_step(
+        agent: &mut PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2>,
+        env: &mut CartPole,
+        obs: &CartPoleObservation,
+        rng: &mut StdRng,
+    ) -> rlevo_core::environment::Snapshot<CartPoleObservation> {
+        use rlevo_core::environment::Environment;
+
+        let action: CartPoleAction = agent.act(obs, rng);
+        let next = env.step(action).expect("step");
+        agent.on_transition(
+            Transition {
+                obs,
+                action: &action,
+                reward: next.reward.into(),
+                next_obs: &next.observation,
+                status: next.status,
+            },
+            rng,
+        );
+        next
+    }
+
+    /// A driver that ends an episode the environment did not end, at its
+    /// `max_steps` cut or by switching phase, leaves the last step `Running`
+    /// in the transition it showed. That step must become a truncation, or
+    /// GAE would bootstrap it from, and run the advantage recursion into, the
+    /// first step of the next episode. After the environment's own end the
+    /// same calls change nothing.
+    #[test]
+    fn test_ppo_driver_end_truncates_an_open_step() {
+        use rlevo_core::environment::Environment;
+
+        let mut env = CartPole::with_config(CartPoleConfig {
+            seed: 3,
+            ..CartPoleConfig::default()
+        })
+        .expect("valid config");
+        let mut rng = StdRng::seed_from_u64(3);
+        let mut agent = cart_pole_agent(64);
+        let obs = env.reset().expect("reset").observation;
+
+        let next = hook_step(&mut agent, &mut env, &obs, &mut rng);
+        assert_eq!(next.status, EpisodeStatus::Running);
+        assert!(
+            !agent.buffer.last_step_ended(),
+            "the step was recorded Running"
+        );
+        Agent::<CartPoleObservation, CartPoleAction>::on_episode_end(
+            &mut agent,
+            EpisodeStatus::Truncated,
+        );
+        assert!(
+            agent.buffer.last_step_ended(),
+            "a cut after a Running step must end the step"
+        );
+
+        let next = hook_step(&mut agent, &mut env, &next.observation, &mut rng);
+        assert_eq!(next.status, EpisodeStatus::Running);
+        Agent::<CartPoleObservation, CartPoleAction>::set_training(&mut agent, false);
+        assert!(
+            agent.buffer.last_step_ended(),
+            "leaving training after a Running step must end the step"
+        );
+
+        // A second end, and an end after the step was closed, are no-ops.
+        Agent::<CartPoleObservation, CartPoleAction>::on_episode_end(
+            &mut agent,
+            EpisodeStatus::Truncated,
+        );
+        Agent::<CartPoleObservation, CartPoleAction>::set_training(&mut agent, true);
+        assert_eq!(agent.buffer_len(), 2);
     }
 }

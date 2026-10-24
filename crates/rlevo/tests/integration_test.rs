@@ -1,7 +1,7 @@
 //! End-to-end integration tests across `rlevo-core` and `rlevo-reinforcement-learning`.
 //!
 //! These tests exercise combinations of public items (environment from
-//! `rlevo-core`; replay buffer and metrics from `rlevo-reinforcement-learning`) against a small
+//! `rlevo-core`; replay buffer from `rlevo-reinforcement-learning`) against a small
 //! toy `RandomWalkEnv` defined inline. They can only see the public API —
 //! unlike the in-crate `#[cfg(test)]` mocks — so they double as a smoke
 //! test that the public surface is sufficient to build a working training
@@ -13,7 +13,6 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
-use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
 use rlevo_reinforcement_learning::replay::{
     DiscreteTransition, PrioritizedReplay, PrioritizedReplaySettings, ReplayStrategy,
 };
@@ -261,49 +260,4 @@ fn prioritized_replay_samples_a_weighted_minibatch() {
             "a freshly drawn id always resolves to a stored transition"
         );
     }
-}
-
-/// Minimal `PerformanceRecord` implementation used to exercise `AgentStats` in isolation.
-#[derive(Debug, Clone, Copy)]
-struct EpisodeResult {
-    score: f32,
-    duration: usize,
-}
-
-impl PerformanceRecord for EpisodeResult {
-    fn score(&self) -> f32 {
-        self.score
-    }
-    fn duration(&self) -> usize {
-        self.duration
-    }
-}
-
-/// Verifies that `AgentStats` correctly tracks episode count and the sliding-window score average.
-#[test]
-fn agent_stats_tracks_episodes_and_sliding_window() {
-    let mut stats = AgentStats::<EpisodeResult>::new(2);
-
-    stats.record(EpisodeResult {
-        score: 5.0,
-        duration: 10,
-    });
-    stats.record(EpisodeResult {
-        score: 8.0,
-        duration: 15,
-    });
-    stats.record(EpisodeResult {
-        score: 3.0,
-        duration: 7,
-    });
-
-    assert_eq!(stats.total_episodes(), 3);
-    assert_eq!(stats.total_steps(), 32);
-    assert_eq!(stats.best_score(), Some(8.0));
-
-    // window_size = 2 means the first record is evicted; average is over the
-    // last two episodes: (8.0 + 3.0) / 2 = 5.5.
-    let avg = stats.avg_score().expect("avg_score present after records");
-    assert!((avg - 5.5).abs() < 1e-6, "expected 5.5, got {avg}");
-    assert_eq!(stats.recent_len(), 2);
 }

@@ -14,6 +14,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo_core::agent::Agent as _;
 use rlevo_core::environment::Environment;
 use rlevo_environments::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
@@ -44,7 +45,7 @@ fn build_agent() -> Agent {
 }
 
 fn bench_act(c: &mut Criterion) {
-    let agent = build_agent();
+    let mut agent = build_agent();
     let obs = CartPoleObservation {
         cart_pos: 0.0,
         cart_vel: 0.0,
@@ -76,7 +77,6 @@ fn bench_learn(c: &mut Criterion) {
         // bootstrap on the status, and only on termination. CartPole truncates at its step cap, so these differ.
         let done = next.status.is_done();
         agent.remember(obs, &action, r, next.observation, next.status);
-        agent.on_env_step();
         snap = if done {
             env.reset().expect("reset")
         } else {

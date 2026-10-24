@@ -202,6 +202,25 @@ impl<O: Clone> RolloutBuffer<O> {
         n > 0 && (self.terminated[n - 1] || self.truncation_value[n - 1].is_some())
     }
 
+    /// Ends the most recently pushed step, pushed as [`StepEnd::Running`], as
+    /// a truncation that bootstraps `bootstrap_value`: the driver ended the
+    /// episode there without the environment ending it. Without this the next
+    /// pushed step, the first of a new episode, would be taken as its
+    /// continuation by [`compute_gae`].
+    ///
+    /// # Panics
+    ///
+    /// If the buffer is empty or its last step already ended its episode.
+    pub fn truncate_last_step(&mut self, bootstrap_value: f32) {
+        assert!(
+            !self.is_empty() && !self.last_step_ended(),
+            "only a Running last step can be truncated"
+        );
+        if let Some(last) = self.truncation_value.last_mut() {
+            *last = Some(bootstrap_value);
+        }
+    }
+
     /// Current number of stored steps.
     #[must_use]
     pub fn len(&self) -> usize {

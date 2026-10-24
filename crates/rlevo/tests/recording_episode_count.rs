@@ -1,6 +1,6 @@
 //! Regression test for the training-loop "phantom episode" off-by-one.
 //!
-//! Every algorithm's training loop used to call `env.reset()` on *every*
+//! Every algorithm's training loop once called `env.reset()` on *every*
 //! terminal step before checking whether the step budget was exhausted. When
 //! the final step of training is also a terminal step, that trailing reset
 //! opens a fresh episode the loop never finishes. Driven through a
@@ -11,13 +11,13 @@
 //! one-frame episode in the report).
 //!
 //! There are two distinct phantom/dangling-episode paths and this test pins
-//! both, exercising the real `dqn::train` loop (the off-policy `for step`
-//! shape) so a reintroduction fails here rather than only in an example run:
+//! both, through the harness's `train`, the one loop that drives every agent,
+//! so a reintroduction fails here rather than only in an example run:
 //!
 //! 1. **Ends exactly on a terminal step** (rare). The old loop did a trailing
 //!    `reset` after the final `done`, opening a one-frame phantom episode that
-//!    was never stepped to completion. Fixed in the training loops by skipping
-//!    the reset when the step budget is exhausted.
+//!    was never stepped to completion. `train` resets only to start an
+//!    episode the remaining budget can step.
 //! 2. **Ends mid-episode** (the common case — a step budget rarely lands on a
 //!    terminal step). The in-flight episode's file is opened by
 //!    `on_episode_start` but never closed/counted by `on_episode_end`. Fixed in
@@ -36,6 +36,7 @@ use burn::tensor::Device;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
@@ -44,7 +45,6 @@ use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation}
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{MlpQNetwork, MlpQNetworkConfig};
-use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 
 use rlevo_harness::record::schema::FamilyPayload;
 use rlevo_harness::record::{EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap};
@@ -128,7 +128,7 @@ fn q_network(device: &Device) -> MlpQNetwork {
     .expect("valid Q-network config")
 }
 
-/// Drive the real `dqn::train` loop against [`FixedLenEnv`] through a
+/// Drive a DQN agent with the harness's `train` against [`FixedLenEnv`] through a
 /// [`RecordingTap`] for `total_steps`, finalise the run, and re-open it.
 /// Returns the reloaded run so each test can assert on counts / warnings.
 fn run_recording(total_steps: usize) -> RecordedRun {
@@ -177,7 +177,7 @@ fn run_recording(total_steps: usize) -> RecordedRun {
         DqnAgent::new(model, config, device).expect("valid config");
 
     let mut rng = StdRng::seed_from_u64(seed);
-    train(&mut agent, &mut env, &mut rng, total_steps, 0).expect("training loop");
+    train(&mut env, &mut agent, total_steps, usize::MAX, &mut rng).expect("training loop");
     // The premise of the fixture, now asserted rather than assumed: the run
     // stayed in the pre-learning window, so no gradient update was attempted
     // and the target path never ran. Without this, a future change to

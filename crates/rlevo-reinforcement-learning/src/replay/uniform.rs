@@ -95,10 +95,8 @@ impl<T> UniformReplay<T> {
     /// Both are programming errors, never user data: every in-crate call site
     /// passes either a literal or a config field that [`Validate`] has already
     /// rejected zero and over-large values for. That is why this stays
-    /// infallible: [`AgentStats::new`](crate::metrics::AgentStats::new) rejects
-    /// the same zero/over-large capacity with a panic rather than a `try_new`,
-    /// on the same reasoning — a config-validated constructor does not
-    /// re-litigate its input in the type system.
+    /// infallible: a config-validated constructor does not re-litigate its
+    /// input in the type system.
     ///
     /// # Choosing between `new` and [`from_config`](Self::from_config)
     ///

@@ -89,6 +89,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::environment::Environment;
 
@@ -98,7 +99,6 @@ use rlevo_environments::grids::{GridAction, MemoryConfig, MemoryEnv};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{MlpQNetwork, MlpQNetworkConfig};
-use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 use rlevo_reinforcement_learning::target::TargetUpdate;
 
 const SEED: u64 = 2026;
@@ -159,7 +159,7 @@ fn train_dqn() -> MemoryAgent {
     .expect("valid Q-network config");
     let mut agent: MemoryAgent = DqnAgent::new(model, config, device).expect("valid config");
 
-    train(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training loop");
+    train(&mut env, &mut agent, TRAIN_TIMESTEPS, usize::MAX, &mut rng).expect("dqn training loop");
     agent
 }
 
@@ -200,8 +200,8 @@ fn print_quality_comparison(agent: &MemoryAgent) {
     let (rand_reward, rand_success) =
         evaluate(|_obs| GridAction::from_index(rng.random_range(0..ACTIONS)));
 
-    let mut eval_rng = StdRng::seed_from_u64(SEED.wrapping_add(1));
-    let (dqn_reward, dqn_success) = evaluate(|obs| agent.act(obs, &mut eval_rng));
+    let net = agent.inference_net();
+    let (dqn_reward, dqn_success) = evaluate(|obs| agent.act_greedy_with(&net, obs));
 
     let cfg = memory_config();
     println!();
@@ -235,6 +235,7 @@ fn rollout_steps(steps: usize, mut next_action: impl FnMut(&GridObservation) -> 
 }
 
 fn bench_policies(c: &mut Criterion, agent: &MemoryAgent) {
+    let net = agent.inference_net();
     let mut group = c.benchmark_group("grid_memory_policy_rollout");
     for &steps in &[1_000_usize, 4_000, 16_000] {
         group.throughput(Throughput::Elements(steps as u64));
@@ -253,8 +254,7 @@ fn bench_policies(c: &mut Criterion, agent: &MemoryAgent) {
             &steps,
             |b, &steps| {
                 b.iter(|| {
-                    let mut rng = StdRng::seed_from_u64(SEED);
-                    rollout_steps(black_box(steps), |obs| agent.act(obs, &mut rng));
+                    rollout_steps(black_box(steps), |obs| agent.act_greedy_with(&net, obs));
                 });
             },
         );

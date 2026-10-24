@@ -45,7 +45,7 @@ use std::ops::Add;
 ///   poisoned. (ADR 0065.)
 /// - **Transited, deliberately, by the reported score.** Episode return
 ///   accumulates the raw value, so an affected episode reports a non-finite
-///   return and `AgentStats::avg_score` transits it rather than sanitising it.
+///   return, and every mean over it transits it rather than sanitising it.
 ///   This is intentional: a non-finite return is a true statement about a run
 ///   whose environment emitted a non-finite reward, and hiding it would make the
 ///   bug harder to find, not rarer. (ADR 0065 and ADR 0070.)

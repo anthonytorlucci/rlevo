@@ -1,7 +1,7 @@
 //! Test-only scaffolding for the truncation-vs-termination bootstrap-mask
-//! guard shared by the six off-policy `train` loops.
+//! guard shared by the six off-policy agents.
 //!
-//! Every off-policy training loop must feed the *Bellman bootstrap mask* from
+//! Every off-policy agent must feed the *Bellman bootstrap mask* from
 //! [`EpisodeStatus::is_terminated`], not [`EpisodeStatus::is_done`]. A truncation (time
 //! limit) ends the episode but not the MDP, so `$\gamma \cdot V(\text{next\_obs})$` must survive
 //! in the target; zeroing it there biases every Q-value downward (Pardo et
@@ -10,9 +10,9 @@
 //! This module supplies the minimum needed to assert that end-to-end without a
 //! physics simulator: a deterministic environment that ends its episodes with a
 //! *caller-chosen* [`EpisodeStatus`], and a one-layer network per algorithm
-//! model trait. Tests drive `train` for a handful of steps with
-//! `learning_starts` set past the budget, so no gradient work runs and the
-//! whole guard costs milliseconds.
+//! model trait. Tests [`drive`] an agent through its [`Agent`] hooks for a
+//! handful of steps with `learning_starts` set past the budget, so no gradient
+//! work runs and the whole guard costs milliseconds.
 //!
 //! [`EpisodeStatus::is_terminated`]: rlevo_core::environment::EpisodeStatus::is_terminated
 //! [`EpisodeStatus::is_done`]: rlevo_core::environment::EpisodeStatus::is_done
@@ -24,7 +24,9 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::{Device, Tensor, activation};
 use serde::{Deserialize, Serialize};
 
+use rand::rngs::StdRng;
 use rlevo_core::action::{BoundedAction, ContinuousAction, DiscreteAction};
+use rlevo_core::agent::{Agent, Transition};
 use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
@@ -147,7 +149,7 @@ impl BoundedAction<1> for MaskContinuousAction {
 /// task with no terminal condition (Pendulum-like); setting it to
 /// [`EpisodeStatus::Terminated`] models a genuine absorbing state. Both end the
 /// episode — `is_done()` is `true` either way — so the two configurations
-/// differ *only* in the bootstrap mask the training loop should record. That is
+/// differ *only* in the bootstrap mask the agent should store. That is
 /// exactly the distinction under test.
 #[derive(Debug)]
 pub(crate) struct MaskEnv<A> {
@@ -333,5 +335,38 @@ impl SquashedGaussianPolicy<2, 2> for TinySacActor {
     }
     fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
         activation::tanh(self.mean.forward(obs))
+    }
+}
+
+/// Steps `env` through `agent`'s [`Agent`] hooks for `steps` steps, the way a
+/// driver does: act, step, show the transition with the environment's status
+/// unchanged, end an episode that finished, and reset only while steps remain.
+pub(crate) fn drive<E, A>(env: &mut E, agent: &mut A, steps: usize, rng: &mut StdRng)
+where
+    E: Environment<1, 1>,
+    A: Agent<E::ObservationType, E::ActionType>,
+{
+    let mut obs = env.reset().expect("reset").observation;
+    for step in 0..steps {
+        let action = agent.act(&obs, rng);
+        let snap = env.step(action.clone()).expect("step");
+        agent.on_transition(
+            Transition {
+                obs: &obs,
+                action: &action,
+                reward: snap.reward.value(),
+                next_obs: &snap.observation,
+                status: snap.status,
+            },
+            rng,
+        );
+        if snap.status.is_done() {
+            agent.on_episode_end(snap.status);
+            if step + 1 < steps {
+                obs = env.reset().expect("reset").observation;
+            }
+        } else {
+            obs = snap.observation;
+        }
     }
 }

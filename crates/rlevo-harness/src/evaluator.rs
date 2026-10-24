@@ -558,7 +558,8 @@ where
 /// that reaches `max_steps` without ending is cut there, and the agent is
 /// told it ended [`Truncated`](EpisodeStatus::Truncated) after a last
 /// transition whose status is still `Running`. Pass `usize::MAX` to leave the
-/// episodes' length to the environment.
+/// episodes' length to the environment. With `max_steps` at 0 no episode can
+/// take a step, so it trains on nothing and returns no episodes.
 ///
 /// The environment is reset at the start of each episode, and only while
 /// steps remain, so no episode is opened that the budget cannot step. An
@@ -581,8 +582,13 @@ where
     A: Agent<E::ObservationType, E::ActionType>,
 {
     agent.set_training(true);
-    let mut budget = steps;
     let mut episodes = Vec::new();
+    // An episode of at most zero steps takes nothing from the budget, so the
+    // loop below would never end.
+    if max_steps == 0 {
+        return Ok(episodes);
+    }
+    let mut budget = steps;
     // Training rewards are the agent's to judge; the trial counts only the
     // evaluation phase's.
     let mut non_finite_steps = 0;
@@ -2216,6 +2222,9 @@ mod tests {
 
         fn reset(&mut self) -> Result<Snapshot<StubObs>, EnvironmentError> {
             self.resets += 1;
+            // Bounds a driver that resets without stepping: a failure, not a
+            // hang.
+            assert!(self.resets <= 1_000, "reset 1000 times");
             self.steps = 0;
             Ok(Snapshot::running(StubObs, ScalarReward(0.0)))
         }
@@ -2358,5 +2367,22 @@ mod tests {
                 "an episode the budget leaves open is not ended",
             );
         }
+    }
+
+    /// With `max_steps` at 0 an episode cannot take a step, so it takes
+    /// nothing from the budget: `train` must return rather than reset forever.
+    #[test]
+    fn train_with_max_steps_zero_opens_no_episode() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut env = ScheduleEnv::new(&[(2, EpisodeStatus::Terminated)]);
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut agent = Recorder(Arc::clone(&log));
+        let episodes = super::train(&mut env, &mut agent, 10, 0, &mut rng).expect("no error");
+        assert!(episodes.is_empty());
+        assert_eq!(
+            env.resets, 0,
+            "no episode can be stepped, so none is opened"
+        );
+        assert_eq!(*log.lock().unwrap(), vec![Told::Training(true)]);
     }
 }

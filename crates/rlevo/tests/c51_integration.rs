@@ -14,10 +14,10 @@ use burn::tensor::Device;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo::harness::evaluator::train;
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::c51::c51_agent::C51Agent;
 use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfig;
-use rlevo_reinforcement_learning::algorithms::c51::train::train;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
     MlpDistributionalQ, MlpDistributionalQConfig,
 };
@@ -94,12 +94,8 @@ fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
     let mut env = cartpole_seeded(seed);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = fresh_agent(seed);
-    train(&mut agent, &mut env, &mut rng, total, 0).expect("training");
-    let stats = agent.stats();
-    TrainOutcome {
-        avg_score: stats.avg_score().unwrap_or(0.0),
-        rewards: stats.recent_history().iter().map(|m| m.reward).collect(),
-    }
+    let episodes = train(&mut env, &mut agent, total, usize::MAX, &mut rng).expect("training");
+    TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value))
 }
 
 // ---------------------------------------------------------------------------
@@ -118,21 +114,14 @@ fn c51_cartpole_produces_finite_rewards() {
     let mut env = cartpole_seeded(seed);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = fresh_agent(seed);
-    train(&mut agent, &mut env, &mut rng, 2_500, 0).expect("training");
+    let episodes = train(&mut env, &mut agent, 2_500, usize::MAX, &mut rng).expect("training");
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
-    let history = agent.stats().recent_history();
     assert_all_finite(
         "reward",
-        &history.iter().map(|m| m.reward).collect::<Vec<_>>(),
+        &TrainOutcome::from_returns(episodes.iter().map(|e| e.return_value)).rewards,
     );
-    assert_all_finite(
-        "policy_loss",
-        &history.iter().map(|m| m.policy_loss).collect::<Vec<_>>(),
-    );
-    assert_all_finite(
-        "q_mean",
-        &history.iter().map(|m| m.q_mean).collect::<Vec<_>>(),
-    );
+    // Every loss stayed finite: no update was skipped for a non-finite one.
+    assert_eq!(agent.skipped_updates(), 0, "a loss went non-finite");
 }
 
 /// `C51Agent::new` rejects a degenerate support (`v_min == v_max`) at
