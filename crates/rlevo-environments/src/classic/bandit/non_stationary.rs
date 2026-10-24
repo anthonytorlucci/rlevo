@@ -53,7 +53,7 @@ use rlevo_core::episode::EpisodeGuard;
 /// Configuration for [`NonStationaryBandit`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NonStationaryBanditConfig {
-    /// Maximum number of steps before the episode terminates.
+    /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
     /// RNG seed, used once, at construction: the initial arm means and then
     /// every reward and drift step are drawn from one generator seeded with
@@ -311,7 +311,7 @@ impl<const K: usize> Environment<1, 1> for NonStationaryBandit<K> {
         self.steps += 1;
         let obs = KArmedBanditObservation;
         let snap = if self.steps >= self.config.max_steps {
-            Snapshot::terminated(obs, reward)
+            Snapshot::truncated(obs, reward)
         } else {
             Snapshot::running(obs, reward)
         };
@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn environment_step_terminates_at_max_steps() {
+    fn environment_step_truncates_at_max_steps() {
         let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig {
             max_steps: 3,
             seed: 1,
@@ -394,7 +394,7 @@ mod tests {
         assert!(!s1.status.is_done());
         let _ = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         let s3 = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
-        assert!(s3.status.is_terminated());
+        assert!(s3.status.is_truncated());
     }
 
     // ── post-terminal step guard ──────────────────────────────────────────
@@ -426,8 +426,8 @@ mod tests {
         .expect("valid config")
     }
 
-    /// Resets, then steps arm 0 until the step budget terminates the episode.
-    fn drive_to_termination(env: &mut NonStationaryBandit<K>) -> Snapshot<KArmedBanditObservation> {
+    /// Resets, then steps arm 0 until the step budget truncates the episode.
+    fn drive_to_end(env: &mut NonStationaryBandit<K>) -> Snapshot<KArmedBanditObservation> {
         <NonStationaryBandit<K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
         let mut snap = <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
@@ -444,7 +444,7 @@ mod tests {
         let mut env = guard_env();
         assert_rejects_post_terminal_step(
             &mut env,
-            drive_to_termination,
+            drive_to_end,
             KArmedBanditAction::<K>::from_index(0),
         );
     }
@@ -454,13 +454,13 @@ mod tests {
         // The call sequence is wrong independently of the action being
         // well-formed, so StepAfterEpisodeEnd wins over InvalidAction.
         let mut env = guard_env();
-        let terminal = drive_to_termination(&mut env);
+        let terminal = drive_to_end(&mut env);
 
         let malformed = KArmedBanditAction::<K>::out_of_range_for_tests();
         assert!(!malformed.is_valid(), "the replayed action is out of range");
 
         let err = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, malformed)
-            .expect_err("a step after termination must be rejected");
+            .expect_err("a step after the episode ended must be rejected");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
                 status, terminal.status,
@@ -473,7 +473,7 @@ mod tests {
     #[test]
     fn post_terminal_step_does_not_drift_the_arm_means() {
         let mut env = guard_env();
-        drive_to_termination(&mut env);
+        drive_to_end(&mut env);
         let steps_at_end = env.steps;
         let means_at_end = *env.arm_means();
 
@@ -481,7 +481,7 @@ mod tests {
             &mut env,
             KArmedBanditAction::<K>::from_index(0),
         )
-        .expect_err("a step after termination must be rejected");
+        .expect_err("a step after the episode ended must be rejected");
 
         assert_eq!(
             env.steps, steps_at_end,
@@ -494,7 +494,7 @@ mod tests {
         );
         assert_eq!(
             env.guard.status(),
-            EpisodeStatus::Terminated,
+            EpisodeStatus::Truncated,
             "a rejected step must not reopen the episode"
         );
     }
@@ -507,14 +507,14 @@ mod tests {
         // same-seed env that never made the illegal call.
         let mut rejected = guard_env();
         let mut untouched = guard_env();
-        drive_to_termination(&mut rejected);
-        drive_to_termination(&mut untouched);
+        drive_to_end(&mut rejected);
+        drive_to_end(&mut untouched);
 
         let _ = <NonStationaryBandit<K> as Environment<1, 1>>::step(
             &mut rejected,
             KArmedBanditAction::<K>::from_index(0),
         )
-        .expect_err("a step after termination must be rejected");
+        .expect_err("a step after the episode ended must be rejected");
 
         let replay = |env: &mut NonStationaryBandit<K>| -> Vec<f32> {
             <NonStationaryBandit<K> as Environment<1, 1>>::reset(env).unwrap();
@@ -537,9 +537,9 @@ mod tests {
     }
 
     #[test]
-    fn reset_reopens_a_terminated_episode() {
+    fn reset_reopens_an_ended_episode() {
         let mut env = guard_env();
-        drive_to_termination(&mut env);
+        drive_to_end(&mut env);
         let action = KArmedBanditAction::<K>::from_index(0);
         assert!(
             <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).is_err(),

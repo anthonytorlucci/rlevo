@@ -537,6 +537,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   read `status` from a grid, a timeout is now `is_truncated()`;
   `is_done()` is unchanged.
 
+- **The four bandits report their step cap as `Truncated`.**
+  `KArmedBandit`, `ContextualBandit`, `NonStationaryBandit` and
+  `AdversarialBandit` reported `Terminated` at `max_steps`, as their docs
+  said. A bandit has no terminal state, so by `EpisodeStatus`'s own
+  definition the cap is a truncation, and every environment with a step
+  cap of its own now reports it the same way.
+
 ### `rlevo-evolution`
 
 **Added**

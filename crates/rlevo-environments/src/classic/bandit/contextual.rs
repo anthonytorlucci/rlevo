@@ -220,7 +220,7 @@ impl<const C: usize> HostRow<1> for ContextualBanditObservation<C> {
 /// Configuration for [`ContextualBandit`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextualBanditConfig {
-    /// Maximum number of steps before the episode terminates.
+    /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
     /// RNG seed driving both the per-`(context, arm)` mean draw and the
     /// per-step context sampling. Default: `42`.
@@ -479,7 +479,7 @@ impl<const C: usize, const K: usize> Environment<1, 1> for ContextualBandit<C, K
         self.state.context = self.rng.random_range(0..C);
         let obs = self.observe();
         let snap = if self.steps >= self.config.max_steps {
-            Snapshot::terminated(obs, reward)
+            Snapshot::truncated(obs, reward)
         } else {
             Snapshot::running(obs, reward)
         };
@@ -669,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn environment_step_terminates_at_max_steps() {
+    fn environment_step_truncates_at_max_steps() {
         let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig {
             max_steps: 3,
             seed: 1,
@@ -681,7 +681,7 @@ mod tests {
         let s2 = <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         assert!(!s2.status.is_done());
         let s3 = <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action).unwrap();
-        assert!(s3.status.is_terminated());
+        assert!(s3.status.is_truncated());
     }
 
     // ── post-terminal step guard ──────────────────────────────────────────────
@@ -695,8 +695,8 @@ mod tests {
     // source of truth for episode status. `step()` calls `guard.check()?`
     // first, before validating the action or drawing the reward/next-context
     // — bandits sample from `self.rng`, so a rejected step must not consume
-    // any RNG stream state. The tests below drive an episode to termination
-    // and then assert the guard rejects further steps.
+    // any RNG stream state. The tests below drive an episode to its end and
+    // then assert the guard rejects further steps.
 
     /// Step budget for the guard tests: small enough to burn through quickly.
     const GUARD_MAX_STEPS: usize = 3;
@@ -709,10 +709,8 @@ mod tests {
         .expect("valid config")
     }
 
-    /// Resets, then steps arm 0 until the step budget terminates the episode.
-    fn drive_to_termination(
-        env: &mut ContextualBandit<C, K>,
-    ) -> Snapshot<ContextualBanditObservation<C>> {
+    /// Resets, then steps arm 0 until the step budget truncates the episode.
+    fn drive_to_end(env: &mut ContextualBandit<C, K>) -> Snapshot<ContextualBanditObservation<C>> {
         <ContextualBandit<C, K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
         let mut snap = <ContextualBandit<C, K> as Environment<1, 1>>::step(env, action)
@@ -729,7 +727,7 @@ mod tests {
         let mut env = guard_env();
         assert_rejects_post_terminal_step(
             &mut env,
-            drive_to_termination,
+            drive_to_end,
             KArmedBanditAction::<K>::from_index(0),
         );
     }
@@ -739,13 +737,13 @@ mod tests {
         // The call sequence is wrong independently of the action being
         // well-formed, so StepAfterEpisodeEnd wins over InvalidAction.
         let mut env = guard_env();
-        let terminal = drive_to_termination(&mut env);
+        let terminal = drive_to_end(&mut env);
 
         let malformed = KArmedBanditAction::<K>::out_of_range_for_tests();
         assert!(!malformed.is_valid(), "the replayed action is out of range");
 
         let err = <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, malformed)
-            .expect_err("a step after termination must be rejected");
+            .expect_err("a step after the episode ended must be rejected");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
                 status, terminal.status,
@@ -758,7 +756,7 @@ mod tests {
     #[test]
     fn post_terminal_step_does_not_advance_the_step_counter() {
         let mut env = guard_env();
-        let terminal = drive_to_termination(&mut env);
+        let terminal = drive_to_end(&mut env);
         let steps_at_end = env.steps;
         let context_at_end = env.current_context();
 
@@ -766,7 +764,7 @@ mod tests {
             &mut env,
             KArmedBanditAction::<K>::from_index(0),
         )
-        .expect_err("a step after termination must be rejected");
+        .expect_err("a step after the episode ended must be rejected");
 
         assert_eq!(
             env.steps, steps_at_end,
@@ -792,14 +790,14 @@ mod tests {
         // same-seed env that never made the illegal call.
         let mut rejected = guard_env();
         let mut untouched = guard_env();
-        drive_to_termination(&mut rejected);
-        drive_to_termination(&mut untouched);
+        drive_to_end(&mut rejected);
+        drive_to_end(&mut untouched);
 
         let _ = <ContextualBandit<C, K> as Environment<1, 1>>::step(
             &mut rejected,
             KArmedBanditAction::<K>::from_index(0),
         )
-        .expect_err("a step after termination must be rejected");
+        .expect_err("a step after the episode ended must be rejected");
 
         let replay = |env: &mut ContextualBandit<C, K>| -> Vec<(f32, usize)> {
             <ContextualBandit<C, K> as Environment<1, 1>>::reset(env).unwrap();
@@ -820,9 +818,9 @@ mod tests {
     }
 
     #[test]
-    fn reset_reopens_a_terminated_episode() {
+    fn reset_reopens_an_ended_episode() {
         let mut env = guard_env();
-        drive_to_termination(&mut env);
+        drive_to_end(&mut env);
         let action = KArmedBanditAction::<K>::from_index(0);
         assert!(
             <ContextualBandit<C, K> as Environment<1, 1>>::step(&mut env, action).is_err(),

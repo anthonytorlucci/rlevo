@@ -12,11 +12,11 @@
 //! | [`mountain_car`] | Discrete(3) | 2 | goal position |
 //! | [`mountain_car_continuous`] | Continuous(1) | 2 | goal position |
 //! | [`pendulum`] | Continuous(1) | 3 | never (truncated by wrapper) |
-//! | [`bandit::k_armed`] | Discrete(K) | 1 | `max_steps` reached |
-//! | [`bandit::contextual`] | Discrete(K) | C | `max_steps` reached |
-//! | [`bandit::non_stationary`] | Discrete(K) | 1 | `max_steps` reached |
-//! | [`bandit::adversarial`] | Discrete(K) | 1 | `max_steps` reached |
-//! | [`santa_fe_ant`] | Discrete(3) | 1 | all 89 pellets / `max_steps` |
+//! | [`bandit::k_armed`] | Discrete(K) | 1 | never (truncated at `max_steps`) |
+//! | [`bandit::contextual`] | Discrete(K) | C | never (truncated at `max_steps`) |
+//! | [`bandit::non_stationary`] | Discrete(K) | 1 | never (truncated at `max_steps`) |
+//! | [`bandit::adversarial`] | Discrete(K) | 1 | never (truncated at `max_steps`) |
+//! | [`santa_fe_ant`] | Discrete(3) | 1 | all 89 pellets (truncated at `max_steps`) |
 //!
 //! Wrap any env with [`crate::wrappers::TimeLimit`] to impose a step cap.
 //!

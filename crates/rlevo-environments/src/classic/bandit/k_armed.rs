@@ -186,7 +186,7 @@ impl<const K: usize> DiscreteAction<1> for KArmedBanditAction<K> {
 /// is reused regardless of the arm count.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KArmedBanditConfig {
-    /// Maximum number of steps before the episode terminates.
+    /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
     /// RNG seed, used once, at construction: the arm means and then every
     /// reward are drawn from one generator seeded with it.
@@ -397,7 +397,7 @@ impl<const K: usize> KArmedBandit<K> {
     /// Pull `arm` and return a sampled reward from `N(q*(arm), 1)`.
     ///
     /// Advances the internal step counter and, like [`Environment::step`],
-    /// records the resulting episode status on the guard: `Terminated` once
+    /// records the resulting episode status on the guard: `Truncated` once
     /// `steps >= max_steps`, `Running` before that. Both entry points funnel
     /// through the same private `advance` helper, so the guard and the step
     /// counter can never disagree about where the episode is — pulling to the
@@ -432,7 +432,7 @@ impl<const K: usize> KArmedBandit<K> {
         self.steps += 1;
         let obs = KArmedBanditObservation;
         let snap = if self.steps >= self.config.max_steps {
-            Snapshot::terminated(obs, reward)
+            Snapshot::truncated(obs, reward)
         } else {
             Snapshot::running(obs, reward)
         };
@@ -643,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn environment_step_terminates_at_max_steps() {
+    fn environment_step_truncates_at_max_steps() {
         let mut env = KArmedBandit::<K>::with_config(KArmedBanditConfig {
             max_steps: 3,
             seed: 1,
@@ -655,7 +655,7 @@ mod tests {
         let s2 = <KArmedBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
         assert!(!s2.status.is_done());
         let s3 = <KArmedBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
-        assert!(s3.status.is_terminated());
+        assert!(s3.status.is_truncated());
     }
 
     // ── post-terminal step guard ──────────────────────────────────────────
@@ -695,8 +695,8 @@ mod tests {
         .expect("valid config")
     }
 
-    /// Resets, then steps arm 0 until the step budget terminates the episode.
-    fn drive_to_termination(env: &mut KArmedBandit<K>) -> Snapshot<KArmedBanditObservation> {
+    /// Resets, then steps arm 0 until the step budget truncates the episode.
+    fn drive_to_end(env: &mut KArmedBandit<K>) -> Snapshot<KArmedBanditObservation> {
         <KArmedBandit<K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
         let mut snap = <KArmedBandit<K> as Environment<1, 1>>::step(env, action)
@@ -713,7 +713,7 @@ mod tests {
         let mut env = guard_env();
         assert_rejects_post_terminal_step(
             &mut env,
-            drive_to_termination,
+            drive_to_end,
             KArmedBanditAction::<K>::from_index(0),
         );
     }
@@ -725,13 +725,13 @@ mod tests {
         // action past a terminal must report StepAfterEpisodeEnd, not
         // InvalidAction.
         let mut env = guard_env();
-        let terminal = drive_to_termination(&mut env);
+        let terminal = drive_to_end(&mut env);
 
         let malformed = KArmedBanditAction::<K>::out_of_range_for_tests();
         assert!(!malformed.is_valid(), "the replayed action is out of range");
 
         let err = <KArmedBandit<K> as Environment<1, 1>>::step(&mut env, malformed)
-            .expect_err("a step after termination must be rejected");
+            .expect_err("a step after the episode ended must be rejected");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
                 status, terminal.status,
@@ -744,14 +744,14 @@ mod tests {
     #[test]
     fn post_terminal_step_does_not_advance_the_step_counter() {
         let mut env = guard_env();
-        drive_to_termination(&mut env);
+        drive_to_end(&mut env);
         let steps_at_end = env.steps;
 
         let _ = <KArmedBandit<K> as Environment<1, 1>>::step(
             &mut env,
             KArmedBanditAction::<K>::from_index(0),
         )
-        .expect_err("a step after termination must be rejected");
+        .expect_err("a step after the episode ended must be rejected");
 
         assert_eq!(
             env.steps, steps_at_end,
@@ -759,7 +759,7 @@ mod tests {
         );
         assert_eq!(
             env.guard.status(),
-            EpisodeStatus::Terminated,
+            EpisodeStatus::Truncated,
             "a rejected step must not reopen the episode"
         );
     }
@@ -771,14 +771,14 @@ mod tests {
         // exactly those of a same-seed env that never made the illegal call.
         let mut rejected = guard_env();
         let mut untouched = guard_env();
-        drive_to_termination(&mut rejected);
-        drive_to_termination(&mut untouched);
+        drive_to_end(&mut rejected);
+        drive_to_end(&mut untouched);
 
         let _ = <KArmedBandit<K> as Environment<1, 1>>::step(
             &mut rejected,
             KArmedBanditAction::<K>::from_index(0),
         )
-        .expect_err("a step after termination must be rejected");
+        .expect_err("a step after the episode ended must be rejected");
 
         let after: Vec<f32> = {
             <KArmedBandit<K> as Environment<1, 1>>::reset(&mut rejected).unwrap();
@@ -795,9 +795,9 @@ mod tests {
     }
 
     #[test]
-    fn reset_reopens_a_terminated_episode() {
+    fn reset_reopens_an_ended_episode() {
         let mut env = guard_env();
-        drive_to_termination(&mut env);
+        drive_to_end(&mut env);
         let action = KArmedBanditAction::<K>::from_index(0);
         assert!(
             <KArmedBandit<K> as Environment<1, 1>>::step(&mut env, action).is_err(),
@@ -815,11 +815,11 @@ mod tests {
     }
 
     #[test]
-    fn inherent_reset_reopens_a_terminated_episode() {
+    fn inherent_reset_reopens_an_ended_episode() {
         // `KArmedBandit::reset` is the inherent, non-trait reset; it must clear
         // the guard too, or the two reset paths disagree.
         let mut env = guard_env();
-        drive_to_termination(&mut env);
+        drive_to_end(&mut env);
 
         KArmedBandit::reset(&mut env);
         assert_eq!(
@@ -853,8 +853,8 @@ mod tests {
         let _ = env.pull(0);
         assert_eq!(
             env.guard.status(),
-            EpisodeStatus::Terminated,
-            "pulling to max_steps must terminate the episode for the trait step too"
+            EpisodeStatus::Truncated,
+            "pulling to max_steps must truncate the episode for the trait step too"
         );
         assert!(
             <KArmedBandit<K> as Environment<1, 1>>::step(
