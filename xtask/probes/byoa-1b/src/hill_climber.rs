@@ -7,11 +7,11 @@
 //! calls: `init`, `ask` and `tell` pass the state along, and every draw comes
 //! from the RNG the loop hands in, so a run is a function of its seed.
 
-use rand::{Rng, RngExt};
 use rlevo::burn::tensor::{Device, Tensor, TensorData};
 use rlevo::core::config::{ConfigError, Validate, nonzero, ordered, positive};
 use rlevo::evo::fitness::sanitize_fitness;
 use rlevo::evo::strategy::{Strategy, StrategyMetrics};
+use rlevo::prelude::{Rng, RngExt};
 
 /// What a run is configured with.
 #[derive(Debug, Clone)]

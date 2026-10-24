@@ -129,10 +129,15 @@ jobs:
   # the #391 lint-opt-in and #519 test-matrix jobs above: the check existed on
   # paper and ran on nothing.
   #
-  # Both feature configurations are checked. Default features miss every
+  # Three configurations are checked. Default features miss every
   # `rlevo-harness` doc behind `tui` / `report` / `record` — 13 broken links
   # were hiding there — and `--all-features` alone would stop covering any doc
-  # that a feature turns *off*.
+  # that a feature turns *off*. Neither documents a crate at a partial feature
+  # set, where a link to an item behind another feature breaks: a `tui` doc
+  # linked `RecordingTap`, which exists only under `record`. So each
+  # publishable crate that has features is also documented alone, at no
+  # features and at each of its features by itself, `default` among them. The
+  # list is read from the manifests, so a new feature is covered when it lands.
   docs:
     name: rustdoc intra-doc links
     runs-on: ubuntu-latest
@@ -151,6 +156,28 @@ jobs:
 
       - name: Document with all features
         run: cargo doc --workspace --no-deps --all-features
+
+      - name: Document each crate at no features and at each feature alone
+        run: |
+          set -euo pipefail
+          # One line per run: a crate, and the one feature it turns on. The
+          # first line for each crate names no feature.
+          runs=$(cargo metadata --no-deps --format-version 1 | jq -r '
+            .packages[]
+            | select(.publish == null and (.features | length) > 0)
+            | .name as $name
+            | $name, (.features | keys[] | "\($name) \(.)")')
+          if [ -z "$runs" ]; then
+            echo "::error::no publishable crate has a feature; this step checks nothing"
+            exit 1
+          fi
+          while read -r crate feature; do
+            if [ -z "$feature" ]; then
+              cargo doc -p "$crate" --no-deps --no-default-features
+            else
+              cargo doc -p "$crate" --no-deps --no-default-features --features "$feature"
+            fi
+          done <<< "$runs"
 
   # ADR 0042 / issue #128: `box2d` and `locomotion` are orthogonal
   # rlevo-environments features (neither implies the other) — a shared type

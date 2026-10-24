@@ -2,8 +2,8 @@
 //! distance from the target. It is frozen, so it implements one method of
 //! the agent seam and nothing else.
 
-use rand::Rng;
 use rlevo::core::fitness::BenchableAgent;
+use rlevo::prelude::Rng;
 
 use crate::tank_farm::{PumpCommand, TARGET_LEVEL, TankObs};
 

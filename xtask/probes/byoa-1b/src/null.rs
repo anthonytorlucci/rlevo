@@ -5,9 +5,9 @@
 //! hill-climber's parameters and its `init`, so from one seed the two start
 //! from the same point, and any difference between them is the search.
 
-use rand::Rng;
 use rlevo::burn::tensor::{Device, Tensor};
 use rlevo::evo::strategy::{Strategy, StrategyMetrics};
+use rlevo::prelude::Rng;
 
 use crate::hill_climber::{HillClimber, HillClimberParams, HillClimberState, row};
 

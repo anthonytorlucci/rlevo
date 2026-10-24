@@ -31,9 +31,8 @@ use crate::reporter::tui::TuiHandle;
 ///
 /// Requires only `E: Environment<D, AD>`. A separate
 /// [`AsciiRenderable`] forwarding impl is provided when the inner env is
-/// renderable, so the tap composes under a
-/// [`RecordingTap`](crate::record::RecordingTap) that records env frames to
-/// disk.
+/// renderable, so the tap composes under the `record` feature's
+/// `RecordingTap`, which records env frames to disk.
 ///
 /// # Examples
 ///

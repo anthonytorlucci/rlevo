@@ -270,7 +270,7 @@ impl Environment<1, 1> for MyEnv {
 // 2. Wrap your agent as BenchableAgent
 struct MyAgent;
 impl BenchableAgent<MyObs, MyAction> for MyAgent {
-    fn act(&mut self, _obs: &MyObs, _rng: &mut dyn rand::Rng) -> MyAction { MyAction }
+    fn act(&mut self, _obs: &MyObs, _rng: &mut dyn rlevo_core::rand::Rng) -> MyAction { MyAction }
 }
 
 // 3. Build and run

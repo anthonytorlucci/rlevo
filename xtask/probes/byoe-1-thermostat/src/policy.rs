@@ -1,8 +1,8 @@
 //! The policy: a bang-bang controller. It is frozen, so it implements one
 //! method of the agent seam and nothing else.
 
-use rand::Rng;
 use rlevo::core::fitness::BenchableAgent;
+use rlevo::prelude::Rng;
 
 use crate::thermostat::{Boiler, RoomObs, TARGET_C};
 

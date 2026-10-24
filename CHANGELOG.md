@@ -409,6 +409,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **`rlevo::burn`**, a re-export of the Burn release `rlevo` is built
   against, so a consumer names tensors and devices without a `burn` entry
   of its own.
+- **`Rng` and `RngExt` in the prelude.** `BenchableAgent::act` and every
+  strategy's `init`, `ask` and `tell` take a `&mut dyn Rng`, and the
+  methods that draw, such as `random_range`, are on `RngExt`, which no
+  signature names. A consumer added `rand` by hand, guessed its version,
+  and then had to find the second trait. `use rlevo::prelude::*` now
+  brings both; the rest of `rand` is `rlevo::core::rand`.
 - **`rlevo::harness`**, the evaluation harness (ADR 0084). `rlevo` now
   depends on `rlevo-harness` unconditionally, at its default features,
   and re-exports it, so `cargo add rlevo` reaches `Suite`, `Evaluator`, the
@@ -440,8 +446,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **`README.md` and the crate docs said `rlevo = "0.3"`.** They now state
   the current version, 0.5.
+- **The README's Quick Start used three items this release removes:**
+  `CartPoleAction::random()`, and `Snapshot`'s `observation()` and
+  `status()` methods, which are now its fields. It no longer compiled. It
+  now reads the fields, and draws its random action from a seeded `StdRng`
+  through `rlevo::core::rand`, with `random_range` from the prelude.
 
 ### `rlevo-core`
+
+**Added**
+
+- **`rlevo_core::rand`**, a re-export of the `rand` release whose `Rng`
+  the crate's signatures take, so a caller seeds a generator
+  (`rand::rngs::StdRng`) through it and needs no `rand` entry of its own.
+  A generator from another `rand` release does not implement this one's
+  `Rng`. The ask/tell guide's hand-seeded example and the harness README's
+  agent now name it there.
 
 **Changed**
 
@@ -750,11 +770,18 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
   `byoe-1-thermostat` probe did, with each line tried as an outside author
   would write it. The example now reads `run_suite(&suite, |_seed| MyAgent,
   &mut reporter)`.
+- **A link in `TuiEnvTap`'s docs broke with `tui` on and `record` off.** It
+  pointed at `RecordingTap`, which exists only under `record`, so
+  documenting the harness with `tui` alone failed. It is now plain text.
 
 ### Infrastructure
 
 **Changed**
 
+- **Three probes no longer add `rand` by hand.** `byoe-1-thermostat`,
+  `byoe-1-tank-farm` and `byoa-1b` import `Rng` (and `RngExt`) from
+  `rlevo::prelude`, and their manifests name `rlevo` alone, so step 2
+  passes and each verdict reads `passes.` with no finding.
 - **The `consumer-umbrella` probe builds a network.** It was an empty
   `main`, measured for its dependency list. It now also derives a `Module`
   and a `Config` through `rlevo::burn` and builds one default network, the
@@ -794,6 +821,12 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Added**
 
+- **CI documents each crate at partial feature sets.** The `docs` job
+  documented the workspace at its default features and at all features,
+  and neither run documents a crate with one feature on and another off.
+  It now also documents each publishable crate that has features alone,
+  at no features and at each feature by itself: 21 runs, read from the
+  manifests. The first run found the `TuiEnvTap` link above.
 - **An optimiser author's walk, `byoa-1b`.** A `(1+1)` hill-climber and a
   control whose `ask` returns its starting point, both written against the
   `Strategy` seam from outside the workspace, run on the shipped `Sphere`

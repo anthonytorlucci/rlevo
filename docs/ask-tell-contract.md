@@ -13,8 +13,8 @@ each is the right tool. Read it when you need to:
 - understand exactly why a run is — or isn't — reproducible.
 
 > **Running the examples.** They need one dependency, `rlevo` at its default
-> features, plus `rand` for the example that seeds an RNG by hand. Burn is
-> reached through `rlevo::burn`.
+> features. Burn is reached through `rlevo::burn`, and `rand` through
+> `rlevo::core::rand`.
 
 ## The contract
 
@@ -156,7 +156,7 @@ whole population at once and returns a `Tensor<1>` of per-individual costs:
 
 ```rust,no_run
 use rlevo::burn::tensor::Device;
-use rand::{SeedableRng, rngs::StdRng};
+use rlevo::core::rand::{SeedableRng, rngs::StdRng};
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo::evo::fitness::{BatchFitnessFn, FromLandscape, sanitize_fitness_tensor};
