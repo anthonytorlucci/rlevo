@@ -399,6 +399,66 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   environment's step cap now reports `Truncated`; see `rlevo-environments`,
   Fixed.
 
+- **`BenchableAgent` is `Agent`, and the evaluation harness trains** (ADR
+  0095).
+  - `rlevo_core::fitness::BenchableAgent` is removed, with no alias.
+    Implement `rlevo_core::agent::Agent<Obs, Act>`, also in the `rlevo`
+    prelude: `act` keeps its signature and `emit_metrics` its default, so
+    write `impl Agent<Obs, Act> for MyAgent` where you wrote `impl
+    BenchableAgent<Obs, Act> for MyAgent`. A learner also overrides the
+    hooks that default to doing nothing: `on_transition`, which is shown a
+    `Transition` after every step, `on_episode_end` and `set_training`.
+    `Evaluator::run_suite` and `EpisodicTrial` take an `Agent`.
+  - The RL crate's nine training loops are removed with their modules:
+    `train` in `dqn`, `c51`, `qrdqn`, `ddpg`, `td3` and `sac`,
+    `ppg::train::train_discrete`, and `ppo::train::{train_discrete,
+    train_continuous}`. Every agent implements `Agent`. Train one with
+    `rlevo_harness::evaluator::train(&mut env, &mut agent, steps,
+    max_steps, &mut rng)`, which returns the episodes it completed, or set
+    `EvaluatorConfig::train_steps` and run it through `run_suite`, which
+    trains it and then evaluates it. The loops' `log_every` progress line
+    goes with them. PPO and PPG log one `info` event per update, with the
+    update's statistics under the metric registry's names; the episode
+    fields (`total_steps`, `avg_reward`, `episode_return_*`,
+    `episode_length_mean`, `steps_per_sec`) are gone, since the harness
+    reports episodes. The
+    off-policy agents log no progress event.
+  - `rlevo_reinforcement_learning::metrics` is removed with `AgentStats` and
+    `PerformanceRecord`, as are each agent's `stats()` and
+    `record_episode`, the eight `*Metrics` structs and the eight
+    `*AgentError` enums. Read the returns from the episodes `train`
+    returns. `learn_step` returns `Result<Option<LearnOutcome>,
+    PolyakError>`, and `PolyakError` is
+    `rlevo_reinforcement_learning::target::PolyakError`.
+  - Each agent's stepping methods are private: `act`, `act_greedy`,
+    `on_env_step`, `should_train`, `decay_exploration` and `can_learn`, and
+    PPO's and PPG's `record_step`, `finalize_rollout`, `update`,
+    `policy_phase_update`, `maybe_aux_phase` and
+    `snapshot_into_aux_buffer`. Call `Agent::act`, which explores (or
+    samples) while the agent trains and acts greedily (or on the policy's
+    mean or mode) after `set_training(false)`; an agent starts in training.
+    `remember` and `learn_step` stay public on the six off-policy agents,
+    for a caller that paces learning itself. `remember` takes the step's
+    `EpisodeStatus` where it took `terminated: bool`, and counts the
+    environment step itself: delete your `on_env_step` call. PPO and PPG
+    implement `Agent` once per shipped policy head, the Gaussian one for
+    rank-1 actions, so a direct call to a hook names the action type:
+    `Agent::<Obs, Act>::set_training(&mut agent, false)`.
+  - The RL crate's building blocks are crate-private: the `replay` module
+    but `PrioritizedReplaySettings` (`ReplayStrategy`, `UniformReplay`,
+    `PrioritizedReplay`, `ReplayKind`, `Transition` and the rest), `utils`
+    (`polyak_update`, `compute_target_q_values`,
+    `compute_target_quantiles`), `target::PolyakTau`, the loss modules
+    (`c51::loss`, `c51::projection`, `ppo::losses`, `ppg::losses`,
+    `qrdqn::quantile_loss`), the exploration schedules
+    (`dqn::exploration`, `ddpg::exploration`), the rollout buffers
+    (`ppo::rollout`, `ppg::aux_buffer`), `td3::target_smoothing`,
+    `sac::sac_alpha`, `Slot`, and `MAX_BUFFER_CAPACITY`. No agent took a
+    replay of yours, and nothing outside this workspace named one. `Slot`
+    is private again, which reverses the `rlevo-reinforcement-learning`
+    entry below that published it, and the Burn 0.22 entry's
+    `utils::polyak_update` is internal too.
+
 ### `rlevo`
 
 **Added**
@@ -409,6 +469,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **`rlevo::burn`**, a re-export of the Burn release `rlevo` is built
   against, so a consumer names tensors and devices without a `burn` entry
   of its own.
+- **`Agent` and `Transition` in the prelude** (ADR 0095), so an agent
+  that `run_suite` drives is written from `use rlevo::prelude::*`.
 - **`Rng` and `RngExt` in the prelude.** `BenchableAgent::act` and every
   strategy's `init`, `ask` and `tell` take a `&mut dyn Rng`, and the
   methods that draw, such as `random_range`, are on `RngExt`, which no
@@ -456,6 +518,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **`rlevo_core::agent`**, with the `Agent` trait and the `Transition` its
+  `on_transition` hook is shown (ADR 0095); see Breaking changes.
 - **`rlevo_core::rand`**, a re-export of the `rand` release whose `Rng`
   the crate's signatures take, so a caller seeds a generator
   (`rand::rngs::StdRng`) through it and needs no `rand` entry of its own.
@@ -722,6 +786,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### `rlevo-harness`
 
 Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
+
+**Added**
+
+- **The episodic trial trains before it evaluates** (ADR 0095).
+  `EvaluatorConfig::train_steps`, 0 by default, is the number of
+  environment steps `EpisodicTrial` trains the agent for, through the new
+  public `evaluator::train`, before its `num_episodes` evaluation episodes.
+  The report holds the evaluation episodes only, and a random baseline run
+  under the same config spends the same steps learning nothing. An
+  episode cut at `max_steps` ends `Truncated` for the agent, after a last
+  transition whose status is still `Running`. With `train_steps` at 0 a
+  trial runs as before.
 
 **Changed**
 

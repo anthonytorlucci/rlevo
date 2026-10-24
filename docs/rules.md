@@ -116,8 +116,8 @@ applies is decided by the *kind* of struct, not case by case:
 | `HostRow<R>` | Requires `Observation<R>`. `write_host_row` pushes exactly `shape().iter().product()` plain `f32` values, appended (never clearing `buf`); a type implements `HostRow` at exactly **one** rank `R`, its `Observation` rank (ADR 0089) |
 | `TensorConvertible<R>` | Behind `rlevo-core`'s `burn` feature. Encode-only and implemented for every `HostRow<R>` by a blanket impl, so no type writes or overrides it: `to_tensor` uploads exactly the row `write_host_row` writes, in the shape `shape()` reports. Nothing decodes a tensor back into a domain value; the decoders in use read a host value (`DiscreteAction::from_index`, `ContinuousAction::from_slice`), and a decode trait returns with the first code that calls one (ADR 0089) |
 | `ScalarReward` | the default is zero, the additive identity: `r + ScalarReward::default() == r` |
-| `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted |
-| `PrioritizedReplay<T>` | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` |
+| `ReplayStrategy<T>` (crate-private since ADR 0095) | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted |
+| `PrioritizedReplay<T>` (crate-private) | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` |
 
 ### Optimisation direction — maximise-native
 

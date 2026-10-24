@@ -98,7 +98,7 @@ author stops or starts writing.
 
 | Probe | What it is |
 |-------|------------|
-| `byoe-1-thermostat` | an environment author's walk: implement `Environment`, hold the post-terminal contract, write a policy, run it through `Evaluator::run_suite` |
+| `byoe-1-thermostat` | an environment author's walk: implement `Environment`, hold the post-terminal contract, write a policy as an `Agent` that implements only `act`, run it through `Evaluator::run_suite` |
 | `byoe-1-tank-farm` | the same walk over a rank-2 observation, a bounded continuous action that can be invalid, and an episode that an overflow terminates or `TimeLimit` truncates; the harness runs it through the wrapper |
 | `byoe-2` | a landscape author's walk: implement `Landscape` for an invented cost surface, wrap it with `FromLandscape`, search it with a shipped strategy in an `EvolutionaryLoop`, and run that through `Evaluator::run_trials`; the best fitness must fall |
 | `learner-1` | a learner's walk: the README's Quick Start pasted into a new crate as written, built and run to the line it prints when its episode ends. Every `rlevo` dependency line in the README and the umbrella's crate docs must name the release the checkout builds |
@@ -173,6 +173,8 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 - `crates/rlevo-core/src/environment.rs`: the `Environment` trait, the `Snapshot<O>` struct every `reset` and `step` returns (read through its fields), `EpisodeStatus`, `EnvironmentError`; the emission model and construction are documented there as patterns, not traits (ADR 0090)
 - `crates/rlevo-core/src/base.rs`: `Observation`, `Action`, `HostRow` (the row a tensor is built from), `TensorConvertible` (behind the `burn` feature)
 - `crates/rlevo-core/src/reward.rs`: `ScalarReward`, the one reward type, and its finiteness obligation
+- `crates/rlevo-core/src/agent.rs`: `Agent`, the one agent seam: `act`, and four hooks that default to doing nothing (`on_transition`, `on_episode_end`, `set_training`, `emit_metrics`), so a frozen policy is one method long; and `Transition`, the step a learner is shown and the replay stores (ADR 0095)
+- `crates/rlevo-harness/src/evaluator.rs`: `EpisodicTrial` and `train`, the one loop that drives an `Agent`. Its private `play_episode` holds the status rule for both phases: a transition carries the snapshot's status unchanged, and an episode cut at `max_steps` ends `Truncated` for the agent while its last transition stays `Running`
 - `crates/rlevo-reinforcement-learning/src/replay/`: the off-policy agents' replay buffers — moved out of core in ADR 0003, reshaped as a strategy seam in ADR 0050, crate-private but for the `PrioritizedReplaySettings` opt-in since ADR 0095
 - `crates/rlevo-evolution/src/strategy.rs`: `Strategy`, the stateless ask/tell contract, and `EvolutionaryLoop`, which holds a run's state and drives one with `reset()` / `step()` / `is_done()`. `step()` returns nothing; the status is the separate predicate (ADR 0085). For a `Strategy`, the loop is where a `Minimize` objective is negated and fitness is sanitised
 - `crates/rlevo-evolution/src/fitness.rs`: `BatchFitnessFn`, which declares its `ObjectiveSense`, and the fitness-hygiene rule as two public functions, `sanitize_fitness` / `sanitize_fitness_tensor`. A `Strategy`'s `tell` and a hand-written ask/tell loop call them, on canonical values, after any negation; a run through `EvolutionaryLoop` calls neither (ADR 0086)
