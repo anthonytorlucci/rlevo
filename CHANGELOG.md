@@ -785,6 +785,15 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Added**
 
+- **A landscape author's walk, `byoe-2`.** The first probe of the
+  evolutionary path. An invented cost surface, written against `rlevo::core`
+  alone, is wrapped with `FromLandscape`, searched by the shipped `(μ+λ)`
+  evolution strategy in an `EvolutionaryLoop`, and run through
+  `Evaluator::run_trials` as a `GenerationTrial`, in six steps. The last
+  runs the suite twice from one seed, for one generation and for thirty,
+  and requires each trial's `ea/best_fitness_ever` to fall, and never below
+  the surface's known minimum. It needs no crate beside `rlevo`.
+  `crate-tests.yml` runs it on every pull request as `probe (byoe-2)`.
 - **`cargo xtask guards`: the layering rules, checked.** Five rules no
   compiler checks, each read where it can be broken: `rlevo-evolution`
   names no path into the environment contract (ADR 0002); no published

@@ -134,6 +134,10 @@ struct ContractFile {
 const BYOE1_NOTE: &str = "BYOE-1 does not end at the harness run: recording the run and \
                           rendering a report are not walked yet";
 
+/// What a green BYOE-2 walk does not yet show.
+const BYOE2_NOTE: &str = "BYOE-2 does not end at the harness run: recording the population \
+                          and drawing the landscape are not walked yet";
+
 /// The probes. Keep in step with `xtask/probes/`:
 /// `assert_probes_are_registered` enforces it.
 const PROBES: &[Probe] = &[
@@ -157,6 +161,18 @@ const PROBES: &[Probe] = &[
             contract: Some("src/tank_farm.rs"),
         },
         note: Some(BYOE1_NOTE),
+    },
+    // A landscape author: a cost surface of their own, run through a shipped
+    // strategy. Like an environment, the landscape needs the contract crate
+    // alone.
+    Probe {
+        name: "byoe-2",
+        title: "BYOE-2",
+        kind: Kind::Walk {
+            walk: &walk::BYOE2,
+            contract: Some("src/well_siting.rs"),
+        },
+        note: Some(BYOE2_NOTE),
     },
     // An environment author with no learner. An empty crate depending on
     // `rlevo-core` would compile whatever the contract asks of an

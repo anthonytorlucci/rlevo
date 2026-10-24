@@ -111,6 +111,60 @@ pub const BYOE1: Walk = Walk {
     ],
 };
 
+/// BYOE-2: a landscape author's walk, from an empty directory to a harness
+/// run of a shipped optimiser on their own cost surface.
+pub const BYOE2: Walk = Walk {
+    prefix: "BYOE-STEP",
+    steps: &[
+        SCAFFOLD,
+        ADD_DEPS,
+        Step {
+            label: "implement-landscape",
+            fatal: true,
+        },
+        Step {
+            label: "wrap-landscape",
+            fatal: true,
+        },
+        Step {
+            label: "build-loop",
+            fatal: true,
+        },
+        Step {
+            label: "run-trials",
+            fatal: true,
+        },
+    ],
+    levels: &[
+        Level {
+            feature: None,
+            step: "implement-landscape",
+            built: Some(
+                "Landscape implemented against public API only; the file names nothing outside rlevo::core",
+            ),
+            reports: &[],
+        },
+        Level {
+            feature: Some("engine"),
+            step: "wrap-landscape",
+            built: None,
+            reports: &["wrap-landscape"],
+        },
+        Level {
+            feature: Some("strategy"),
+            step: "build-loop",
+            built: None,
+            reports: &["build-loop"],
+        },
+        Level {
+            feature: Some("harness"),
+            step: "run-trials",
+            built: None,
+            reports: &["run-trials"],
+        },
+    ],
+};
+
 /// A build level of the probe crate.
 #[derive(Debug)]
 pub struct Level {
