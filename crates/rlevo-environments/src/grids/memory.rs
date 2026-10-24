@@ -246,7 +246,7 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -816,12 +816,12 @@ impl MemoryEnv {
         &self,
         observation: GridObservation,
         reward: f32,
-        done: bool,
+        status: EpisodeStatus,
     ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(observation, reward, done)
+        build_snapshot(observation, reward, status)
     }
 
     /// `true` when the agent faces a **fork** object whose type equals the cue.
@@ -890,7 +890,7 @@ impl Environment<3, 1> for MemoryEnv {
         self.match_pos = match_pos;
         self.steps = 0;
         let observation = self.observe();
-        Ok(self.emit(observation, 0.0, false))
+        Ok(self.emit(observation, 0.0, EpisodeStatus::Running))
     }
 
     /// Advances one step and returns the resulting snapshot.
@@ -913,21 +913,25 @@ impl Environment<3, 1> for MemoryEnv {
 
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
-        let (reward, done) = if outcome == StepOutcome::DoneAction {
+        let (reward, status) = if outcome == StepOutcome::DoneAction {
             if self.facing_match() {
-                (success_reward(self.steps, self.config.max_steps), true)
+                (
+                    success_reward(self.steps, self.config.max_steps),
+                    EpisodeStatus::Terminated,
+                )
             } else {
-                (0.0, true)
+                (0.0, EpisodeStatus::Terminated)
             }
+        } else if self.steps >= self.config.max_steps {
+            (0.0, EpisodeStatus::Terminated)
         } else {
-            let done = self.steps >= self.config.max_steps;
-            (0.0, done)
+            (0.0, EpisodeStatus::Running)
         };
         let observation = self.observe();
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can record something the caller
         // was not handed.
-        let snapshot = self.emit(observation, reward, done);
+        let snapshot = self.emit(observation, reward, status);
         self.guard.record(snapshot.status);
         Ok(snapshot)
     }

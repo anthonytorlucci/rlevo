@@ -71,7 +71,7 @@ pub use reward::success_reward;
 pub use state::GridState;
 
 use grid::{egocentric_view, stamp_carried};
-use rlevo_core::environment::Snapshot;
+use rlevo_core::environment::{EpisodeStatus, Snapshot};
 use rlevo_core::reward::ScalarReward;
 
 /// Per-environment emission-model policy: does the agent see through opaque
@@ -191,26 +191,23 @@ pub(super) fn mask_view(
     stamp_carried(masked, agent)
 }
 
-/// Build a `Snapshot<GridObservation>` from an already-produced [`GridObservation`] plus a
-/// raw reward and done flag.
+/// Build a [`Snapshot`] from an already-produced observation, a raw reward and
+/// the step's [`EpisodeStatus`].
 ///
 /// The observation is passed in rather than projected here so that the
 /// [`Visibility`] decision stays with the environment that owns it; callers
-/// produce it with [`observe_grid`].
+/// produce it with [`observe_grid`], or, for `GoToDoorEnv`, with the encoder
+/// that adds the mission channel (ADR 0043).
 ///
-/// Every env whose snapshot is a `Snapshot<GridObservation>` routes its `step()` through
-/// here; `GoToDoorEnv` builds its own [`Snapshot`] because its observation
-/// needs the episode mission (see ADR 0043).
+/// Every grid env routes its `reset()` and `step()` through here, and decides
+/// the status itself.
 #[must_use]
-pub fn build_snapshot(
-    observation: GridObservation,
-    reward: f32,
-    done: bool,
-) -> Snapshot<GridObservation> {
-    if done {
-        Snapshot::terminated(observation, ScalarReward::new(reward))
-    } else {
-        Snapshot::running(observation, ScalarReward::new(reward))
+pub fn build_snapshot<O>(observation: O, reward: f32, status: EpisodeStatus) -> Snapshot<O> {
+    Snapshot {
+        observation,
+        reward: ScalarReward::new(reward),
+        status,
+        metadata: None,
     }
 }
 

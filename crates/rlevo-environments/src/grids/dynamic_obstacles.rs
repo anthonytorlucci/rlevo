@@ -75,7 +75,7 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -444,12 +444,12 @@ impl DynamicObstaclesEnv {
         &self,
         observation: GridObservation,
         reward: f32,
-        done: bool,
+        status: EpisodeStatus,
     ) -> Snapshot<GridObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(observation, reward, done)
+        build_snapshot(observation, reward, status)
     }
 
     /// Perform one random-walk step for each obstacle and return `true`
@@ -610,7 +610,7 @@ impl Environment<3, 1> for DynamicObstaclesEnv {
         self.obstacles = obstacles;
         self.steps = 0;
         let observation = self.observe();
-        Ok(self.emit(observation, 0.0, false))
+        Ok(self.emit(observation, 0.0, EpisodeStatus::Running))
     }
 
     /// Applies the agent's action, then random-walks every obstacle.
@@ -634,13 +634,20 @@ impl Environment<3, 1> for DynamicObstaclesEnv {
 
         // A terminal outcome from the agent's own step takes priority over
         // obstacle motion: on those routes the obstacles do not move at all.
-        let (reward, done) = match outcome {
-            StepOutcome::ReachedGoal => (success_reward(self.steps, self.config.max_steps), true),
-            StepOutcome::HitLava => (0.0, true),
+        let (reward, status) = match outcome {
+            StepOutcome::ReachedGoal => (
+                success_reward(self.steps, self.config.max_steps),
+                EpisodeStatus::Terminated,
+            ),
+            StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
             _ => {
-                let collided = self.move_obstacles();
-                let reward = if collided { COLLISION_REWARD } else { 0.0 };
-                (reward, collided || self.steps >= self.config.max_steps)
+                if self.move_obstacles() {
+                    (COLLISION_REWARD, EpisodeStatus::Terminated)
+                } else if self.steps >= self.config.max_steps {
+                    (0.0, EpisodeStatus::Terminated)
+                } else {
+                    (0.0, EpisodeStatus::Running)
+                }
             }
         };
 
@@ -649,7 +656,7 @@ impl Environment<3, 1> for DynamicObstaclesEnv {
         // record — and the guard cannot disagree with what the caller was
         // handed.
         let observation = self.observe();
-        let snapshot = self.emit(observation, reward, done);
+        let snapshot = self.emit(observation, reward, status);
         self.guard.record(snapshot.status);
         Ok(snapshot)
     }

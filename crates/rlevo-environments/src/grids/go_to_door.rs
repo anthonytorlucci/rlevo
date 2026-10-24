@@ -74,6 +74,7 @@ use super::core::{
     Visibility,
     action::GridAction,
     agent::AgentState,
+    build_snapshot,
     color::Color,
     direction::Direction,
     dynamics::{StepOutcome, apply_action},
@@ -89,9 +90,8 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::base::{HostRow, Observation};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -488,7 +488,7 @@ impl FromStr for GoToDoorConfig {
 /// policy that ignores that channel cannot beat 25%.
 ///
 /// Implements [`Environment<3, 1>`] with [`GoToDoorObservation`] / [`GridAction`] /
-/// [`ScalarReward`].
+/// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// [`GridAction::Done`] ends the episode either way — at a target-colored door
 /// for [`success_reward`], anywhere else for `0.0` — and a
@@ -750,17 +750,12 @@ impl GoToDoorEnv {
         &self,
         observation: GoToDoorObservation,
         reward: f32,
-        done: bool,
+        status: EpisodeStatus,
     ) -> Snapshot<GoToDoorObservation> {
         if self.render {
             println!("{}", self.ascii());
         }
-        let reward = ScalarReward::new(reward);
-        if done {
-            Snapshot::terminated(observation, reward)
-        } else {
-            Snapshot::running(observation, reward)
-        }
+        build_snapshot(observation, reward, status)
     }
 
     /// Color of the door currently in front of the agent, if any.
@@ -830,7 +825,7 @@ impl Environment<3, 1> for GoToDoorEnv {
         self.mission = mission;
         self.steps = 0;
         let observation = self.observe();
-        Ok(self.emit(observation, 0.0, false))
+        Ok(self.emit(observation, 0.0, EpisodeStatus::Running))
     }
 
     /// Applies `action`, then pays [`success_reward`] iff it was
@@ -854,20 +849,24 @@ impl Environment<3, 1> for GoToDoorEnv {
 
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
-        let (reward, done) = if outcome == StepOutcome::DoneAction {
+        let (reward, status) = if outcome == StepOutcome::DoneAction {
             if self.door_in_front_color() == Some(self.mission.target_color) {
-                (success_reward(self.steps, self.config.max_steps), true)
+                (
+                    success_reward(self.steps, self.config.max_steps),
+                    EpisodeStatus::Terminated,
+                )
             } else {
-                (0.0, true)
+                (0.0, EpisodeStatus::Terminated)
             }
+        } else if self.steps >= self.config.max_steps {
+            (0.0, EpisodeStatus::Terminated)
         } else {
-            let done = self.steps >= self.config.max_steps;
-            (0.0, done)
+            (0.0, EpisodeStatus::Running)
         };
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch above can disagree with it.
         let observation = self.observe();
-        let snapshot = self.emit(observation, reward, done);
+        let snapshot = self.emit(observation, reward, status);
         self.guard.record(snapshot.status);
         Ok(snapshot)
     }
@@ -891,7 +890,6 @@ mod tests {
     // The env no longer cuts the raw window itself (it goes through `mask_view`),
     // but the encoding tests still compare against the *unoccluded* view.
     use crate::grids::core::grid::egocentric_view;
-    use rlevo_core::environment::EpisodeStatus;
     use std::collections::HashSet;
 
     /// Wall order used by `GoToDoorEnv::doors` and by the scripts below.

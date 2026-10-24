@@ -48,6 +48,7 @@ use super::core::{
     Visibility,
     action::GridAction,
     agent::AgentState,
+    build_snapshot,
     direction::Direction,
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
@@ -58,9 +59,8 @@ use super::core::{
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo_core::episode::EpisodeGuard;
-use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -332,18 +332,14 @@ impl EmptyEnv {
         &self,
         observation: GridObservation,
         reward: f32,
-        done: bool,
+        status: EpisodeStatus,
     ) -> Snapshot<GridObservation> {
         if self.render {
             // Render is a debug side effect; return the string so callers can
             // capture it if they wish, or drop it when invoked internally.
             let _ = super::core::render::render_ascii(&self.state.grid, &self.state.agent);
         }
-        if done {
-            Snapshot::terminated(observation, ScalarReward::new(reward))
-        } else {
-            Snapshot::running(observation, ScalarReward::new(reward))
-        }
+        build_snapshot(observation, reward, status)
     }
 }
 
@@ -396,7 +392,7 @@ impl Environment<3, 1> for EmptyEnv {
         self.state = GridState::new(grid, agent);
         self.steps = 0;
         let observation = self.observe();
-        Ok(self.snapshot(observation, 0.0, false))
+        Ok(self.snapshot(observation, 0.0, EpisodeStatus::Running))
     }
 
     /// Applies `action`, then maps the resulting [`StepOutcome`] to reward and
@@ -419,19 +415,20 @@ impl Environment<3, 1> for EmptyEnv {
 
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
-        let (reward, done) = match outcome {
-            StepOutcome::ReachedGoal => (success_reward(self.steps, self.config.max_steps), true),
-            StepOutcome::HitLava => (0.0, true),
-            _ => {
-                let done = self.steps >= self.config.max_steps;
-                (0.0, done)
-            }
+        let (reward, status) = match outcome {
+            StepOutcome::ReachedGoal => (
+                success_reward(self.steps, self.config.max_steps),
+                EpisodeStatus::Terminated,
+            ),
+            StepOutcome::HitLava => (0.0, EpisodeStatus::Terminated),
+            _ if self.steps >= self.config.max_steps => (0.0, EpisodeStatus::Terminated),
+            _ => (0.0, EpisodeStatus::Running),
         };
         let observation = self.observe();
 
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot drift apart.
-        let snapshot = self.snapshot(observation, reward, done);
+        let snapshot = self.snapshot(observation, reward, status);
         self.guard.record(snapshot.status);
         Ok(snapshot)
     }
@@ -456,7 +453,6 @@ mod tests {
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::EpisodeStatus;
 
     #[test]
     fn default_config_validates() {
