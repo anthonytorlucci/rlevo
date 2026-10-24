@@ -12,9 +12,9 @@
 //! 2. **Throughput** — a Criterion group timing per-step rollout cost of the
 //!    random policy vs. DQN-greedy inference (a network forward per step).
 //!
-//! The DQN model is a flatten + MLP over the `$7 \times 7 \times 3$` egocentric grid observation
-//! (rank-3 → rank-4 batched), mapping to the 7-way [`GridAction`] space; the model and Polyak
-//! target update are shared with the other `*_dqn` benches via [`support`].
+//! The DQN model is the RL crate's `MlpQNetwork`, which flattens the `$7 \times 7 \times 3$`
+//! egocentric grid observation (rank-3 → rank-4 batched) and maps it to the 7-way [`GridAction`]
+//! space.
 //!
 //! # Run with
 //!
