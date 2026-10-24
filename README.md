@@ -110,20 +110,22 @@ rlevo = "0.5"
 ```
 
 ```rust
-use rlevo::prelude::*;
+use rlevo::core::rand::{SeedableRng, rngs::StdRng};
 use rlevo::envs::classic::{CartPole, CartPoleAction, CartPoleConfig};
+use rlevo::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
+    let mut env = CartPole::with_config(CartPoleConfig::default())?;
+    let mut rng = StdRng::seed_from_u64(42);
     let snapshot = env.reset()?;
-    println!("Initial observation: {:?}", snapshot.observation());
+    println!("Initial observation: {:?}", snapshot.observation);
 
     loop {
         // Replace with your policy — here we sample a random action
-        let action = CartPoleAction::random();
-        let snapshot = env.step(action)?;
+        let index = rng.random_range(0..CartPoleAction::ACTION_COUNT);
+        let snapshot = env.step(CartPoleAction::from_index(index))?;
 
-        if matches!(snapshot.status(), EpisodeStatus::Terminated | EpisodeStatus::Truncated) {
+        if snapshot.status.is_done() {
             break;
         }
     }

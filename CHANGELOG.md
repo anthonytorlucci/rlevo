@@ -446,6 +446,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **`README.md` and the crate docs said `rlevo = "0.3"`.** They now state
   the current version, 0.5.
+- **The README's Quick Start used three items this release removes:**
+  `CartPoleAction::random()`, and `Snapshot`'s `observation()` and
+  `status()` methods, which are now its fields. It no longer compiled. It
+  now reads the fields, and draws its random action from a seeded `StdRng`
+  through `rlevo::core::rand`, with `random_range` from the prelude.
 
 ### `rlevo-core`
 
