@@ -96,17 +96,22 @@ where
         // `done` drives episode bookkeeping (metrics, `env.reset()`): the
         // episode is over either way.
         //
-        // `terminated` is the Bellman bootstrap mask and is true only for an *environmental*
+        // `remember` takes the status and masks the Bellman bootstrap only on an *environmental*
         // termination. On a truncation (time-limit cutoff) the MDP has not ended, so `next_obs` is
         // a real continuation state and `$\gamma \cdot V(\text{next\_obs})$` must survive in the
         // target. Masking on `done` here would zero the bootstrap at every timeout and bias Q
         // downward on any time-limited env (Pardo et al., "Time Limits in Reinforcement Learning",
         // ICML 2018, Eq. 6 — partial-episode bootstrapping).
         let done = next_snapshot.status.is_done();
-        let terminated = next_snapshot.status.is_terminated();
         let next_obs = next_snapshot.observation.clone();
 
-        agent.remember(obs_current, &action, reward_f32, next_obs, terminated);
+        agent.remember(
+            obs_current,
+            &action,
+            reward_f32,
+            next_obs,
+            next_snapshot.status,
+        );
         agent.on_env_step();
 
         // DELIBERATE: `reward_f32` is accumulated raw, *including* a non-finite

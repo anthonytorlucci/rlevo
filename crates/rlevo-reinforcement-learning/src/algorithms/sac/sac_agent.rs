@@ -26,6 +26,7 @@ use crate::replay::{ContinuousTransition, ReplayStrategy, UniformReplay, Uniform
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
+use rlevo_core::environment::EpisodeStatus;
 
 use crate::algorithms::sac::sac_alpha::LogAlpha;
 use crate::algorithms::sac::sac_config::SacTrainingConfig;
@@ -695,15 +696,14 @@ where
     ///
     /// # Arguments
     ///
-    /// - `terminated` — pass [`EpisodeStatus::is_terminated`], **not**
-    ///   [`EpisodeStatus::is_done`]. Only a true environmental termination may zero
-    ///   the Bellman bootstrap; on a truncation (time-limit cutoff) `next_obs`
-    ///   is a genuine continuation state whose value must still be
-    ///   bootstrapped. See [`Transition::terminated`].
+    /// - `status` — the snapshot's status, unchanged. When the transition is
+    ///   sampled, only [`EpisodeStatus::Terminated`] zeroes the Bellman
+    ///   bootstrap; after a truncation (a time-limit cut) `next_obs` is a
+    ///   genuine continuation state whose value is still bootstrapped. See
+    ///   [`Transition::status`].
     ///
-    /// [`Transition::terminated`]: crate::replay::Transition::terminated
-    /// [`EpisodeStatus::is_terminated`]: rlevo_core::environment::EpisodeStatus::is_terminated
-    /// [`EpisodeStatus::is_done`]: rlevo_core::environment::EpisodeStatus::is_done
+    /// [`Transition::status`]: rlevo_core::agent::Transition::status
+    /// [`EpisodeStatus::Terminated`]: rlevo_core::environment::EpisodeStatus::Terminated
     ///
     /// # Behavior
     ///
@@ -720,7 +720,14 @@ where
     /// decade-scheduled `warn!` (ADR 0067). The reward check runs
     /// **first** and returns early, so a transition that is bad in both ways
     /// increments only `dropped_transitions`.
-    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
+    pub fn remember(
+        &mut self,
+        obs: O,
+        action: &A,
+        reward: f32,
+        next_obs: O,
+        status: EpisodeStatus,
+    ) {
         if !self.reward_guard.admit(reward) {
             return;
         }
@@ -741,7 +748,7 @@ where
             action: action.as_slice().to_vec(),
             reward,
             next_obs,
-            terminated,
+            status,
         });
     }
 
@@ -850,7 +857,10 @@ where
     /// time-limit cutoff from a real MDP termination.
     #[cfg(test)]
     pub(crate) fn replay_terminated_flags(&self) -> Vec<bool> {
-        self.buffer.iter().map(|t| t.terminated).collect()
+        self.buffer
+            .iter()
+            .map(|t| t.status.is_terminated())
+            .collect()
     }
 
     /// Test-only parameter checksums of the two **target** critics, as
@@ -976,7 +986,7 @@ where
             t.next_obs.write_host_row(&mut next_flat);
             action_flat.extend_from_slice(&t.action);
             rewards.push(t.reward);
-            terminated.push(if t.terminated { 1.0 } else { 0.0 });
+            terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
         let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(BOR);
@@ -1379,7 +1389,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
 
@@ -1505,7 +1515,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
 
@@ -1747,7 +1757,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
 
@@ -1870,7 +1880,7 @@ mod tests {
             &action,
             f32::NAN,
             make_obs(0.1, 0.9),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1883,7 +1893,13 @@ mod tests {
             "the drop must be visible to the caller through the public counter"
         );
 
-        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        agent.remember(
+            make_obs(0.1, 0.9),
+            &action,
+            0.5,
+            make_obs(0.2, 0.8),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             1,
@@ -1931,7 +1947,7 @@ mod tests {
             &action,
             0.5,
             make_obs(0.1, 0.9),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1949,7 +1965,13 @@ mod tests {
             "the reward was finite: the reward counter must not move"
         );
 
-        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        agent.remember(
+            make_obs(0.1, 0.9),
+            &action,
+            0.5,
+            make_obs(0.2, 0.8),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             1,
@@ -1972,7 +1994,7 @@ mod tests {
             &action,
             0.5,
             make_obs(0.1, f32::INFINITY),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1985,7 +2007,13 @@ mod tests {
             "the `next_obs` drop must be visible through the public counter"
         );
 
-        agent.remember(make_obs(0.1, 0.9), &action, 0.5, make_obs(0.2, 0.8), false);
+        agent.remember(
+            make_obs(0.1, 0.9),
+            &action,
+            0.5,
+            make_obs(0.2, 0.8),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             1,
@@ -2012,7 +2040,7 @@ mod tests {
             &action,
             f32::NAN,
             make_obs(f32::NAN, 0.9),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(agent.buffer_len(), 0, "the transition must be dropped");
         assert_eq!(
@@ -2130,7 +2158,7 @@ mod tests {
                 &action,
                 0.5,
                 make_obs(x + 0.1, 0.9 - x),
-                false,
+                EpisodeStatus::Running,
             );
         }
         assert!(

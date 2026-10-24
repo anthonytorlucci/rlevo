@@ -18,6 +18,7 @@ use crate::replay::{DiscreteTransition, ReplayKind, ReplayStrategy, UniformRepla
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
+use rlevo_core::environment::EpisodeStatus;
 
 use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use crate::algorithms::dqn::dqn_model::DqnModel;
@@ -555,16 +556,14 @@ where
     ///
     /// # Arguments
     ///
-    /// - `terminated` — pass [`EpisodeStatus::is_terminated`], **not**
-    ///   [`EpisodeStatus::is_done`]. Only a true environmental termination may zero
-    ///   the Bellman bootstrap; on a truncation (time-limit cutoff) `next_obs`
-    ///   is a genuine continuation state whose value must still be
-    ///   bootstrapped. See [`Transition::terminated`].
+    /// - `status` — the snapshot's status, unchanged. When the transition is
+    ///   sampled, only [`EpisodeStatus::Terminated`] zeroes the Bellman
+    ///   bootstrap; after a truncation (a time-limit cut) `next_obs` is a
+    ///   genuine continuation state whose value is still bootstrapped. See
+    ///   [`Transition::status`].
     ///
-    /// [`Transition::terminated`]: crate::replay::Transition::terminated
-    ///
-    /// [`EpisodeStatus::is_terminated`]: rlevo_core::environment::EpisodeStatus::is_terminated
-    /// [`EpisodeStatus::is_done`]: rlevo_core::environment::EpisodeStatus::is_done
+    /// [`Transition::status`]: rlevo_core::agent::Transition::status
+    /// [`EpisodeStatus::Terminated`]: rlevo_core::environment::EpisodeStatus::Terminated
     ///
     /// # Behavior
     ///
@@ -578,7 +577,14 @@ where
     /// A non-finite **observation** — a `NaN` or `$\pm\infty$` anywhere in the host row of *either*
     /// `obs` or `next_obs` — is discarded on the same terms, and counted separately by
     /// [`dropped_observations`](Self::dropped_observations) (ADR 0067).
-    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
+    pub fn remember(
+        &mut self,
+        obs: O,
+        action: &A,
+        reward: f32,
+        next_obs: O,
+        status: EpisodeStatus,
+    ) {
         if !self.reward_guard.admit(reward) {
             return;
         }
@@ -595,7 +601,7 @@ where
             action: action.to_index(),
             reward,
             next_obs,
-            terminated,
+            status,
         });
     }
 
@@ -707,7 +713,10 @@ where
     /// time-limit cutoff from a real MDP termination.
     #[cfg(test)]
     pub(crate) fn replay_terminated_flags(&self) -> Vec<bool> {
-        self.buffer.iter().map(|t| t.terminated).collect()
+        self.buffer
+            .iter()
+            .map(|t| t.status.is_terminated())
+            .collect()
     }
 
     /// Test-only view of the rewards currently held in the replay buffer,
@@ -831,7 +840,7 @@ where
             t.next_obs.write_host_row(&mut next_flat);
             action_idxs.push(t.action as i64);
             rewards.push(t.reward);
-            terminated.push(if t.terminated { 1.0 } else { 0.0 });
+            terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
         let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
@@ -1098,7 +1107,7 @@ mod tests {
                 &TestAction(i % 2),
                 1.0,
                 TestObs([x + 1.0, -x]),
-                false,
+                EpisodeStatus::Running,
             );
         }
         agent
@@ -1215,7 +1224,7 @@ mod tests {
                 &TestAction(i % 2),
                 1.0,
                 TestObs([x + 1.0, -x]),
-                false,
+                EpisodeStatus::Running,
             );
         }
         agent
@@ -1597,7 +1606,7 @@ mod tests {
             &TestAction(0),
             f32::NAN,
             TestObs([1.0, 0.0]),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1615,7 +1624,7 @@ mod tests {
             &TestAction(1),
             1.0,
             TestObs([2.0, 0.0]),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1658,7 +1667,13 @@ mod tests {
     fn test_dqn_agent_remember_drops_a_nonfinite_obs() {
         let mut agent = obs_guard_agent();
 
-        agent.remember(nan_obs(), &TestAction(0), 1.0, TestObs([1.0, 0.0]), false);
+        agent.remember(
+            nan_obs(),
+            &TestAction(0),
+            1.0,
+            TestObs([1.0, 0.0]),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             0,
@@ -1675,7 +1690,13 @@ mod tests {
             "the reward was finite: the reward counter must not move"
         );
 
-        agent.remember(TestObs([0.0, 0.0]), &TestAction(1), 1.0, nan_obs(), false);
+        agent.remember(
+            TestObs([0.0, 0.0]),
+            &TestAction(1),
+            1.0,
+            nan_obs(),
+            EpisodeStatus::Running,
+        );
         assert_eq!(
             agent.buffer_len(),
             0,
@@ -1688,7 +1709,7 @@ mod tests {
             &TestAction(1),
             1.0,
             TestObs([2.0, 0.0]),
-            false,
+            EpisodeStatus::Running,
         );
         assert_eq!(
             agent.buffer_len(),
@@ -1709,7 +1730,13 @@ mod tests {
     fn test_dqn_agent_remember_counts_a_doubly_bad_transition_as_a_reward_drop_only() {
         let mut agent = obs_guard_agent();
 
-        agent.remember(nan_obs(), &TestAction(0), f32::NAN, nan_obs(), false);
+        agent.remember(
+            nan_obs(),
+            &TestAction(0),
+            f32::NAN,
+            nan_obs(),
+            EpisodeStatus::Running,
+        );
 
         assert_eq!(agent.buffer_len(), 0, "the transition must not be stored");
         assert_eq!(

@@ -38,6 +38,7 @@ use rand::rngs::StdRng;
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
+use rlevo_core::environment::EpisodeStatus;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
@@ -547,7 +548,7 @@ fn target_actions_after_one_learn_step(next_obs_x: f32) -> Vec<Vec<f32>> {
             &CarLikeAction([0.0, 0.5, 0.5]),
             1.0,
             LinearObservation { x: next_obs_x },
-            false,
+            EpisodeStatus::Running,
         );
     }
     agent

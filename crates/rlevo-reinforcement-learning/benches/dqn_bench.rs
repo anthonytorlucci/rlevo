@@ -72,11 +72,10 @@ fn bench_learn(c: &mut Criterion) {
         let action = agent.act(&obs, &mut rng);
         let next = env.step(action).expect("step");
         let r: f32 = (next.reward).into();
-        // `done` drives the episode reset; `terminated` is the Bellman
-        // bootstrap mask. CartPole truncates at its step cap, so these differ.
+        // `done` drives the episode reset; `remember` masks the Bellman
+        // bootstrap on the status, and only on termination. CartPole truncates at its step cap, so these differ.
         let done = next.status.is_done();
-        let terminated = next.status.is_terminated();
-        agent.remember(obs, &action, r, next.observation, terminated);
+        agent.remember(obs, &action, r, next.observation, next.status);
         agent.on_env_step();
         snap = if done {
             env.reset().expect("reset")

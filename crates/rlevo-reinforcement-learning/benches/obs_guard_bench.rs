@@ -157,7 +157,7 @@ use rand::rngs::StdRng;
 
 use rlevo_core::action::{ContinuousAction, DiscreteAction};
 use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
-use rlevo_core::environment::Environment;
+use rlevo_core::environment::{Environment, EpisodeStatus};
 use rlevo_environments::box2d::car_racing::{
     CarRacing, CarRacingAction, CarRacingConfig, CarRacingObservation,
 };
@@ -584,7 +584,12 @@ where
         let obs = fixture[i % fixture.len()].clone();
         let next = fixture[(i + 1) % fixture.len()].clone();
         let action = BenchAction::from_index(i % ACTIONS);
-        agent.remember(obs, &action, 1.0, next, i % 97 == 0);
+        let status = if i % 97 == 0 {
+            EpisodeStatus::Terminated
+        } else {
+            EpisodeStatus::Running
+        };
+        agent.remember(obs, &action, 1.0, next, status);
     }
     agent
 }
@@ -782,7 +787,13 @@ fn bench_ingest<M, O, const DO: usize, const DB: usize>(
                         ));
                     }
                 }
-                agent.remember(black_box(obs), &action, 1.0, black_box(next), false);
+                agent.remember(
+                    black_box(obs),
+                    &action,
+                    1.0,
+                    black_box(next),
+                    EpisodeStatus::Running,
+                );
             });
         });
     }
@@ -875,8 +886,7 @@ fn bench_env_cycle_lunar(c: &mut Criterion) {
                 let t0 = Instant::now();
                 let next = env.step(env_action).expect("step");
                 let reward: f32 = (next.reward).into();
-                let terminated = next.status.is_terminated();
-                agent.remember(obs, &action, reward, next.observation.clone(), terminated);
+                agent.remember(obs, &action, reward, next.observation.clone(), next.status);
                 total += t0.elapsed();
 
                 done = next.status.is_done();
@@ -927,8 +937,7 @@ fn bench_env_cycle_car(c: &mut Criterion) {
                 let t0 = Instant::now();
                 let next = env.step(env_action).expect("step");
                 let reward: f32 = (next.reward).into();
-                let terminated = next.status.is_terminated();
-                agent.remember(obs, &action, reward, next.observation.clone(), terminated);
+                agent.remember(obs, &action, reward, next.observation.clone(), next.status);
                 total += t0.elapsed();
 
                 done = next.status.is_done();

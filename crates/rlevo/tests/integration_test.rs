@@ -223,7 +223,7 @@ fn prioritized_replay_samples_a_weighted_minibatch() {
             action: i % 2,
             reward: f32::from(next.reward),
             next_obs: next.observation.position,
-            terminated: next.status.is_terminated(),
+            status: next.status,
         });
         snapshot = if next.status.is_done() {
             env.reset().expect("reset after done")

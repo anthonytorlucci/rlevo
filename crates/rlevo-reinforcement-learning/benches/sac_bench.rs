@@ -96,16 +96,15 @@ fn bench_learn(c: &mut Criterion) {
         let action = agent.act(&obs, true, &mut rng);
         let next = env.step(action).expect("step");
         let r: f32 = (next.reward).into();
-        // `done` drives the episode reset; `terminated` is the Bellman
-        // bootstrap mask. `Pendulum` only ever truncates, so these differ.
+        // `done` drives the episode reset; `remember` masks the Bellman
+        // bootstrap on the status, and only on termination. `Pendulum` only ever truncates, so these differ.
         let done = next.status.is_done();
-        let terminated = next.status.is_terminated();
         agent.remember(
             obs,
             &PendulumAction::new(0.0).unwrap(),
             r,
             next.observation,
-            terminated,
+            next.status,
         );
         agent.on_env_step();
         snap = if done {

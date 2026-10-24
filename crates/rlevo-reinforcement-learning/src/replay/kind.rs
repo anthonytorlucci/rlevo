@@ -300,6 +300,7 @@ mod tests {
     };
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rlevo_core::environment::EpisodeStatus;
 
     fn transition(label: f32) -> DiscreteTransition<f32> {
         DiscreteTransition {
@@ -307,7 +308,7 @@ mod tests {
             action: 0,
             reward: 1.0,
             next_obs: label + 1.0,
-            terminated: false,
+            status: EpisodeStatus::Running,
         }
     }
 

@@ -71,6 +71,7 @@ pub const DEFAULT_BETA_ANNEAL_STEPS: usize = 100_000;
 /// ```
 /// use rand::SeedableRng;
 /// use rand::rngs::StdRng;
+/// use rlevo_core::environment::EpisodeStatus;
 /// use rlevo_reinforcement_learning::replay::{
 ///     DiscreteTransition, PrioritizedReplay, PrioritizedReplaySettings, ReplayStrategy,
 /// };
@@ -88,7 +89,7 @@ pub const DEFAULT_BETA_ANNEAL_STEPS: usize = 100_000;
 ///         action: step % 2,
 ///         reward: 1.0,
 ///         next_obs: step as f32 + 1.0,
-///         terminated: false,
+///         status: EpisodeStatus::Running,
 ///     });
 /// }
 ///

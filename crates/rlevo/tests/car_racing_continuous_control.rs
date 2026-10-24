@@ -217,7 +217,7 @@ fn td3_steps_car_racing_without_producing_an_impossible_action() {
             &action,
             snapshot.reward.0,
             next_obs.clone(),
-            snapshot.status.is_terminated(),
+            snapshot.status,
         );
         agent.on_env_step();
 
@@ -258,7 +258,7 @@ fn td3_learn_step_runs_against_the_asymmetric_action_space() {
             &action,
             snapshot.reward.0,
             next_obs.clone(),
-            snapshot.status.is_terminated(),
+            snapshot.status,
         );
         agent.on_env_step();
         obs = next_obs;
