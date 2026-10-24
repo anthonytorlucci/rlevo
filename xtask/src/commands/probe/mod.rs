@@ -13,10 +13,13 @@
 //! the package compiles.
 //!
 //! [`PROBES`] is the source of truth, and `--list` prints it for the workflow
-//! matrix, as the test tiers do. There are two kinds:
+//! matrix, as the test tiers do. There are three kinds:
 //!
 //! - **A walk** ([`walk`]) is a numbered path one persona takes. A step that
 //!   fails names the defect: `BYOE-1/thermostat fails at step 3 of 6`.
+//! - **A listing** ([`listing`]) is a walk whose code is a listing in the
+//!   documentation, copied as written: what a learner pastes into a new
+//!   crate.
 //! - **A measurement** ([`measure`]) has no steps. It records what a
 //!   dependency list costs: packages, Burn packages, a cold build.
 //!
@@ -80,6 +83,7 @@
 //! RLEVO_PROBE_SCRATCH=~/scratch cargo xtask probe consumer-umbrella
 //! ```
 
+mod listing;
 mod measure;
 mod stage;
 mod walk;
@@ -117,6 +121,12 @@ enum Kind {
         walk: &'static walk::Walk,
         contract: Option<&'static str>,
     },
+    /// A walk over `listing`, which is the probe's dependencies and its
+    /// `src/main.rs`.
+    Listing {
+        walk: &'static walk::Walk,
+        listing: &'static listing::Listing,
+    },
     /// Cone, Burn count and a cold build. `contract` makes the probe's one
     /// source file a copy of another probe's contract file, built against
     /// `rlevo-core` alone.
@@ -141,6 +151,10 @@ const BYOE2_NOTE: &str = "BYOE-2 does not end at the harness run: recording the 
 /// What a green BYOA-1b walk does not yet show.
 const BYOA1B_NOTE: &str = "BYOA-1b does not end at the determinism check: recording the run \
                            and showing that two submissions faced one task are not walked yet";
+
+/// What a green Learner-1 walk does not yet show.
+const LEARNER1_NOTE: &str = "Learner-1 copies the README's Quick Start alone: the umbrella's \
+                             examples are not copied until each builds with rlevo alone";
 
 /// The probes. Keep in step with `xtask/probes/`:
 /// `assert_probes_are_registered` enforces it.
@@ -188,6 +202,17 @@ const PROBES: &[Probe] = &[
             contract: None,
         },
         note: Some(BYOA1B_NOTE),
+    },
+    // A learner: the README's Quick Start, pasted into a new crate. The
+    // README's and the crate docs' `rlevo` lines must name this release.
+    Probe {
+        name: "learner-1",
+        title: "Learner-1",
+        kind: Kind::Listing {
+            walk: &walk::LEARNER1,
+            listing: &listing::QUICK_START,
+        },
+        note: Some(LEARNER1_NOTE),
     },
     // An environment author with no learner. An empty crate depending on
     // `rlevo-core` would compile whatever the contract asks of an
@@ -422,6 +447,14 @@ fn attempt(
     templates: &Path,
     run_dir: &Path,
 ) -> Result<Report> {
+    // A listing that cannot be copied, or that names another release, is
+    // known before anything is packaged.
+    let copied = match &probe.kind {
+        Kind::Listing { listing, .. } => {
+            Some(listing::read(&workspace.root, listing, &workspace.version)?)
+        }
+        _ => None,
+    };
     let stage = stage::stage(workspace, run_dir)?;
     let probe_dir = run_dir.join("probe");
     let target_dir = run_dir.join("target");
@@ -439,6 +472,9 @@ fn attempt(
         &workspace.version,
         &sources,
     )?;
+    if let Some(copied) = &copied {
+        listing::write(&probe_dir, copied)?;
+    }
     let resolved = stage::resolve(&probe_dir, &target_dir, &stage)?;
 
     let mut facts = vec![(
@@ -455,32 +491,35 @@ fn attempt(
     }
     facts.push(("toolchain", stage::toolchain(&probe_dir)));
 
-    match &probe.kind {
-        Kind::Measurement { .. } => Ok(Report {
-            lines: measure::measure(&probe_dir, run_dir, &resolved)?
-                .into_iter()
-                .map(|(what, value)| format!("MEASURE {what} :: {value}"))
-                .collect(),
-            facts,
-            verdict: Verdict::Measured,
-        }),
-        Kind::Walk { walk, contract } => {
-            let outcomes = walk::run(
-                walk,
-                &probe_dir,
-                &target_dir,
-                probe.name,
-                &resolved,
-                *contract,
-            )?;
-            let (lines, verdict) = walk_report(walk, &outcomes);
-            Ok(Report {
-                lines,
+    let (walk, contract, sentinel) = match &probe.kind {
+        Kind::Measurement { .. } => {
+            return Ok(Report {
+                lines: measure::measure(&probe_dir, run_dir, &resolved)?
+                    .into_iter()
+                    .map(|(what, value)| format!("MEASURE {what} :: {value}"))
+                    .collect(),
                 facts,
-                verdict,
-            })
+                verdict: Verdict::Measured,
+            });
         }
-    }
+        Kind::Walk { walk, contract } => (walk, *contract, None),
+        Kind::Listing { walk, listing } => (walk, None, Some(listing.sentinel)),
+    };
+    let outcomes = walk::run(
+        walk,
+        &probe_dir,
+        &target_dir,
+        probe.name,
+        &resolved,
+        contract,
+        sentinel,
+    )?;
+    let (lines, verdict) = walk_report(walk, &outcomes);
+    Ok(Report {
+        lines,
+        facts,
+        verdict,
+    })
 }
 
 /// Another probe's contract file, respelled for a crate that depends on
@@ -680,7 +719,7 @@ mod tests {
     #[test]
     fn test_every_walk_is_well_formed() {
         for probe in PROBES {
-            let Kind::Walk { walk, .. } = &probe.kind else {
+            let (Kind::Walk { walk, .. } | Kind::Listing { walk, .. }) = &probe.kind else {
                 continue;
             };
             let labels: Vec<&str> = walk.steps.iter().map(|step| step.label).collect();

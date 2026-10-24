@@ -821,6 +821,18 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Added**
 
+- **A learner's walk, `learner-1`.** The README's Quick Start, copied as
+  written into a crate outside the workspace: its dependency block becomes
+  the manifest's, its program `src/main.rs`. The program must build, exit
+  zero, and print the line it now prints when its episode ends
+  (`Episode over: Terminated`), so a run that exits zero having done
+  nothing fails. Before anything is packaged, every `rlevo` dependency line
+  in the README and in the umbrella's crate docs must name the release the
+  checkout builds, so a version bump turns the probe red until they
+  follow. Nothing compiled a README before; the Quick Start had stopped
+  compiling, unnoticed. The umbrella's examples are not copied yet: most
+  include a sibling module or name a member crate that `rlevo` alone does
+  not give a learner.
 - **CI documents each crate at partial feature sets.** The `docs` job
   documented the workspace at its default features and at all features,
   and neither run documents a crate with one feature on and another off.
