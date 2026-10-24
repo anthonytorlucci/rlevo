@@ -39,7 +39,7 @@ use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_h
 use rlevo_harness::suite::Suite;
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::fitness::BenchableAgent;
+use rlevo_core::agent::Agent;
 
 use rlevo_environments::grids::core::observation::GridObservation;
 use rlevo_environments::grids::{EmptyConfig, EmptyEnv, GridAction};
@@ -63,7 +63,7 @@ impl RandomGridAgent {
     }
 }
 
-impl BenchableAgent<GridObservation, GridAction> for RandomGridAgent {
+impl Agent<GridObservation, GridAction> for RandomGridAgent {
     fn act(&mut self, _obs: &GridObservation, rng: &mut dyn Rng) -> GridAction {
         GridAction::from_index(self.dist.sample(rng))
     }
@@ -78,6 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cfg = EvaluatorConfig {
         num_episodes: NUM_EPISODES,
+        train_steps: 0,
         num_trials_per_env: 1,
         max_steps: MAX_STEPS_PER_EPISODE,
         base_seed: SEED,

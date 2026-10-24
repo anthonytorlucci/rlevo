@@ -3,8 +3,8 @@
 //! The umbrella re-exports this crate as `rlevo::harness`. Through 0.5.0 it
 //! was named `rlevo-benchmarks` (ADR 0088).
 //!
-//! The shared trait surface (`Environment`, `GenerationProbe`,
-//! `BenchableAgent`, `Landscape`, `SeedStream`) lives in
+//! The shared trait surface (`Environment`, `Agent`, `GenerationProbe`,
+//! `Landscape`, `SeedStream`) lives in
 //! `rlevo-core`. This crate provides everything needed to drive those traits
 //! and produce structured reports:
 //!

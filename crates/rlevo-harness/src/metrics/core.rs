@@ -84,7 +84,7 @@ const RESERVED_PREFIXES: &[&str] = &["return/", "episode_length/", "throughput/"
 ///
 /// # The invariant, stated symmetrically
 ///
-/// - An **agent** (via [`BenchableAgent::emit_metrics`](rlevo_core::fitness::BenchableAgent::emit_metrics)
+/// - An **agent** (via [`Agent::emit_metrics`](rlevo_core::agent::Agent::emit_metrics)
 ///   or [`MetricsProvider::emit`](crate::metrics::MetricsProvider::emit)) must
 ///   never emit a name for which this returns `true`. If it does,
 ///   [`TrialReport::absorb_metrics`](crate::report::TrialReport::absorb_metrics)

@@ -16,14 +16,14 @@
 //! | [`episode`] | [`EpisodeGuard`] — the state machine behind `Environment::step`'s post-terminal contract, held by every implementor |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`GenerationProbe`] — drive seam for self-paced work (evolutionary generation loops) |
-//! | [`fitness`] | [`BenchableAgent`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
+//! | [`fitness`] | [`Landscape`], [`Metric`], [`MetricsProvider`] — fitness evaluation and the metric data type |
 //! | [`objective`] | [`ObjectiveSense`] — the maximise/minimise direction primitive reconciled at one chokepoint |
 //! | [`config`] | [`Validate`], [`ConfigError`] — the shared config-validation convention checked at construction |
 //! | [`bounds`] | [`Bounds`] — an inclusive range valid by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`) |
 //! | [`probability`] | [`Probability`] — a `[0, 1]` rate valid by construction (rejects `NaN`, `Inf`, out-of-range) |
 //! | [`rate`] | [`NonNegativeRate`] — a finite non-negative magnitude valid by construction (BLX-`$\alpha$`, `$\sigma$`) |
 //! | [`render`] | [`AsciiRenderable`], styled/palette/payload sub-modules — optional debug and TUI visualization layer |
-//! | [`agent`] | Reserved; empty while the unified agent trait hierarchy stabilizes |
+//! | [`agent`] | [`Agent`], [`Transition`] — the seam a driver steps a policy or a learner through |
 //! | [`util`] | Shared utility helpers |
 //!
 //! # Features
@@ -80,7 +80,8 @@
 //! [`EpisodeGuard`]: crate::episode::EpisodeGuard
 //! [`ScalarReward`]: crate::reward::ScalarReward
 //! [`GenerationProbe`]: crate::evaluation::GenerationProbe
-//! [`BenchableAgent`]: crate::fitness::BenchableAgent
+//! [`Agent`]: crate::agent::Agent
+//! [`Transition`]: crate::agent::Transition
 //! [`Landscape`]: crate::fitness::Landscape
 //! [`Metric`]: crate::fitness::Metric
 //! [`MetricsProvider`]: crate::fitness::MetricsProvider
@@ -110,11 +111,14 @@ pub mod base;
 /// [`BoundedAction`]: crate::action::BoundedAction
 pub mod action;
 
-/// Reserved for a future unified agent trait hierarchy.
+/// The agent seam: [`Agent`] and the [`Transition`] it is shown.
 ///
-/// Empty while the unified agent trait hierarchy stabilizes. Concrete RL and
-/// evolutionary agents currently live in `rlevo-reinforcement-learning` and
-/// `rlevo-evolution` respectively.
+/// A frozen policy implements `act` alone; a learner also implements the
+/// hooks that show it each step and each episode's end. The RL agents of
+/// `rlevo-reinforcement-learning` implement it, and the harness drives it.
+///
+/// [`Agent`]: crate::agent::Agent
+/// [`Transition`]: crate::agent::Transition
 pub mod agent;
 
 /// Validated closed-range primitive.
@@ -178,12 +182,10 @@ pub mod episode;
 /// [`Environment`]: crate::environment::Environment
 pub mod evaluation;
 
-/// Inference-only agent and fitness-evaluation traits.
+/// Fitness evaluation and the metric data type.
 ///
-/// Provides [`BenchableAgent`], [`Landscape`], [`Metric`], and
-/// [`MetricsProvider`].
+/// Provides [`Landscape`], [`Metric`], and [`MetricsProvider`].
 ///
-/// [`BenchableAgent`]: crate::fitness::BenchableAgent
 /// [`Landscape`]: crate::fitness::Landscape
 /// [`Metric`]: crate::fitness::Metric
 /// [`MetricsProvider`]: crate::fitness::MetricsProvider
@@ -256,7 +258,7 @@ pub mod util;
 /// The `rand` release this crate's signatures are written against,
 /// re-exported so a caller needs no `rand` entry of its own.
 ///
-/// [`BenchableAgent::act`](crate::fitness::BenchableAgent::act) takes a
+/// [`Agent::act`](crate::agent::Agent::act) and its hooks take a
 /// `&mut dyn Rng`, as does every evolutionary strategy's `init`, `ask` and
 /// `tell`. That `Rng` is this release's trait, which a generator from
 /// another `rand` release does not implement. The methods that draw, such as

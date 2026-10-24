@@ -1,8 +1,7 @@
 //! The policy: a bang-bang controller. It is frozen, so it implements one
 //! method of the agent seam and nothing else.
 
-use rlevo::core::fitness::BenchableAgent;
-use rlevo::prelude::Rng;
+use rlevo::prelude::{Agent, Rng};
 
 use crate::thermostat::{Boiler, RoomObs, TARGET_C};
 
@@ -17,7 +16,7 @@ const COLD_DEADBAND_C: f32 = 0.5;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BangBang;
 
-impl BenchableAgent<RoomObs, Boiler> for BangBang {
+impl Agent<RoomObs, Boiler> for BangBang {
     fn act(&mut self, obs: &RoomObs, _rng: &mut dyn Rng) -> Boiler {
         let deadband = if obs.outdoor_c < COLD_OUTSIDE_C {
             COLD_DEADBAND_C

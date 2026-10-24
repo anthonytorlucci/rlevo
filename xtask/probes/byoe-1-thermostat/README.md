@@ -87,7 +87,7 @@ A run does four things:
 | 2 | `add-deps` | `rlevo` is the only dependency in the manifest. Every other one is a crate the author had to add by hand | no |
 | 3 | `implement-environment` | `src/thermostat.rs` names nothing outside `rlevo::core`, and the crate builds with no features | yes |
 | 4 | `post-terminal` | the episode ends `Terminated` after 24 steps; two more steps each return `EnvironmentError::StepAfterEpisodeEnd` carrying `Terminated` and leave the state unchanged; a second `reset` makes the environment usable again | yes |
-| 5 | `implement-agent` | `src/policy.rs` builds: a policy that implements `BenchableAgent` with `act` alone | yes |
+| 5 | `implement-agent` | `src/policy.rs` builds: a policy that implements `Agent` with `act` alone | yes |
 | 6 | `run-suite` | `Evaluator::run_suite` returns 2 trials, none errored, each named `thermostat`, each with 3 episodes of exactly 24 steps and a finite `return/mean` | yes |
 
 `xtask` checks steps 1, 2, 3 and 5, which a `cargo` invocation can observe.
@@ -104,7 +104,7 @@ BYOE-STEP 1 PASS scaffold :: probe created at <run>/probe (outside the workspace
 BYOE-STEP 2 PASS add-deps :: rlevo alone is sufficient
 BYOE-STEP 3 PASS implement-environment :: Environment implemented against public API only; the file names nothing outside rlevo::core
 BYOE-STEP 4 PASS post-terminal :: a step after the end returns StepAfterEpisodeEnd carrying Terminated and changes nothing; guard from rlevo::core
-BYOE-STEP 5 PASS implement-agent :: the policy implements BenchableAgent with act alone
+BYOE-STEP 5 PASS implement-agent :: the policy implements Agent with act alone
 BYOE-STEP 6 PASS run-suite :: 2 trials, none errored, 3 episodes of 24 steps each; return/mean -213.564 and -45.564
 BYOE-1/thermostat passes.
 ```
@@ -116,9 +116,9 @@ Step 2 is the one step that is not fatal. A `FAIL` there is a finding on a
 path that works: a crate the author had to add by hand, written down as a
 `FINDING:` line in `Cargo.toml.template`. It leaves the manifest in the pull
 request that makes it unnecessary. The harness left when `rlevo` began to
-re-export it as `rlevo::harness`, and `rand`, for the `Rng` that
-`BenchableAgent::act` takes, when `rlevo-core` began to re-export it and the
-prelude to carry `Rng`.
+re-export it as `rlevo::harness`, and `rand`, for the `Rng` the policy's
+`act` takes, when `rlevo-core` began to re-export it and the prelude to
+carry `Rng`.
 
 The last line is one of four:
 

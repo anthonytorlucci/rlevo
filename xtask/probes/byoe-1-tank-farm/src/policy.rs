@@ -2,8 +2,7 @@
 //! distance from the target. It is frozen, so it implements one method of
 //! the agent seam and nothing else.
 
-use rlevo::core::fitness::BenchableAgent;
-use rlevo::prelude::Rng;
+use rlevo::prelude::{Agent, Rng};
 
 use crate::tank_farm::{PumpCommand, TARGET_LEVEL, TankObs};
 
@@ -21,7 +20,7 @@ const GAIN: f32 = 2.0;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Proportional;
 
-impl BenchableAgent<TankObs, PumpCommand> for Proportional {
+impl Agent<TankObs, PumpCommand> for Proportional {
     fn act(&mut self, obs: &TankObs, _rng: &mut dyn Rng) -> PumpCommand {
         let [_, tank_2] = obs.latest();
         let pump_b = (FEEDFORWARD + GAIN * (TARGET_LEVEL - tank_2)).clamp(0.0, 1.0);

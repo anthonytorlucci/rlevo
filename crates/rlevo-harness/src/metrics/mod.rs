@@ -1,9 +1,10 @@
 //! Metric primitives and aggregators.
 //!
 //! [`Metric`] and [`MetricsProvider`] live in `rlevo_core::fitness`
-//! (shared trait surface) so the [`BenchableAgent`](rlevo_core::fitness::BenchableAgent)
-//! trait stays self-contained. They are re-exported here for ergonomic
-//! access alongside the harness-specific aggregators in [`core`] and [`ea`].
+//! (shared trait surface), so an [`Agent`](rlevo_core::agent::Agent) reports
+//! through them without depending on this crate. They are re-exported here
+//! for ergonomic access alongside the harness-specific aggregators in
+//! [`core`] and [`ea`].
 
 pub mod core;
 pub mod ea;

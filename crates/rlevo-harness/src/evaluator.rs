@@ -1,8 +1,10 @@
 //! Suite evaluator with rayon trial-level parallelism and checkpoint resume.
 //!
 //! The core entry point is [`Evaluator::run_suite`], which drives every
-//! `(env, seed)` trial in a [`Suite`] through a [`BenchableAgent`], collects
-//! [`TrialReport`]s, and delivers them to a [`Reporter`].
+//! `(env, seed)` trial in a [`Suite`] through an [`Agent`], training it first
+//! when [`EvaluatorConfig::train_steps`] asks, collects [`TrialReport`]s, and
+//! delivers them to a [`Reporter`]. [`train`] is the training loop on its own,
+//! for a caller that keeps the agent afterwards.
 //!
 //! Parallelism is controlled via [`EvaluatorConfig::num_threads`] (`None` reuses
 //! the global rayon pool). Panics inside a trial are caught with
@@ -17,13 +19,14 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 
-use rlevo_core::environment::Environment;
+use rlevo_core::agent::{Agent, Transition};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus};
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::{BenchableAgent, Metric, MetricsProvider};
+use rlevo_core::fitness::{Metric, MetricsProvider};
 use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
@@ -38,14 +41,29 @@ use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 #[derive(Debug, Clone)]
 pub struct EvaluatorConfig {
     /// Number of episodes to run per trial.
+    ///
+    /// For an [`EpisodicTrial`] these are the evaluation episodes, the ones
+    /// its report holds. Training, when [`train_steps`](Self::train_steps)
+    /// asks for it, comes first and is budgeted in steps.
     pub num_episodes: usize,
+    /// Environment steps an [`EpisodicTrial`] trains its agent for before it
+    /// evaluates it; `0`, the default, evaluates the agent as built.
+    ///
+    /// Training runs through [`train`]: the agent is told
+    /// [`set_training(true)`](Agent::set_training), shown every step, and its
+    /// episodes are capped at [`max_steps`](Self::max_steps) as evaluation's
+    /// are. They are not reported: the report's episodes, and every metric
+    /// computed from them, are the evaluation episodes. A
+    /// [`GenerationTrial`] ignores this field.
+    pub train_steps: usize,
     /// Number of independent seeds to evaluate per environment.
     pub num_trials_per_env: usize,
     /// Hard ceiling on the units of work in one run of a trial.
     ///
     /// For an [`EpisodicTrial`] it is steps per episode: an episode that has
-    /// not terminated by `max_steps` is truncated with whatever return
-    /// accumulated so far. For a [`GenerationTrial`] it is generations: the
+    /// not ended by `max_steps` is cut there with whatever return accumulated
+    /// so far, and its agent is told it ended
+    /// [`Truncated`](EpisodeStatus::Truncated). For a [`GenerationTrial`] it is generations: the
     /// probe owns the real budget, and this is a backstop that should never
     /// be the one to end the trial. When it is, the trial says so with a
     /// warning. Set it at least as large as the probe's budget.
@@ -83,6 +101,7 @@ impl Default for EvaluatorConfig {
     fn default() -> Self {
         Self {
             num_episodes: 100,
+            train_steps: 0,
             num_trials_per_env: 1,
             max_steps: 1_000,
             base_seed: 0,
@@ -108,10 +127,18 @@ impl Evaluator {
         Self { cfg }
     }
 
-    /// Run a suite of [`Environment`]s against a [`BenchableAgent`].
+    /// Run a suite of [`Environment`]s against an [`Agent`].
     ///
     /// `agent_factory` is called once per trial with the derived agent seed;
     /// it is the implementor's contract to initialize the agent deterministically.
+    ///
+    /// Each trial trains its agent for [`EvaluatorConfig::train_steps`]
+    /// environment steps, then evaluates it for
+    /// [`EvaluatorConfig::num_episodes`] episodes; with `train_steps` at `0`
+    /// it only evaluates. A learner therefore needs nothing beyond its
+    /// [`Agent`] impl to be trained and measured here, and a random baseline
+    /// run under the same configuration spends the same training steps
+    /// learning nothing. See [`EpisodicTrial`] for what the agent is shown.
     ///
     /// Returns a [`BenchmarkReport`] containing every trial result. The function
     /// never returns an `Err`: environment panics and step/reset errors are caught
@@ -132,7 +159,7 @@ impl Evaluator {
     ) -> BenchmarkReport
     where
         E: Environment<D, AD> + Send,
-        A: BenchableAgent<E::ObservationType, E::ActionType> + Send,
+        A: Agent<E::ObservationType, E::ActionType> + Send,
         R: Reporter,
         FA: Fn(u64) -> A + Sync + Send,
     {
@@ -340,11 +367,29 @@ pub trait Trial {
     ) -> TrialReport;
 }
 
-/// A [`Trial`] that rolls an [`Environment`] out against a [`BenchableAgent`]
-/// for `num_episodes` episodes of at most `max_steps` steps.
+/// A [`Trial`] that trains an [`Agent`] in an [`Environment`] for
+/// [`EvaluatorConfig::train_steps`] steps, then evaluates it for
+/// `num_episodes` episodes of at most `max_steps` steps.
 ///
 /// This is the classic RL benchmarking shape and the only one `run_suite`
 /// builds.
+///
+/// # What the agent is shown
+///
+/// Training, when there is any, is [`train`]: the trial calls
+/// [`set_training(true)`](Agent::set_training) and runs the agent for that
+/// many steps. Then it calls `set_training(false)` and runs the evaluation
+/// episodes. In both phases, after every step it calls
+/// [`on_transition`](Agent::on_transition) with the snapshot's status
+/// unchanged, and when the status is done,
+/// [`on_episode_end`](Agent::on_episode_end) with it. An episode the trial cuts
+/// at `max_steps` ends with `on_episode_end(EpisodeStatus::Truncated)` after a
+/// last transition whose status is still `Running`, since the environment did
+/// not end it. One RNG, seeded from `agent_seed`, serves both phases.
+///
+/// The report holds the evaluation episodes only, so its returns, and every
+/// metric computed from them, measure the trained agent. Wall-clock covers
+/// both phases. An environment error in either phase marks the trial errored.
 ///
 /// # Why the const parameters are on the struct
 ///
@@ -363,7 +408,7 @@ pub struct EpisodicTrial<E, A, const D: usize, const AD: usize> {
     pub env: E,
     /// The agent under test, already seeded by the agent factory.
     pub agent: A,
-    /// Seed for the action-sampling RNG handed to the agent each step.
+    /// Seed for the RNG handed to the agent at every step.
     pub agent_seed: u64,
 }
 
@@ -378,7 +423,7 @@ impl<E, A, const D: usize, const AD: usize> std::fmt::Debug for EpisodicTrial<E,
 impl<E, A, const D: usize, const AD: usize> Trial for EpisodicTrial<E, A, D, AD>
 where
     E: Environment<D, AD>,
-    A: BenchableAgent<E::ObservationType, E::ActionType>,
+    A: Agent<E::ObservationType, E::ActionType>,
 {
     fn run(
         mut self,
@@ -390,41 +435,39 @@ where
         let mut report = TrialReport::new(info.key, info.env_name.clone(), info.trial_seed);
         let mut returns: Vec<f64> = Vec::with_capacity(cfg.num_episodes);
         let mut lengths: Vec<usize> = Vec::with_capacity(cfg.num_episodes);
-        // Steps (not episodes) whose reward was not finite, over the whole
-        // trial. Summarised once after the episode loop.
+        // Evaluation steps (not episodes) whose reward was not finite, over
+        // the whole trial. Summarised once after the episode loop.
         let mut non_finite_steps: u64 = 0;
 
         let start = Instant::now();
 
-        'episodes: for episode_idx in 0..cfg.num_episodes {
-            let mut obs = match self.env.reset() {
-                Ok(snap) => snap.observation,
-                Err(e) => {
-                    report.errored = true;
-                    report.error_message = Some(e.to_string());
-                    break 'episodes;
-                }
-            };
-            let mut total_reward = 0.0;
-            let mut length = 0;
-
-            for _ in 0..cfg.max_steps {
-                let action = self.agent.act(&obs, &mut rng);
-                let snap = match self.env.step(action) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        report.errored = true;
-                        report.error_message = Some(e.to_string());
-                        break 'episodes;
-                    }
-                };
-                let reward = f64::from(snap.reward.value());
+        let trained = if cfg.train_steps > 0 {
+            train(
+                &mut self.env,
+                &mut self.agent,
+                cfg.train_steps,
+                cfg.max_steps,
+                &mut rng,
+            )
+            .map(drop)
+        } else {
+            Ok(())
+        };
+        if let Err(e) = trained {
+            report.errored = true;
+            report.error_message = Some(e.to_string());
+        } else {
+            self.agent.set_training(false);
+            // Evaluation episodes end by the environment or by `max_steps`,
+            // never by a step budget.
+            let mut unbudgeted = usize::MAX;
+            for episode_idx in 0..cfg.num_episodes {
                 // A non-finite reward is counted and reported, never asserted
                 // on and never filtered out. Accumulation stays raw and
                 // unconditional: a non-finite return is a *true* statement
-                // about a run whose environment emitted one, matching the
-                // training-loop policy in `c51/train.rs`. Dropping the term
-                // would fabricate a plausible return the run never earned.
+                // about a run whose environment emitted one. Dropping the
+                // term would fabricate a plausible return the run never
+                // earned.
                 //
                 // A `debug_assert!` tripwire used to live here. It made the
                 // harness's *output* a function of `cfg(debug_assertions)`: in
@@ -435,32 +478,36 @@ where
                 // `fail_fast` killed the whole suite. A measurement harness
                 // whose artefact shape depends on the build profile is broken
                 // on its own terms.
-                if !reward.is_finite() {
-                    non_finite_steps += 1;
-                }
-                total_reward += reward;
-                length += 1;
+                let played = play_episode(
+                    &mut self.env,
+                    &mut self.agent,
+                    cfg.max_steps,
+                    &mut unbudgeted,
+                    &mut rng,
+                    &mut non_finite_steps,
+                );
+                let (total_reward, length) = match played {
+                    Ok(Some(episode)) => episode,
+                    Ok(None) => unreachable!("an evaluation episode has no step budget"),
+                    Err(e) => {
+                        report.errored = true;
+                        report.error_message = Some(e.to_string());
+                        break;
+                    }
+                };
 
-                // Read the status before moving the observation out of the
-                // snapshot.
-                let done = snap.status.is_done();
-                obs = snap.observation;
-                if done {
-                    break;
+                let rec = EpisodeSummary {
+                    episode_idx,
+                    return_value: total_reward,
+                    length,
+                };
+                returns.push(total_reward);
+                lengths.push(length);
+                report.episodes.push(rec.clone());
+                {
+                    let mut r = reporter.lock().unwrap();
+                    r.on_episode_end(info, &rec);
                 }
-            }
-
-            let rec = EpisodeSummary {
-                episode_idx,
-                return_value: total_reward,
-                length,
-            };
-            returns.push(total_reward);
-            lengths.push(length);
-            report.episodes.push(rec.clone());
-            {
-                let mut r = reporter.lock().unwrap();
-                r.on_episode_end(info, &rec);
             }
         }
 
@@ -495,6 +542,128 @@ where
         }]);
         report.absorb_metrics(self.agent.emit_metrics());
         report
+    }
+}
+
+/// Trains `agent` in `env` for `steps` environment steps, and returns the
+/// episodes it completed.
+///
+/// This is the training phase of an [`EpisodicTrial`], for a caller that
+/// wants the trained agent back: the trial consumes its agent, this borrows
+/// it. It calls [`set_training(true)`](Agent::set_training) first and leaves
+/// it on. Every step the agent acts with `rng`, the environment steps, and the
+/// agent is shown the step through [`on_transition`](Agent::on_transition)
+/// with the snapshot's status unchanged; an episode that ends gets
+/// [`on_episode_end`](Agent::on_episode_end) with that status. An episode
+/// that reaches `max_steps` without ending is cut there, and the agent is
+/// told it ended [`Truncated`](EpisodeStatus::Truncated) after a last
+/// transition whose status is still `Running`. Pass `usize::MAX` to leave the
+/// episodes' length to the environment.
+///
+/// The environment is reset at the start of each episode, and only while
+/// steps remain, so no episode is opened that the budget cannot step. An
+/// episode still open when the budget runs out is left open: the agent is not
+/// told it ended, and it is not among the returned summaries.
+///
+/// # Errors
+///
+/// Returns the environment's error if a `reset` or `step` fails; the agent
+/// keeps whatever it learned before it.
+pub fn train<E, A, const D: usize, const AD: usize>(
+    env: &mut E,
+    agent: &mut A,
+    steps: usize,
+    max_steps: usize,
+    rng: &mut dyn Rng,
+) -> Result<Vec<EpisodeSummary>, EnvironmentError>
+where
+    E: Environment<D, AD>,
+    A: Agent<E::ObservationType, E::ActionType>,
+{
+    agent.set_training(true);
+    let mut budget = steps;
+    let mut episodes = Vec::new();
+    // Training rewards are the agent's to judge; the trial counts only the
+    // evaluation phase's.
+    let mut non_finite_steps = 0;
+    while budget > 0 {
+        let Some((return_value, length)) = play_episode(
+            env,
+            agent,
+            max_steps,
+            &mut budget,
+            rng,
+            &mut non_finite_steps,
+        )?
+        else {
+            break;
+        };
+        episodes.push(EpisodeSummary {
+            episode_idx: episodes.len(),
+            return_value,
+            length,
+        });
+    }
+    Ok(episodes)
+}
+
+/// Plays one episode from a fresh `reset`: at most `max_steps` steps, each
+/// taken from `budget`. Returns the episode's raw return and length, or `None`
+/// when the budget ran out before the episode ended.
+///
+/// The one place the agent is shown a step. Both phases of an
+/// [`EpisodicTrial`] go through it, so the status rule holds once: the
+/// transition carries the snapshot's status unchanged, and an episode cut at
+/// `max_steps` ends `Truncated` for the agent only.
+fn play_episode<E, A, const D: usize, const AD: usize>(
+    env: &mut E,
+    agent: &mut A,
+    max_steps: usize,
+    budget: &mut usize,
+    rng: &mut dyn Rng,
+    non_finite_steps: &mut u64,
+) -> Result<Option<(f64, usize)>, EnvironmentError>
+where
+    E: Environment<D, AD>,
+    A: Agent<E::ObservationType, E::ActionType>,
+{
+    let mut obs = env.reset()?.observation;
+    let mut total_reward = 0.0;
+    let mut length = 0;
+    loop {
+        if length == max_steps {
+            agent.on_episode_end(EpisodeStatus::Truncated);
+            return Ok(Some((total_reward, length)));
+        }
+        if *budget == 0 {
+            return Ok(None);
+        }
+        let action = agent.act(&obs, rng);
+        let snap = env.step(action.clone())?;
+        *budget -= 1;
+        let reward = snap.reward.value();
+        if !reward.is_finite() {
+            *non_finite_steps += 1;
+        }
+        total_reward += f64::from(reward);
+        length += 1;
+        // Read the status before moving the observation out of the snapshot.
+        let status = snap.status;
+        agent.on_transition(
+            Transition {
+                obs: &obs,
+                action: &action,
+                reward,
+                next_obs: &snap.observation,
+                status,
+            },
+            rng,
+        );
+        obs = snap.observation;
+        if status.is_done() {
+            agent.on_episode_end(status);
+            return Ok(Some((total_reward, length)));
+        }
     }
 }
 
@@ -647,14 +816,16 @@ mod tests {
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex, Once};
 
-    use rand::Rng;
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
     use tracing::field::{Field, Visit};
     use tracing::{Event as TracingEvent, Level, Subscriber};
     use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
+    use rlevo_core::agent::{Agent, Transition};
     use rlevo_core::base::{Action, Observation};
-    use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
-    use rlevo_core::fitness::{BenchableAgent, Metric};
+    use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
+    use rlevo_core::fitness::Metric;
     use rlevo_core::reward::ScalarReward;
 
     use super::{EpisodicTrial, Evaluator, EvaluatorConfig, Trial};
@@ -742,7 +913,7 @@ mod tests {
 
     struct StubAgent;
 
-    impl BenchableAgent<StubObs, StubAction> for StubAgent {
+    impl Agent<StubObs, StubAction> for StubAgent {
         fn act(&mut self, _obs: &StubObs, _rng: &mut dyn Rng) -> StubAction {
             StubAction
         }
@@ -750,14 +921,14 @@ mod tests {
 
     /// A stub agent that emits a fixed metric list at trial end.
     ///
-    /// `StubAgent` takes the `BenchableAgent::emit_metrics` default (an empty
+    /// `StubAgent` takes the `Agent::emit_metrics` default (an empty
     /// `Vec`), so no test driving it can observe the order in which the trial
     /// absorbs harness metrics and agent metrics. This one can.
     struct EmittingAgent {
         metrics: Vec<Metric>,
     }
 
-    impl BenchableAgent<StubObs, StubAction> for EmittingAgent {
+    impl Agent<StubObs, StubAction> for EmittingAgent {
         fn act(&mut self, _obs: &StubObs, _rng: &mut dyn Rng) -> StubAction {
             StubAction
         }
@@ -964,14 +1135,15 @@ mod tests {
     /// pass `StubAgent` for the non-finite-reward line, or an `EmittingAgent`
     /// for the metric-displacement line, which only fires when the agent emits
     /// a harness-owned name.
-    fn run_trial_capturing_events<A>(
-        env: StubEnv,
+    fn run_trial_capturing_events<E, A>(
+        env: E,
         agent: A,
         cfg: &EvaluatorConfig,
         env_name: &str,
     ) -> (TrialReport, Vec<CapturedEvent>)
     where
-        A: BenchableAgent<StubObs, StubAction>,
+        E: Environment<1, 1, ObservationType = StubObs, ActionType = StubAction>,
+        A: Agent<StubObs, StubAction>,
     {
         let info = TrialInfo {
             key: TrialKey {
@@ -996,6 +1168,7 @@ mod tests {
     fn single_thread_cfg(num_episodes: usize, max_steps: usize) -> EvaluatorConfig {
         EvaluatorConfig {
             num_episodes,
+            train_steps: 0,
             num_trials_per_env: 1,
             max_steps,
             base_seed: 42,
@@ -1131,7 +1304,7 @@ mod tests {
         }
 
         struct CountingAgent;
-        impl BenchableAgent<CountingObs, StubAction> for CountingAgent {
+        impl Agent<CountingObs, StubAction> for CountingAgent {
             fn act(&mut self, _obs: &CountingObs, _rng: &mut dyn Rng) -> StubAction {
                 StubAction
             }
@@ -1881,6 +2054,7 @@ mod tests {
     fn max_steps_truncates_non_terminating_episode() {
         let cfg = EvaluatorConfig {
             num_episodes: 1,
+            train_steps: 0,
             max_steps: 4,
             num_trials_per_env: 1,
             base_seed: 0,
@@ -1968,6 +2142,7 @@ mod tests {
     fn trials_are_sorted_by_env_then_trial_index() {
         let cfg = EvaluatorConfig {
             num_episodes: 1,
+            train_steps: 0,
             num_trials_per_env: 2,
             max_steps: 5,
             base_seed: 0,
@@ -1997,6 +2172,7 @@ mod tests {
     fn success_threshold_lands_in_trial_metrics() {
         let cfg = EvaluatorConfig {
             num_episodes: 5,
+            train_steps: 0,
             num_trials_per_env: 1,
             max_steps: 10,
             base_seed: 0,
@@ -2012,5 +2188,175 @@ mod tests {
 
         // core_metrics emits "success_rate" when a threshold is set.
         assert!(report.trials[0].scalars.contains_key("success_rate"));
+    }
+
+    // ── The agent seam ───────────────────────────────────────────────────────
+
+    /// Ends its episodes on a schedule, cycling: episode `i` lasts
+    /// `schedule[i % len].0` steps and ends with `schedule[i % len].1`.
+    struct ScheduleEnv {
+        schedule: Vec<(usize, EpisodeStatus)>,
+        resets: usize,
+        steps: usize,
+    }
+
+    impl ScheduleEnv {
+        fn new(schedule: &[(usize, EpisodeStatus)]) -> Self {
+            Self {
+                schedule: schedule.to_vec(),
+                resets: 0,
+                steps: 0,
+            }
+        }
+    }
+
+    impl Environment<1, 1> for ScheduleEnv {
+        type ObservationType = StubObs;
+        type ActionType = StubAction;
+
+        fn reset(&mut self) -> Result<Snapshot<StubObs>, EnvironmentError> {
+            self.resets += 1;
+            self.steps = 0;
+            Ok(Snapshot::running(StubObs, ScalarReward(0.0)))
+        }
+
+        fn step(&mut self, _action: StubAction) -> Result<Snapshot<StubObs>, EnvironmentError> {
+            self.steps += 1;
+            let (length, end) = self.schedule[(self.resets - 1) % self.schedule.len()];
+            let status = if self.steps >= length {
+                end
+            } else {
+                EpisodeStatus::Running
+            };
+            Ok(Snapshot {
+                observation: StubObs,
+                reward: ScalarReward(1.0),
+                status,
+                metadata: None,
+            })
+        }
+    }
+
+    /// What an agent was told, in order.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum Told {
+        Training(bool),
+        Step(EpisodeStatus),
+        End(EpisodeStatus),
+    }
+
+    /// Writes down every hook call, into a log the test keeps.
+    struct Recorder(Arc<Mutex<Vec<Told>>>);
+
+    impl Agent<StubObs, StubAction> for Recorder {
+        fn act(&mut self, _obs: &StubObs, _rng: &mut dyn Rng) -> StubAction {
+            StubAction
+        }
+
+        fn on_transition(&mut self, t: Transition<&StubObs, &StubAction>, _rng: &mut dyn Rng) {
+            self.0.lock().unwrap().push(Told::Step(t.status));
+        }
+
+        fn on_episode_end(&mut self, status: EpisodeStatus) {
+            self.0.lock().unwrap().push(Told::End(status));
+        }
+
+        fn set_training(&mut self, training: bool) {
+            self.0.lock().unwrap().push(Told::Training(training));
+        }
+    }
+
+    fn run_recorded(env: ScheduleEnv, cfg: &EvaluatorConfig) -> (TrialReport, Vec<Told>, usize) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let (report, _) =
+            run_trial_capturing_events(env, Recorder(Arc::clone(&log)), cfg, "schedule");
+        let told = log.lock().unwrap().clone();
+        let episodes = report.episodes.len();
+        (report, told, episodes)
+    }
+
+    #[test]
+    fn trial_passes_each_status_through_and_reports_its_own_cut_as_truncated() {
+        use EpisodeStatus::{Running, Terminated, Truncated};
+        // The environment ends episode 1 and truncates episode 2 itself;
+        // episode 3 would run 10 steps, and the trial cuts it at 5.
+        let env = ScheduleEnv::new(&[(2, Terminated), (3, Truncated), (10, Terminated)]);
+        let (report, told, _) = run_recorded(env, &single_thread_cfg(3, 5));
+
+        let mut expected = vec![Told::Training(false)];
+        expected.extend([
+            Told::Step(Running),
+            Told::Step(Terminated),
+            Told::End(Terminated),
+        ]);
+        expected.extend([
+            Told::Step(Running),
+            Told::Step(Running),
+            Told::Step(Truncated),
+        ]);
+        expected.push(Told::End(Truncated));
+        // The cut episode's last transition keeps the environment's `Running`:
+        // only its end says `Truncated`.
+        expected.extend([Told::Step(Running); 5]);
+        expected.push(Told::End(Truncated));
+        assert_eq!(told, expected);
+        let lengths: Vec<usize> = report.episodes.iter().map(|e| e.length).collect();
+        assert_eq!(lengths, [2, 3, 5]);
+    }
+
+    #[test]
+    fn trial_trains_before_it_evaluates_and_reports_evaluation_only() {
+        use EpisodeStatus::{Running, Terminated};
+        let env = ScheduleEnv::new(&[(2, Terminated)]);
+        let cfg = EvaluatorConfig {
+            train_steps: 4,
+            ..single_thread_cfg(1, 10)
+        };
+        let (report, told, episodes) = run_recorded(env, &cfg);
+
+        let episode = [
+            Told::Step(Running),
+            Told::Step(Terminated),
+            Told::End(Terminated),
+        ];
+        let mut expected = vec![Told::Training(true)];
+        expected.extend(episode);
+        expected.extend(episode);
+        expected.push(Told::Training(false));
+        expected.extend(episode);
+        assert_eq!(told, expected);
+        assert_eq!(episodes, 1, "the training episodes are not reported");
+        assert_eq!(report.episodes[0].episode_idx, 0);
+    }
+
+    #[test]
+    fn train_opens_no_episode_its_budget_cannot_step() {
+        use EpisodeStatus::Terminated;
+        let mut rng = StdRng::seed_from_u64(0);
+        for (budget, resets, complete) in [(4, 2, 2), (5, 3, 2)] {
+            let mut env = ScheduleEnv::new(&[(2, Terminated)]);
+            let log = Arc::new(Mutex::new(Vec::new()));
+            let mut agent = Recorder(Arc::clone(&log));
+            let episodes =
+                super::train(&mut env, &mut agent, budget, usize::MAX, &mut rng).expect("no error");
+            assert_eq!(env.resets, resets, "budget {budget}");
+            assert_eq!(episodes.len(), complete, "budget {budget}");
+            let steps = log
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|told| matches!(told, Told::Step(_)))
+                .count();
+            assert_eq!(steps, budget);
+            assert_eq!(
+                log.lock().unwrap().last(),
+                Some(&if budget == 4 {
+                    Told::End(Terminated)
+                } else {
+                    Told::Step(EpisodeStatus::Running)
+                }),
+                "an episode the budget leaves open is not ended",
+            );
+        }
     }
 }

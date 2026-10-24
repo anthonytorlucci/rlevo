@@ -38,7 +38,7 @@ use rlevo_harness::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_h
 use rlevo_harness::suite::Suite;
 
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::fitness::BenchableAgent;
+use rlevo_core::agent::Agent;
 
 use rlevo_environments::toy_text::frozen_lake::{
     FrozenLake, FrozenLakeAction, FrozenLakeConfig, FrozenLakeObservation, FrozenMapSpec,
@@ -63,7 +63,7 @@ impl RandomFrozenLakeAgent {
     }
 }
 
-impl BenchableAgent<FrozenLakeObservation, FrozenLakeAction> for RandomFrozenLakeAgent {
+impl Agent<FrozenLakeObservation, FrozenLakeAction> for RandomFrozenLakeAgent {
     fn act(&mut self, _obs: &FrozenLakeObservation, rng: &mut dyn Rng) -> FrozenLakeAction {
         FrozenLakeAction::from_index(self.dist.sample(rng))
     }
@@ -78,6 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cfg = EvaluatorConfig {
         num_episodes: NUM_EPISODES,
+        train_steps: 0,
         num_trials_per_env: 1,
         max_steps: MAX_STEPS_PER_EPISODE,
         base_seed: SEED,
