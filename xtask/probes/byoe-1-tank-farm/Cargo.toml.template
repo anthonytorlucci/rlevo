@@ -10,9 +10,6 @@ publish = false
 # unnecessary.
 [dependencies]
 rlevo = "{{rlevo_version}}"
-# FINDING: `BenchableAgent::act` takes `&mut dyn rand::Rng`, and `rlevo` does
-# not re-export `rand`.
-rand = "0.10"
 
 # One feature per level of the walk, each including the one before it. They
 # gate this crate's own modules and never a dependency's feature.

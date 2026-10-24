@@ -252,3 +252,13 @@ pub mod state;
 
 /// Shared utility helpers used across `rlevo-core` modules.
 pub mod util;
+
+/// The `rand` release this crate's signatures are written against,
+/// re-exported so a caller needs no `rand` entry of its own.
+///
+/// [`BenchableAgent::act`](crate::fitness::BenchableAgent::act) takes a
+/// `&mut dyn Rng`, as does every evolutionary strategy's `init`, `ask` and
+/// `tell`. That `Rng` is this release's trait, which a generator from
+/// another `rand` release does not implement. The methods that draw, such as
+/// `random_range`, are on [`RngExt`](rand::RngExt).
+pub use rand;

@@ -34,9 +34,9 @@
 //!
 //! ```text
 //! BYOE-STEP 1 PASS scaffold :: probe created at /scratch/.../probe (outside the workspace)
-//! BYOE-STEP 2 FAIL add-deps :: rlevo alone is insufficient; 1 additional crate(s) required by hand: rand
+//! BYOE-STEP 2 PASS add-deps :: rlevo alone is sufficient
 //! ...
-//! BYOE-1/thermostat passes; discoverability fails at step 2.
+//! BYOE-1/thermostat passes.
 //! ```
 //!
 //! A fatal step that fails, or a run that cannot be staged, exits non-zero.

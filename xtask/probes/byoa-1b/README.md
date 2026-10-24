@@ -53,18 +53,14 @@ Today a run prints this, and exits zero:
 
 ```text
 BYOA-STEP 1 PASS scaffold :: probe created at <run>/probe (outside the workspace)
-BYOA-STEP 2 FAIL add-deps :: rlevo alone is insufficient; 1 additional crate(s) required by hand: rand
+BYOA-STEP 2 PASS add-deps :: rlevo alone is sufficient
 BYOA-STEP 3 PASS implement-strategy :: the hill-climber implements Strategy against public API only
 BYOA-STEP 4 PASS null-strategy :: the null strategy implements Strategy
 BYOA-STEP 5 PASS run-trials :: both strategies, 2 trials each, none errored, no episodes, 1 and 60 generations; ea/best_fitness_ever present and finite
 BYOA-STEP 6 PASS ordering :: per trial the null strategy ends where it starts; the hill-climber falls from 26.3606 to 0.3208 and 20.7505 to 0.1546
 BYOA-STEP 7 PASS determinism :: a second run of each repeats all 32 scalars bit for bit, the wall clock aside
-BYOA-1b passes; discoverability fails at step 2.
+BYOA-1b passes.
 ```
-
-Step 2's finding is written down as the `FINDING:` line in
-`Cargo.toml.template`: `rand`, because `Strategy::init`, `ask` and `tell`
-take `&mut dyn rand::Rng`, and `rlevo` does not re-export `rand`.
 
 The walk stops at the determinism check. Recording the run, and showing
 that two submissions faced one task, are not walked yet, and the note line

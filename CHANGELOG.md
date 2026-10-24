@@ -409,6 +409,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **`rlevo::burn`**, a re-export of the Burn release `rlevo` is built
   against, so a consumer names tensors and devices without a `burn` entry
   of its own.
+- **`Rng` and `RngExt` in the prelude.** `BenchableAgent::act` and every
+  strategy's `init`, `ask` and `tell` take a `&mut dyn Rng`, and the
+  methods that draw, such as `random_range`, are on `RngExt`, which no
+  signature names. A consumer added `rand` by hand, guessed its version,
+  and then had to find the second trait. `use rlevo::prelude::*` now
+  brings both; the rest of `rand` is `rlevo::core::rand`.
 - **`rlevo::harness`**, the evaluation harness (ADR 0084). `rlevo` now
   depends on `rlevo-harness` unconditionally, at its default features,
   and re-exports it, so `cargo add rlevo` reaches `Suite`, `Evaluator`, the
@@ -442,6 +448,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current version, 0.5.
 
 ### `rlevo-core`
+
+**Added**
+
+- **`rlevo_core::rand`**, a re-export of the `rand` release whose `Rng`
+  the crate's signatures take, so a caller seeds a generator
+  (`rand::rngs::StdRng`) through it and needs no `rand` entry of its own.
+  A generator from another `rand` release does not implement this one's
+  `Rng`. The ask/tell guide's hand-seeded example and the harness README's
+  agent now name it there.
 
 **Changed**
 
@@ -755,6 +770,10 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Changed**
 
+- **Three probes no longer add `rand` by hand.** `byoe-1-thermostat`,
+  `byoe-1-tank-farm` and `byoa-1b` import `Rng` (and `RngExt`) from
+  `rlevo::prelude`, and their manifests name `rlevo` alone, so step 2
+  passes and each verdict reads `passes.` with no finding.
 - **The `consumer-umbrella` probe builds a network.** It was an empty
   `main`, measured for its dependency list. It now also derives a `Module`
   and a `Config` through `rlevo::burn` and builds one default network, the

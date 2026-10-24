@@ -20,6 +20,12 @@
 //! use rlevo::prelude::*;
 //! ```
 //!
+//! The prelude carries `rand`'s [`Rng`](prelude::Rng), the generator
+//! `BenchableAgent::act` and every strategy's `init`, `ask` and `tell` take,
+//! and [`RngExt`](prelude::RngExt), whose methods draw from it. The rest of
+//! `rand` is [`core::rand`], the release those signatures are written
+//! against, so a consumer needs no `rand` entry of its own.
+//!
 //! For specific items use the sub-module paths directly:
 //!
 //! ```rust,no_run
@@ -118,6 +124,10 @@ pub use burn;
 ///
 /// **Evolution** (`rlevo::evo`):
 /// [`Strategy`](evo::strategy::Strategy)
+///
+/// **Randomness** (`rlevo::core::rand`):
+/// [`Rng`](core::rand::Rng),
+/// [`RngExt`](core::rand::RngExt)
 pub mod prelude {
     // Base traits
     pub use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
@@ -138,4 +148,8 @@ pub mod prelude {
 
     // Evolution
     pub use rlevo_evolution::strategy::Strategy;
+
+    // Randomness: the generator every `act`, `init`, `ask` and `tell` takes,
+    // and the trait whose methods draw from it
+    pub use rlevo_core::rand::{Rng, RngExt};
 }
