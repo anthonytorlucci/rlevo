@@ -25,7 +25,7 @@ See [`docs/rules.md`](docs/rules.md) for the full constraint list. Read it befor
 making implementation decisions. The single most important rule: **production
 crates must not depend on any visualization crate** (`ratatui`, `leptos`, chart
 crates, ...); `rlevo-harness` is the sole exception, and only behind its
-`tui` / `report` / `record` feature gates. The umbrella `rlevo` carries
+`report` / `record` feature gates. The umbrella `rlevo` carries
 `rlevo-harness` at its default features, which link no visualization
 crate, and re-exports it as `rlevo::harness` (ADR 0084). No other
 production crate depends on it, except `rlevo-environments` under its
@@ -112,7 +112,8 @@ on every pull request (`crate-tests.yml`, `layering guards`):
 published crate depends on `rlevo-harness` but the umbrella, and
 `rlevo-environments` only under `record`; the umbrella's default features turn
 on no viz, recording or `rerun` feature; no published crate reaches a viz
-package at its default features, in its build or its tests; and the five
+package at its default features, in its build or its tests; no workspace
+manifest names `ratatui` or `crossterm` (ADR 0096); and the five
 `katex-header.html` copies are byte-identical. A failed guard says what
 breaks the rule: a file and line, a crate and its feature, the copy that
 differs, or, for a viz package, the `cargo tree -i` command that prints the

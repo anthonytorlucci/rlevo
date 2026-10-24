@@ -458,6 +458,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     is private again, which reverses the `rlevo-reinforcement-learning`
     entry below that published it, and the Burn 0.22 entry's
     `utils::polyak_update` is internal too.
+- **The live TUI dashboard is removed** (ADR 0096), with `rlevo-harness`'s
+  `tui` feature and everything behind it: the modules `tui` (`TuiRunner`,
+  `TuiConfig`, `TuiCaptureLayer`, `MetricsLayout` and the panels),
+  `env_wrappers` (`TuiEnvTap`) and `reporter::tui` (`TuiReporter`,
+  `TuiHandle`, `TuiEvent`). The `viz-tui` features of `rlevo` and
+  `rlevo-examples` go too, and the `tui_ppo_cartpole` example. 0.5.0
+  shipped the feature as `rlevo-benchmarks/tui` and `rlevo`'s `viz-tui`:
+  delete those entries from your manifest. No published crate depends on
+  `ratatui` or `crossterm` now. To follow a run as it trains, install a
+  `tracing` subscriber: PPO and PPG log one `info` event per update and
+  `EvolutionaryLoop` one per generation, under the metric registry's
+  names, and `LoggingReporter` logs each evaluation episode. `train`
+  returns the episodes it trained on. For curves after the run, record it
+  and emit the static-HTML report (`viz-report`). `rlevo-metrics-registry`
+  loses what only the dashboard read: `Trend`, `trend_for`, `hint_for`, and
+  `MetricDescriptor`'s `trend` and `hint` fields; a descriptor's `name`,
+  `kind`, `cadence`, `title` and `unit` stay.
 
 ### `rlevo`
 
@@ -485,9 +502,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   consumer did not. The cost is two first-party packages in every
   consumer's build, `rlevo-harness` and `rlevo-metrics-registry` (the
   dependency cone goes from 207 packages to 209), and no visualization
-  crate. The `viz-tui` feature, which forwards to the harness's `tui`
-  feature, now reaches a consumer; it could not while the harness was a
-  dev-dependency.
+  crate. The `viz-report` feature, which forwards to the harness's
+  `report` feature, now reaches a consumer; it could not while the harness
+  was a dev-dependency.
 - **Two harness examples, `ga_rastrigin` and `tabular_bandit`**, moved here
   from `rlevo-examples` (`cargo run -p rlevo --example tabular_bandit`).
   They spell every path through `rlevo`, as a consumer does, and
@@ -846,9 +863,6 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
   `byoe-1-thermostat` probe did, with each line tried as an outside author
   would write it. The example now reads `run_suite(&suite, |_seed| MyAgent,
   &mut reporter)`.
-- **A link in `TuiEnvTap`'s docs broke with `tui` on and `record` off.** It
-  pointed at `RecordingTap`, which exists only under `record`, so
-  documenting the harness with `tui` alone failed. It is now plain text.
 
 ### Infrastructure
 
@@ -892,8 +906,8 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
   listed two crates as unreached.
 - **An example's home is decided by what it needs** (`docs/rules.md`
   sections 5 and 11). Using the harness no longer sends an example to
-  `rlevo-examples`; needing one of its `tui`, `record` or `report`
-  features, or an unpublished crate, does.
+  `rlevo-examples`; needing one of its `record` or `report` features, or
+  an unpublished crate, does.
 
 **Added**
 
@@ -913,8 +927,9 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
   documented the workspace at its default features and at all features,
   and neither run documents a crate with one feature on and another off.
   It now also documents each publishable crate that has features alone,
-  at no features and at each feature by itself: 21 runs, read from the
-  manifests. The first run found the `TuiEnvTap` link above.
+  at no features and at each feature by itself: 19 runs, read from the
+  manifests. Its first run found a link that broke with one feature on and
+  another off, in docs since deleted with the live TUI.
 - **An optimiser author's walk, `byoa-1b`.** A `(1+1)` hill-climber and a
   control whose `ask` returns its starting point, both written against the
   `Strategy` seam from outside the workspace, run on the shipped `Sphere`
@@ -936,7 +951,7 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
   and requires each trial's `ea/best_fitness_ever` to fall, and never below
   the surface's known minimum. It needs no crate beside `rlevo`.
   `crate-tests.yml` runs it on every pull request as `probe (byoe-2)`.
-- **`cargo xtask guards`: the layering rules, checked.** Five rules no
+- **`cargo xtask guards`: the layering rules, checked.** Six rules no
   compiler checks, each read where it can be broken: `rlevo-evolution`
   names no path into the environment contract (ADR 0002); no published
   crate depends on `rlevo-harness` but the umbrella, and
@@ -944,9 +959,10 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
   turn on no viz, recording or `rerun` feature; no published crate reaches
   `ratatui`, `crossterm`, `leptos`, `axum`, `wasm-bindgen` or `rerun` at its
   default features, in its build or its test build (`docs/rules.md`
-  section 10, now checked rather than stated); and the five
-  `katex-header.html` copies are byte-identical. `crate-tests.yml` runs it
-  on every pull request as `layering guards`.
+  section 10, now checked rather than stated); no workspace manifest names
+  `ratatui` or `crossterm`, in any section or behind any feature (ADR
+  0096); and the five `katex-header.html` copies are byte-identical.
+  `crate-tests.yml` runs it on every pull request as `layering guards`.
 - **A second environment author's walk, `byoe-1-tank-farm`.** Two tanks in
   series, written from scratch against `rlevo::core`, walked through the
   same six steps as `byoe-1-thermostat` over what that probe does not cover:
