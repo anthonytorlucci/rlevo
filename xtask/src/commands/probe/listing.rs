@@ -5,6 +5,10 @@
 //! documentation describes, is found by the first person who copies it. A
 //! listing probe copies it as written: the listing's `toml` block becomes
 //! the probe's `[dependencies]`, its `rust` block the probe's `src/main.rs`.
+//!
+//! [`check_versions`] holds every version an author copies, the template
+//! manifests' and the tag they are generated from included, to the release
+//! the checkout builds.
 
 use std::fs;
 use std::io::Write as _;
@@ -12,6 +16,8 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 use tracel_xtask::prelude::*;
+
+use super::template;
 
 /// A listing in the documentation.
 #[derive(Debug)]
@@ -33,9 +39,23 @@ pub const QUICK_START: Listing = Listing {
     sentinel: "Episode over: ",
 };
 
-/// The files whose `rlevo` dependency lines a learner copies first. Each line
-/// must name the release this checkout builds.
-const VERSIONED: &[&str] = &["README.md", "crates/rlevo/src/lib.rs"];
+/// What a file an author copies from must name at least once.
+#[derive(Debug, Clone, Copy)]
+enum Names {
+    /// An `rlevo` dependency line.
+    Dependency,
+    /// A `--tag` to generate a template from.
+    Tag,
+}
+
+/// The files an author copies a version from, besides each template's
+/// manifest. Every `rlevo` dependency line and every `--tag` in them must
+/// name the release this checkout builds.
+const VERSIONED: &[(&str, Names)] = &[
+    ("README.md", Names::Dependency),
+    ("crates/rlevo/src/lib.rs", Names::Dependency),
+    ("templates/rlevo-algo/README.md", Names::Tag),
+];
 
 /// A listing as copied.
 #[derive(Debug)]
@@ -46,32 +66,66 @@ pub struct Copied {
     program: String,
 }
 
-/// Read `listing` from the checkout at `root`, built as `version`.
+/// Fail unless every version an author copies from the checkout at `root`
+/// names `version`, the release it builds.
 ///
 /// # Errors
 ///
-/// Returns an error if a file in [`VERSIONED`] names no `rlevo` version, or
-/// one that `version` is not, or if the listing's section or either of its
-/// blocks is missing. A learner who copies it would get another release, or
-/// nothing to copy.
-pub fn read(root: &Path, listing: &Listing, version: &str) -> Result<Copied> {
-    for file in VERSIONED {
-        let text = fs::read_to_string(root.join(file))
+/// Returns an error if a file in [`VERSIONED`], or a template's manifest,
+/// names another release, or does not name the one it must. An author who
+/// copies it would build against another release, or generate a template
+/// from one.
+pub fn check_versions(root: &Path, version: &str) -> Result<()> {
+    let mut files: Vec<(String, Names)> = VERSIONED
+        .iter()
+        .map(|(file, names)| ((*file).to_string(), *names))
+        .collect();
+    files.extend(
+        template::manifests(root)?
+            .into_iter()
+            .map(|file| (file, Names::Dependency)),
+    );
+    for (file, names) in files {
+        let text = fs::read_to_string(root.join(&file))
             .with_context(|| format!("could not read {file}"))?;
         let asked = asked_versions(&text);
-        if asked.is_empty() {
-            bail!("{file} names no `rlevo` version for a learner to copy");
+        let tags = asked_tags(&text);
+        match names {
+            Names::Dependency if asked.is_empty() => {
+                bail!("{file} names no `rlevo` version for an author to copy");
+            }
+            Names::Tag if tags.is_empty() => {
+                bail!("{file} names no release tag to generate a template from");
+            }
+            _ => {}
         }
         for (line, requirement) in asked {
             if !names_release(version, &requirement) {
                 bail!(
                     "{file}:{line} asks for rlevo {requirement:?}, which is not this \
-                     checkout's {version}: a learner who copies it builds another release"
+                     checkout's {version}: an author who copies it builds another release"
+                );
+            }
+        }
+        for (line, tag) in tags {
+            if tag != format!("v{version}") {
+                bail!(
+                    "{file}:{line} generates from the tag {tag}, which is not this \
+                     checkout's v{version}: an author would get another release's template"
                 );
             }
         }
     }
+    Ok(())
+}
 
+/// Read `listing` from the checkout at `root`.
+///
+/// # Errors
+///
+/// Returns an error if the listing's section or either of its blocks is
+/// missing: a learner would have nothing to copy.
+pub fn read(root: &Path, listing: &Listing) -> Result<Copied> {
     let text = fs::read_to_string(root.join(listing.document))
         .with_context(|| format!("could not read {}", listing.document))?;
     let blocks = section_blocks(&text, listing.heading)
@@ -182,6 +236,33 @@ fn asked_versions(text: &str) -> Vec<(usize, String)> {
     asked
 }
 
+/// The line number and tag of every `--tag <tag>` or `--tag=<tag>` in
+/// `text`.
+fn asked_tags(text: &str) -> Vec<(usize, String)> {
+    const FLAG: &str = "--tag";
+    let mut tags = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let mut rest = line;
+        while let Some(at) = rest.find(FLAG) {
+            let after = &rest[at + FLAG.len()..];
+            rest = after;
+            let value = match after.strip_prefix('=') {
+                Some(value) => value,
+                None if after.starts_with(char::is_whitespace) => after.trim_start(),
+                None => continue,
+            };
+            let tag: String = value
+                .chars()
+                .take_while(|c| !c.is_whitespace() && *c != '`')
+                .collect();
+            if !tag.is_empty() {
+                tags.push((index + 1, tag));
+            }
+        }
+    }
+    tags
+}
+
 /// Whether `requirement`, written as a version's leading components, names
 /// the release `version`: `0.5` names 0.5.0 and 0.5.3, and not 0.6.0.
 fn names_release(version: &str, requirement: &str) -> bool {
@@ -267,6 +348,17 @@ use rlevo::prelude::*;
         let expected = [(1, "0.5"), (2, "0.5"), (3, "0.6")]
             .map(|(line, requirement)| (line, requirement.to_string()));
         assert_eq!(asked_versions(text), expected);
+    }
+
+    #[test]
+    fn test_every_tag_is_found_in_either_spelling() {
+        let text = "\
+cargo generate --git https://example.com/rlevo --tag v0.6.0 templates/rlevo-algo
+cargo generate --tag=v0.5.0 `x`
+--tags v1 and --tag
+";
+        let expected = [(1, "v0.6.0"), (2, "v0.5.0")].map(|(line, tag)| (line, tag.to_string()));
+        assert_eq!(asked_tags(text), expected);
     }
 
     #[test]

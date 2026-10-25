@@ -299,6 +299,47 @@ pub const LEARNER1: Walk = Walk {
     }],
 };
 
+/// A seam of the `rlevo-algo` template: the crate `cargo generate` gives an
+/// author, from an empty directory to its first run.
+///
+/// It runs as a listing does, reporting nothing itself: `xtask` reads its
+/// run from its exit status and the table's last row. The lint and test
+/// steps are `xtask`'s, run once the crate builds ([`lint`], [`test`]).
+pub const TEMPLATE: Walk = Walk {
+    prefix: "TEMPLATE-STEP",
+    steps: &[
+        SCAFFOLD,
+        ADD_DEPS,
+        Step {
+            label: "build-template",
+            fatal: true,
+        },
+        Step {
+            label: LINT,
+            fatal: true,
+        },
+        Step {
+            label: TEST,
+            fatal: true,
+        },
+        Step {
+            label: "run-template",
+            fatal: true,
+        },
+    ],
+    levels: &[Level {
+        feature: None,
+        step: "build-template",
+        built: Some("the generated crate builds as rendered"),
+        reports: &["run-template"],
+    }],
+};
+
+/// The step [`lint`] reports at.
+pub const LINT: &str = "lint-template";
+/// The step [`test`] reports at.
+pub const TEST: &str = "test-template";
+
 /// A build level of the probe crate.
 #[derive(Debug)]
 pub struct Level {
@@ -561,6 +602,79 @@ fn names_core(after: &str) -> bool {
     })
 }
 
+/// Lint the probe as an author's first `cargo clippy` would, at clippy's
+/// default lints, every target included, a warning an error.
+///
+/// # Errors
+///
+/// Returns an error if clippy cannot be started.
+pub fn lint(probe_dir: &Path, target_dir: &Path) -> Result<Outcome> {
+    let mut cargo = stage::probe_cargo(probe_dir, target_dir);
+    cargo.args([
+        "clippy",
+        "--all-targets",
+        "--message-format=json",
+        "--",
+        "-D",
+        "warnings",
+    ]);
+    let linted = stage::run(&mut cargo)?;
+    if linted.ok {
+        return Ok(Outcome::Pass(
+            "cargo clippy --all-targets -- -D warnings is clean at clippy's default lints"
+                .to_string(),
+        ));
+    }
+    Ok(Outcome::Fail(first_error(&linted.stdout).unwrap_or_else(
+        || first_error_line(&linted.stderr, "clippy failed with no error message"),
+    )))
+}
+
+/// Run the probe's own tests, as an author's first `cargo test` would.
+///
+/// # Errors
+///
+/// Returns an error if the tests cannot be started.
+pub fn test(probe_dir: &Path, target_dir: &Path) -> Result<Outcome> {
+    let mut cargo = stage::probe_cargo(probe_dir, target_dir);
+    cargo.args(["test", "--message-format=json"]);
+    let tested = stage::run(&mut cargo)?;
+    Ok(test_outcome(tested.ok, &tested.stdout, &tested.stderr))
+}
+
+/// What a `cargo test --message-format=json` run says: how many tests
+/// passed, or which failed, or the error that stopped them building.
+fn test_outcome(ok: bool, stdout: &str, stderr: &str) -> Outcome {
+    let passed: usize = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("test result: ok. "))
+        .filter_map(|rest| rest.split(' ').next()?.parse::<usize>().ok())
+        .sum();
+    if ok {
+        return Outcome::Pass(format!("cargo test passes, {passed} tests"));
+    }
+    let failed: Vec<&str> = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("test ")?.strip_suffix(" ... FAILED"))
+        .collect();
+    if !failed.is_empty() {
+        return Outcome::Fail(format!("tests fail: {}", failed.join(", ")));
+    }
+    Outcome::Fail(
+        first_error(stdout)
+            .unwrap_or_else(|| first_error_line(stderr, "cargo test failed with no error message")),
+    )
+}
+
+/// The first line of `stderr` that starts with `error`, or `otherwise`.
+fn first_error_line(stderr: &str, otherwise: &str) -> String {
+    stderr
+        .lines()
+        .find(|line| line.starts_with("error"))
+        .unwrap_or(otherwise)
+        .to_string()
+}
+
 /// Build the probe at one level. The inner error is the compiler's first.
 fn build(
     probe_dir: &Path,
@@ -578,12 +692,7 @@ fn build(
     }
     Ok(Err(first_error(&built.stdout).unwrap_or_else(|| {
         // Not a compiler diagnostic: a manifest or resolution error.
-        built
-            .stderr
-            .lines()
-            .find(|line| line.starts_with("error"))
-            .unwrap_or("the build failed with no error message")
-            .to_string()
+        first_error_line(&built.stderr, "the build failed with no error message")
     })))
 }
 
@@ -834,6 +943,31 @@ mod tests {
         assert_eq!(
             first_error(messages).as_deref(),
             Some("E0277 the trait bound `A: B` is not satisfied")
+        );
+    }
+
+    #[test]
+    fn test_a_test_run_counts_what_passed_and_names_what_failed() {
+        let passed = "running 2 tests\ntest a ... ok\ntest b ... ok\n\
+                      test result: ok. 2 passed; 0 failed\n\
+                      test result: ok. 0 passed; 0 failed\n";
+        assert_eq!(
+            test_outcome(true, passed, ""),
+            Outcome::Pass("cargo test passes, 2 tests".to_string())
+        );
+        let failed = "test tests::a ... ok\ntest tests::b ... FAILED\n\
+                      test result: FAILED. 1 passed; 1 failed\n";
+        assert_eq!(
+            test_outcome(
+                false,
+                failed,
+                "error: test failed, to rerun pass `--bin p`\n"
+            ),
+            Outcome::Fail("tests fail: tests::b".to_string())
+        );
+        assert_eq!(
+            test_outcome(false, "", "error: could not find `Cargo.toml`\n"),
+            Outcome::Fail("error: could not find `Cargo.toml`".to_string())
         );
     }
 

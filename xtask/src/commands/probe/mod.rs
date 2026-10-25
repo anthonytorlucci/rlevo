@@ -13,13 +13,16 @@
 //! the package compiles.
 //!
 //! [`PROBES`] is the source of truth, and `--list` prints it for the workflow
-//! matrix, as the test tiers do. There are three kinds:
+//! matrix, as the test tiers do. There are four kinds:
 //!
 //! - **A walk** ([`walk`]) is a numbered path one persona takes. A step that
 //!   fails names the defect: `BYOE-1/thermostat fails at step 3 of 6`.
 //! - **A listing** ([`listing`]) is a walk whose code is a listing in the
 //!   documentation, copied as written: what a learner pastes into a new
 //!   crate.
+//! - **A template** ([`template`]) is a walk whose code is a seam of the
+//!   `rlevo-algo` template, rendered as `cargo generate` renders it: the
+//!   crate an author starts from, built, linted, tested and run.
 //! - **A measurement** ([`measure`]) has no steps. It records what a
 //!   dependency list costs: packages, Burn packages, a cold build.
 //!
@@ -74,6 +77,23 @@
 //!    pull request. The template's diff is then the measurement of what an
 //!    author stops writing.
 //!
+//! # The `rlevo-algo` template
+//!
+//! `templates/rlevo-algo/` is not a probe's template but the product: what
+//! `cargo generate` gives an author, one seam per thing they implement. Each
+//! seam has a row here, so CI builds, lints, tests and runs the crate an
+//! author would get. Its rules differ from a probe's:
+//!
+//! 1. **No friction is kept.** A seam is the path with the friction taken
+//!    out; a probe keeps its findings.
+//! 2. **It works as it stands.** Its placeholder implementation runs, and
+//!    its `main` prints its rows as one Markdown table and nothing else.
+//! 3. **The change that alters a stamped seam alters the template**, in the
+//!    same pull request: `Agent`, `Environment` and `Strategy`, and the
+//!    trial shapes each `main` calls.
+//! 4. **Its `rlevo` line names this checkout's release**, as the README's
+//!    does ([`listing::check_versions`]): the version bump changes both.
+//!
 //! # Examples
 //!
 //! ```ignore
@@ -86,6 +106,7 @@
 mod listing;
 mod measure;
 mod stage;
+mod template;
 mod walk;
 
 use std::collections::BTreeSet;
@@ -102,9 +123,11 @@ use super::tiers;
 use stage::Workspace;
 use walk::Outcome;
 
-/// A probe: a template under `xtask/probes/<name>/` and how it is run.
+/// A probe: a template under `xtask/probes/<name>/`, or a seam of the
+/// `rlevo-algo` template, and how it is run.
 struct Probe {
     /// The template directory, the command-line name and the matrix entry.
+    /// A seam's probe is named for the seam ([`template::probe_name`]).
     name: &'static str,
     /// What the verdict line calls it.
     title: &'static str,
@@ -126,6 +149,13 @@ enum Kind {
     Listing {
         walk: &'static walk::Walk,
         listing: &'static listing::Listing,
+    },
+    /// The seam `templates/rlevo-algo/<seam>/`, rendered and walked. Its run
+    /// passes when it exits zero having printed a line that starts with
+    /// `sentinel`: the last row of its table.
+    Template {
+        seam: &'static str,
+        sentinel: &'static str,
     },
     /// Cone, Burn count and a cold build. `contract` makes the probe's one
     /// source file a copy of another probe's contract file, built against
@@ -156,6 +186,11 @@ const BYOA1A_NOTE: &str = "BYOA-1a does not end at the baseline: recording the r
 /// What a green BYOA-1b walk does not yet show.
 const BYOA1B_NOTE: &str = "BYOA-1b does not end at the determinism check: recording the run \
                            and showing that two submissions faced one task are not walked yet";
+
+/// What a green template walk does not yet show.
+const TEMPLATE_NOTE: &str = "the seam is rendered by xtask, not by cargo-generate itself, and its \
+                             table is printed, not checked: the release checklist runs cargo \
+                             generate once per seam";
 
 /// What a green Learner-1 walk does not yet show.
 const LEARNER1_NOTE: &str = "Learner-1 copies the README's Quick Start alone: the umbrella's \
@@ -229,6 +264,35 @@ const PROBES: &[Probe] = &[
             listing: &listing::QUICK_START,
         },
         note: Some(LEARNER1_NOTE),
+    },
+    // The `rlevo-algo` template: the crate `cargo generate` gives an author,
+    // one row per seam. The sentinel is the start of the table's last row.
+    Probe {
+        name: "rlevo-algo-agent",
+        title: "rlevo-algo/agent",
+        kind: Kind::Template {
+            seam: "agent",
+            sentinel: "| DqnAgent |",
+        },
+        note: Some(TEMPLATE_NOTE),
+    },
+    Probe {
+        name: "rlevo-algo-environment",
+        title: "rlevo-algo/environment",
+        kind: Kind::Template {
+            seam: "environment",
+            sentinel: "| DqnAgent |",
+        },
+        note: Some(TEMPLATE_NOTE),
+    },
+    Probe {
+        name: "rlevo-algo-strategy",
+        title: "rlevo-algo/strategy",
+        kind: Kind::Template {
+            seam: "strategy",
+            sentinel: "| CmaEs |",
+        },
+        note: Some(TEMPLATE_NOTE),
     },
     // An environment author with no learner. An empty crate depending on
     // `rlevo-core` would compile whatever the contract asks of an
@@ -320,13 +384,14 @@ struct Report {
 ///
 /// # Errors
 ///
-/// Returns an error if the probe table and `xtask/probes/` disagree, if no
-/// probe or an unknown one is named, or if the run is not green. In the last
-/// case the error is the verdict.
+/// Returns an error if the probe table disagrees with `xtask/probes/` or
+/// with `templates/rlevo-algo/`, if no probe or an unknown one is named, or
+/// if the run is not green. In the last case the error is the verdict.
 pub fn handle_command(args: &ProbeCmdArgs, _env: Environment, _ctx: Context) -> Result<()> {
     let workspace = stage::workspace()?;
     let templates = workspace.root.join("xtask").join("probes");
-    assert_probes_are_registered(&templates)?;
+    let seams = workspace.root.join(template::ROOT);
+    assert_probes_are_registered(&templates, &seams)?;
 
     if args.list {
         tiers::print_json_list(PROBES.iter().map(|probe| probe.name.to_string()));
@@ -349,12 +414,13 @@ pub fn handle_command(args: &ProbeCmdArgs, _env: Environment, _ctx: Context) -> 
     run_probe(probe, &workspace, &templates)
 }
 
-/// Fail if a template has no row in [`PROBES`], or a row no template.
+/// Fail if a template or a seam has no row in [`PROBES`], or a row nothing
+/// to run, or if `cargo generate` would not offer every seam.
 ///
 /// The test tiers cannot see a probe, which is not a cargo test target. A
 /// template that no row runs is the analogue of an `#[ignore]`d test that no
 /// tier claims: it stops compiling against the workspace and nothing says so.
-fn assert_probes_are_registered(templates: &Path) -> Result<()> {
+fn assert_probes_are_registered(templates: &Path, seams: &Path) -> Result<()> {
     let mut on_disk = BTreeSet::new();
     for entry in fs::read_dir(templates)
         .with_context(|| format!("no probe templates at {}", templates.display()))?
@@ -364,16 +430,20 @@ fn assert_probes_are_registered(templates: &Path) -> Result<()> {
             on_disk.insert(entry.file_name().to_string_lossy().into_owned());
         }
     }
+    let seam_names = template::seams(seams)?;
+    template::check_offered(seams, &seam_names)?;
+    on_disk.extend(seam_names.iter().map(|seam| template::probe_name(seam)));
     let registered: BTreeSet<String> = PROBES.iter().map(|probe| probe.name.to_string()).collect();
     let (unrun, missing) = registration_gaps(&on_disk, &registered);
     if unrun.is_empty() && missing.is_empty() {
         return Ok(());
     }
     bail!(
-        "the probe table and xtask/probes/ disagree\n\
+        "the probe table disagrees with xtask/probes/ and {}/\n\
          templates no probe runs: {}\n\
          probes with no template: {}\n\
          Edit PROBES in xtask/src/commands/probe/mod.rs.",
+        template::ROOT,
         or_none(&unrun),
         or_none(&missing)
     )
@@ -463,31 +533,42 @@ fn attempt(
     templates: &Path,
     run_dir: &Path,
 ) -> Result<Report> {
-    // A listing that cannot be copied, or that names another release, is
-    // known before anything is packaged.
+    // A listing or a template that cannot be copied, or that names another
+    // release, is known before anything is packaged.
+    if matches!(probe.kind, Kind::Listing { .. } | Kind::Template { .. }) {
+        listing::check_versions(&workspace.root, &workspace.version)?;
+    }
     let copied = match &probe.kind {
-        Kind::Listing { listing, .. } => {
-            Some(listing::read(&workspace.root, listing, &workspace.version)?)
-        }
+        Kind::Listing { listing, .. } => Some(listing::read(&workspace.root, listing)?),
         _ => None,
     };
     let stage = stage::stage(workspace, run_dir)?;
     let probe_dir = run_dir.join("probe");
     let target_dir = run_dir.join("target");
 
-    let sources = match &probe.kind {
-        Kind::Measurement {
-            contract: Some(contract),
-        } => vec![("src/lib.rs", contract_source(templates, contract)?)],
-        _ => Vec::new(),
-    };
-    stage::render(
-        &templates.join(probe.name),
-        &probe_dir,
-        &stage,
-        &workspace.version,
-        &sources,
-    )?;
+    if let Kind::Template { seam, .. } = &probe.kind {
+        template::render(
+            &workspace.root.join(template::ROOT).join(seam),
+            &probe_dir,
+            probe.name,
+            &stage,
+            &workspace.version,
+        )?;
+    } else {
+        let sources = match &probe.kind {
+            Kind::Measurement {
+                contract: Some(contract),
+            } => vec![("src/lib.rs", contract_source(templates, contract)?)],
+            _ => Vec::new(),
+        };
+        stage::render(
+            &templates.join(probe.name),
+            &probe_dir,
+            &stage,
+            &workspace.version,
+            &sources,
+        )?;
+    }
     if let Some(copied) = &copied {
         listing::write(&probe_dir, copied)?;
     }
@@ -518,10 +599,11 @@ fn attempt(
                 verdict: Verdict::Measured,
             });
         }
-        Kind::Walk { walk, contract } => (walk, *contract, None),
-        Kind::Listing { walk, listing } => (walk, None, Some(listing.sentinel)),
+        Kind::Walk { walk, contract } => (*walk, *contract, None),
+        Kind::Listing { walk, listing } => (*walk, None, Some(listing.sentinel)),
+        Kind::Template { sentinel, .. } => (&walk::TEMPLATE, None, Some(*sentinel)),
     };
-    let outcomes = walk::run(
+    let mut outcomes = walk::run(
         walk,
         &probe_dir,
         &target_dir,
@@ -530,6 +612,14 @@ fn attempt(
         contract,
         sentinel,
     )?;
+    // An author's next two commands, once the crate builds.
+    let built = walk.levels[0].step;
+    if matches!(probe.kind, Kind::Template { .. })
+        && matches!(outcomes.get(built), Some(Outcome::Pass(_)))
+    {
+        outcomes.insert(walk::LINT, walk::lint(&probe_dir, &target_dir)?);
+        outcomes.insert(walk::TEST, walk::test(&probe_dir, &target_dir)?);
+    }
     let (lines, verdict) = walk_report(walk, &outcomes);
     Ok(Report {
         lines,
@@ -647,6 +737,15 @@ mod tests {
     }
 
     #[test]
+    fn test_a_template_row_is_named_for_its_seam() {
+        for probe in PROBES {
+            if let Kind::Template { seam, .. } = &probe.kind {
+                assert_eq!(probe.name, template::probe_name(seam));
+            }
+        }
+    }
+
+    #[test]
     fn test_a_contract_file_belongs_to_a_registered_probe() {
         for probe in PROBES {
             if let Kind::Measurement {
@@ -735,8 +834,10 @@ mod tests {
     #[test]
     fn test_every_walk_is_well_formed() {
         for probe in PROBES {
-            let (Kind::Walk { walk, .. } | Kind::Listing { walk, .. }) = &probe.kind else {
-                continue;
+            let walk = match &probe.kind {
+                Kind::Walk { walk, .. } | Kind::Listing { walk, .. } => *walk,
+                Kind::Template { .. } => &walk::TEMPLATE,
+                Kind::Measurement { .. } => continue,
             };
             let labels: Vec<&str> = walk.steps.iter().map(|step| step.label).collect();
             assert_eq!(labels[..2], ["scaffold", "add-deps"], "{}", probe.name);
