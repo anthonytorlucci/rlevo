@@ -96,6 +96,17 @@ user sees. `cargo xtask probe <name>` runs one; `--list` prints them, and
 template in the same pull request: its diff is the measure of what an outside
 author stops or starts writing.
 
+The same holds for the **`rlevo-algo` template** (`templates/rlevo-algo/`),
+the crate an author starts from with `cargo generate`: one seam each for
+`Agent`, `Environment` and `Strategy`, each a probe row. A seam is the path
+with the friction taken out, so it keeps no `FINDING`; it works as it
+stands, and its tests and table are an author's first `cargo test` and
+`cargo run`. Its manifest is `Cargo.toml.liquid` and it uses no Liquid but
+`{{project-name}}` and `{{crate_name}}` in the two files its
+`cargo-generate.toml` lists, so `xtask` renders it exactly as `cargo
+generate` would, with no `cargo-generate` in CI; a seam that asks for more
+is refused.
+
 | Probe | What it is |
 |-------|------------|
 | `byoe-1-thermostat` | an environment author's walk: implement `Environment`, hold the post-terminal contract, write a policy as an `Agent` that implements only `act`, run it through `Evaluator::run_suite` |
@@ -104,6 +115,7 @@ author stops or starts writing.
 | `learner-1` | a learner's walk: the README's Quick Start pasted into a new crate as written, built and run to the line it prints when its episode ends. Every `rlevo` dependency line in the README and the umbrella's crate docs must name the release the checkout builds |
 | `byoa-1a` | an algorithm author's walk: implement `Agent` for a tabular Q-learner, then train and evaluate it on FrozenLake with one `Evaluator::run_suite` call and `EvaluatorConfig::train_steps`; the trial must pass every step's status to the learner unchanged, with both endings in the run, the learner must beat a random agent under the same configuration, and a second run must repeat the first bit for bit |
 | `byoa-1b` | an optimiser author's walk: implement `Strategy` for a hill-climber and for a control that never moves, and run both on a shipped landscape through `Evaluator::run_trials`; only the hill-climber may improve, and a second run must repeat the first bit for bit |
+| `rlevo-algo-agent`, `rlevo-algo-environment`, `rlevo-algo-strategy` | a seam of the `rlevo-algo` template, rendered as `cargo generate` renders it, then built, linted with `clippy -D warnings` at clippy's default lints, tested, and run to its table's last row. Each seam's `rlevo` line, and the `--tag` of every generate command in the docs, must name the release the checkout builds |
 | `consumer-core` | that author's environment file built against `rlevo-core` alone, with its package count, its Burn package count and a cold build time |
 | `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning`; `consumer-umbrella` also builds a network derived through `rlevo::burn` beside a default one, which no doctest can check |
 
@@ -191,6 +203,7 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 - `xtask/probes/byoe-1-tank-farm/src/tank_farm.rs`: the same for a `ContinuousAction` + `BoundedAction` command, a rank-2 observation and an environment with no horizon of its own
 - `xtask/probes/byoa-1a/src/q_learner.rs`: an `Agent` that learns, implemented from outside the workspace: ε-greedy from the driver's RNG, a TD target that bootstraps through `Truncated` and not through `Terminated`, `set_training` switching exploration off, and its own counters through `emit_metrics`
 - `xtask/probes/byoa-1b/src/hill_climber.rs`: a `Strategy` implemented from outside the workspace: parameters with `Validate`, state threaded through `init` / `ask` / `tell`, draws from the loop's RNG, fitness sanitised where it reaches the host
+- `templates/rlevo-algo/{agent,environment,strategy}/src/`: what an author starts from, each implementing every method of its seam and testing the seam's contract: the agent's TD target bootstraps through `Truncated` and not `Terminated`; the environment refuses a step after the end; the strategy never crowns a `NaN`
 - `crates/rlevo-core/src/environment.rs`: MockEnvironment in test module demonstrates trait usage
 
 ## Testing Philosophy

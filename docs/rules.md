@@ -506,6 +506,16 @@ An example that only builds a `Suite` and runs an `Evaluator` lives in the umbre
 
 `crates/rlevo-examples` is not in `default-members`. Developers opt in with `cargo run -p rlevo-examples --example <name>`.
 
+### The `rlevo-algo` template
+
+`templates/rlevo-algo/` holds the `cargo generate` templates an author starts from, one per seam: `agent` (`Agent`), `environment` (`Environment`, with `HostRow` on its observation) and `strategy` (`Strategy`). `cargo xtask probe rlevo-algo-<seam>` renders a seam as `cargo generate` would, then builds, lints, tests and runs it, on every pull request.
+
+- **A change to a stamped seam changes the template in the same pull request:** `Agent`, `Environment`, `Strategy`, and the harness calls each seam's `main` makes (`Evaluator::run_suite`, `Evaluator::run_trials`, `GenerationTrial`, `EvaluatorConfig`). The template's diff is what every author's code has to change.
+- **A seam works as it stands.** It implements every method of its seam, so the compiler checks every signature it stamps; a hook left in a comment is checked by nothing. Its tests are the seam's contract, and its `main` prints one Markdown table and nothing else.
+- **It depends on `rlevo` alone**, spelled through the umbrella and the prelude as a consumer writes it, and it keeps no `FINDING`: a probe records friction, the template is the path without it.
+- **Its versions name the checkout's release.** Each seam's `rlevo` line, and the `--tag` of every `cargo generate` command in the documentation, move with the version bump, as the README's dependency lines do.
+- **No Liquid but `{{project-name}}` and `{{crate_name}}`,** in the two files a seam's `cargo-generate.toml` lists (`Cargo.toml.liquid` and `README.md`); every other file is copied as written. `xtask` then renders a seam exactly, with no `cargo-generate` in CI, and refuses one that asks for more. The release checklist runs `cargo generate` once per seam from the release tag and compares the result with `xtask`'s rendering.
+
 ---
 
 ## 12. Deferred Work Gets a GitHub Issue
