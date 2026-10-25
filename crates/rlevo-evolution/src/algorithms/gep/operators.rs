@@ -446,7 +446,7 @@ mod tests {
         /// `point_mutation_preserves_tail_invariant`.
         ///
         /// The RNG is built directly from the proptest-generated `u64` seed via
-        /// `seed_stream` (ADR 0029; GEP is backend-free — no `B::seed`).
+        /// `seed_stream` (ADR 0029; GEP is backend-free — no `Device::seed`).
         #[test]
         fn prop_point_mutation_preserves_invariants(
             head_len in 1usize..=16,

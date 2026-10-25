@@ -202,8 +202,11 @@ impl GwoState {
 ///
 /// # Panics
 ///
-/// [`Strategy::init`] panics if `params.pop_size < 3`, since the update
+/// In debug builds, [`Strategy::init`] panics on a config that fails
+/// [`Validate::validate`], `params.pop_size < 3` among them, since the update
 /// rule needs three distinct leaders (`$\alpha$`, `$\beta$`, `$\delta$`).
+/// Release builds do not check in `init`; [`Strategy::ask`] panics instead
+/// once it ranks a pack of fewer than three.
 ///
 /// # Example
 ///
@@ -228,7 +231,7 @@ impl GreyWolfOptimizer {
     fn sample_initial(params: &GwoConfig, rng: &mut dyn Rng, device: &Device) -> Tensor<2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample from a deterministic `seed_stream` rather than the
-        // process-wide Flex RNG (`B::seed` + `Tensor::random`), whose draws
+        // process-wide Flex RNG (`Device::seed` + `Tensor::random`), whose draws
         // interleave with sibling tests under the parallel runner and are
         // not reproducible across thread schedules.
         let pop = params.pop_size;
@@ -290,8 +293,8 @@ impl Strategy for GreyWolfOptimizer {
         let pop_size = params.pop_size;
         let genome_dim = params.genome_dim;
 
-        // Rank the pack host-side — O(N log N) is noise compared to the
-        // device ops below, and sorting on the host keeps us free of
+        // Pick the three leaders host-side in one O(N) pass — noise
+        // compared to the device ops below, and it keeps us free of
         // backend-specific `argsort` quirks.
         let top3 = argtop3_max(&state.fitness);
 

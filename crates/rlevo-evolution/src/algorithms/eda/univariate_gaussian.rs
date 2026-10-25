@@ -9,7 +9,7 @@
 //! collapse to a point mass. The `fitness` tensor is accepted by the
 //! [`ProbabilityModel`] interface but ignored; the fit is unweighted.
 //! [`sample`] draws each gene from its dimension's fitted Gaussian using the
-//! supplied host RNG (never `Tensor::random` / `B::seed`).
+//! supplied host RNG (never `Tensor::random` / `Device::seed`).
 //!
 //! Cross-dimension dependencies are not captured — for those, see
 //! [`super::dependency_chain`].
@@ -233,7 +233,7 @@ impl ProbabilityModel for UnivariateGaussian {
     /// Draw `n` genomes from the fitted per-dimension Gaussians.
     ///
     /// All randomness is drawn from `rng` (host RNG only; never
-    /// `Tensor::random` / `B::seed`). The returned tensor has shape `(n, D)`.
+    /// `Tensor::random` / `Device::seed`). The returned tensor has shape `(n, D)`.
     ///
     /// # Panics
     ///
@@ -690,7 +690,7 @@ mod tests {
         ///
         /// RNG boundary (ADR 0029): proptest generates host config only
         /// (`mu`, `sigma2`, `n`, `seed`); the sampler is seeded via
-        /// `StdRng::seed_from_u64(seed)` (module idiom), never `B::seed` /
+        /// `StdRng::seed_from_u64(seed)` (module idiom), never `Device::seed` /
         /// `Tensor::random`.
         ///
         /// Flakiness margin: the standard error of the mean is `sigma / sqrt(n)`. With `n >= 5000`,

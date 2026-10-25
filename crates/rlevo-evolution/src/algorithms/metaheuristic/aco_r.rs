@@ -93,7 +93,8 @@ pub struct AcoRState {
     /// Host-side archive fitness, sorted descending (best, i.e. highest,
     /// first) after the first `tell`.
     pub archive_fitness: Vec<f32>,
-    /// Cached archive weights (recomputed only when `q` or `k` change).
+    /// Rank-based archive weights, computed once by `init` from `archive_size`
+    /// and `q` and never recomputed.
     pub weights: Vec<f32>,
     /// Best-so-far genome.
     pub best_genome: Option<Tensor<2>>,
@@ -168,7 +169,7 @@ impl Strategy for AntColonyReal {
     /// values uniformly from `params.bounds`.
     ///
     /// All random draws go through [`seed_stream`] derived from `rng` rather
-    /// than `B::seed` + `Tensor::random`; this keeps draws reproducible across
+    /// than `Device::seed` + `Tensor::random`; this keeps draws reproducible across
     /// thread schedules when multiple tests or loops share the same
     /// process-wide Burn RNG state.
     fn init(&self, params: &AcoRConfig, rng: &mut dyn Rng, device: &Device) -> AcoRState {
@@ -178,7 +179,7 @@ impl Strategy for AntColonyReal {
         );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial archive from a deterministic `seed_stream`
-        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // rather than the process-wide Flex RNG (`Device::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
         // and are not reproducible across thread schedules.
         let rows = params.archive_size;

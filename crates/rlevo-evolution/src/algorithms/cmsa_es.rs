@@ -925,7 +925,7 @@ mod tests {
         // scalar problem shape `(lambda, d, seed)` (ADR 0029 RNG boundary); the run then seeds a
         // `StdRng` exactly as the hand-written tests do and threads it through `init`/`ask`/`tell`,
         // which key their own `seed_stream`s off `rng.next_u64()` + the generation counter. No
-        // `B::seed` / `Tensor::random`. `lambda >= 4` keeps `mu = lambda/2 >= 2` so the
+        // `Device::seed` / `Tensor::random`. `lambda >= 4` keeps `mu = lambda/2 >= 2` so the
         // rank-`$\mu$` recombination has at least two parents; `d >= 2` exercises the off-diagonal
         // symmetry invariant. All four assertions are thread-count-invariant (sign / finiteness /
         // bit-exact symmetry).

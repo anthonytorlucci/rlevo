@@ -149,14 +149,20 @@ pub struct SalpState {
 ///
 /// # Panics
 ///
-/// [`Strategy::init`] panics if `params.pop_size < 2`, since the
-/// leader/follower split requires at least one of each.
+/// In debug builds, [`Strategy::init`] panics on a config that fails
+/// [`Validate::validate`], `params.pop_size < 2` among them, since the
+/// leader/follower split requires at least one of each. Release builds do not
+/// check in `init`; a swarm of one panics instead in the first
+/// [`Strategy::ask`] after a [`Strategy::tell`].
 ///
-/// [`Strategy::ask`] panics if called a second time without an intervening
-/// [`Strategy::tell`] — `state.best_genome` is `None` until the first
-/// `tell` populates it. Normal loop-driven usage prevents this: the
-/// first `ask` returns initial positions unevaluated, `tell` sets
-/// `best_genome`, and every subsequent `ask` finds it populated.
+/// [`Strategy::ask`] panics when the state holds a fitness cache but no
+/// `best_genome`. [`Strategy::tell`] leaves a state so when every fitness of
+/// the first generation is `NaN` or `$-\infty$` in the maximise convention,
+/// since no value then beats the initial `$-\infty$` best; this holds whether
+/// the run is driven by hand or by
+/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). A [`SalpState`]
+/// built with a non-empty `fitness` and `best_genome: None` reaches it
+/// directly.
 ///
 /// # Example
 ///
@@ -196,7 +202,7 @@ impl Strategy for SalpSwarm {
         );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial swarm from a deterministic `seed_stream`
-        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // rather than the process-wide Flex RNG (`Device::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel
         // runner and are therefore not reproducible across thread schedules.
         let pop = params.pop_size;

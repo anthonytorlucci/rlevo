@@ -46,7 +46,7 @@
 //! host-RNG convention. Combined with the per-run [`InnovationRegistry`]'s
 //! caches, the same
 //! seed + same mutation sequence yields identical innovation *and* node ids.
-//! Never `B::seed_from_u64` + `Tensor::random` (process-wide backend RNG mutex
+//! Never `Device::seed` + `Tensor::random` (process-wide backend RNG mutex
 //! races parallel tests).
 //!
 //! # Gradient isolation

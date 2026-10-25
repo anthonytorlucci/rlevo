@@ -231,13 +231,14 @@ impl WoaState {
 ///
 /// # Panics
 ///
-/// [`Strategy::ask`] panics if called a second time without an intervening
-/// [`Strategy::tell`] — specifically, if `state.best_genome` is `None` after
-/// the first generation. In normal loop-driven usage this cannot happen:
-/// `ask` on the first call returns the initial positions unevaluated;
-/// `tell` then sets `best_genome`; and every subsequent `ask` finds it
-/// populated. Bypassing the loop and calling `ask` twice in a row without
-/// a `tell` in between will trigger the assert.
+/// [`Strategy::ask`] panics when the state holds a fitness cache but no best
+/// genome. [`Strategy::tell`] leaves a state so when every fitness of the
+/// first generation is `NaN` or `$-\infty$` in the maximise convention, since
+/// no value then beats the initial `$-\infty$` best; this holds whether the
+/// run is driven by hand or by
+/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). A state built by
+/// [`WoaState::try_new`] with a non-empty `fitness` and `best_genome: None`
+/// reaches it directly.
 ///
 /// # Example
 ///
@@ -275,7 +276,7 @@ impl Strategy for WhaleOptimization {
         );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial population from a deterministic
-        // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
+        // `seed_stream` rather than the process-wide Flex RNG (`Device::seed` +
         // `Tensor::random`), whose draws interleave with sibling tests under
         // the parallel runner and are not reproducible across schedules.
         let pop = params.pop_size;

@@ -516,7 +516,7 @@ impl ProbabilityModel for BayesianNetwork {
     /// the bit-packed parent configuration (parents already sampled, since the
     /// traversal follows the topological order). Exactly one `rng.random::<f32>()`
     /// call is consumed per gene regardless of structure, keeping RNG
-    /// consumption stable. Host RNG only (never `Tensor::random` / `B::seed`).
+    /// consumption stable. Host RNG only (never `Tensor::random` / `Device::seed`).
     /// The returned tensor has shape `(n, D)` and contains only `0.0` and `1.0`.
     fn sample(
         &self,

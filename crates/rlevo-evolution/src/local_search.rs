@@ -20,7 +20,7 @@
 //! # Stochasticity convention
 //!
 //! Every searcher takes a `&mut dyn Rng` and **all** randomness flows through
-//! it. Searchers never seed the process-wide backend RNG (`B::seed` +
+//! it. Searchers never seed the process-wide backend RNG (`Device::seed` +
 //! `Tensor::random`) and never reach for `rand::rng()` / thread-local RNGs —
 //! that would race the global Flex mutex under the parallel test runner and
 //! destroy reproducibility (see [`crate::rng`] for the host-RNG convention).

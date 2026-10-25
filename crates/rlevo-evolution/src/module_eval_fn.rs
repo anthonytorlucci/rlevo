@@ -6,7 +6,7 @@
 //! end-to-end and never reshapes; reshaping is confined to this evaluation
 //! boundary so its selection/crossover/mutation operate on plain tensors.
 //!
-//! Evaluation is loop-over-N: Burn 0.21 has no `vmap`/batched-forward
+//! Evaluation is loop-over-N: Burn 0.22 has no `vmap`/batched-forward
 //! primitive, so each population row is unflattened into a module and scored
 //! individually. A batched forward path is a future addition.
 

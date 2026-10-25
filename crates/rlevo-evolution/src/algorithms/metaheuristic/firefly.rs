@@ -60,19 +60,23 @@ pub struct FireflyConfig {
     pub bounds: Bounds,
     /// Base attractiveness `$\beta_0$`. Canonical 1.0.
     pub beta0: f32,
-    /// Light-absorption coefficient `$\gamma$`. Canonical 1.0; controls the
-    /// range over which fireflies can see each other.
+    /// Light-absorption coefficient `$\gamma$`; controls the range over which
+    /// fireflies can see each other. It is used as given, not rescaled to
+    /// `bounds`. Yang's canonical `$\gamma = 1$` assumes a domain normalized to
+    /// `$[0, 1]$`; [`default_for`](Self::default_for) sets `$\gamma = 1 / L^2$`
+    /// for its domain of extent `L`.
     pub gamma: f32,
     /// Noise scale for the random walk term. Canonical 0.2.
     pub alpha: f32,
 }
 
 impl FireflyConfig {
-    /// Default configuration. `$\gamma$` is scaled by the search-space extent
-    /// so the exponential decay lands in a useful regime — Yang's
-    /// canonical `$\gamma = 1$` assumes `$[0, 1]$` normalization; for the usual
-    /// `$[-5.12, 5.12]$` domain, `$\gamma \approx 1 / L^2$` keeps attractiveness
-    /// non-vanishing across pairs.
+    /// Default configuration. `$\gamma$` is set from the extent `L` of the
+    /// default `$[-5.12, 5.12]$` domain so the exponential decay lands in a
+    /// useful regime — Yang's canonical `$\gamma = 1$` assumes `$[0, 1]$`
+    /// normalization, and `$\gamma = 1 / L^2$` keeps attractiveness
+    /// non-vanishing across pairs. To search other `bounds`, set `gamma` to
+    /// match: it is not rescaled.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         let (lo, hi): (f32, f32) = (-5.12, 5.12);
@@ -277,7 +281,7 @@ impl Strategy for FireflyAlgorithm {
         );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial swarm from a deterministic `seed_stream`
-        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // rather than the process-wide Flex RNG (`Device::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
         // and are not reproducible across thread schedules.
         let pop = params.pop_size;

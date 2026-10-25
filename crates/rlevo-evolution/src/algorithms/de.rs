@@ -217,7 +217,7 @@ impl DifferentialEvolution {
     ) -> Tensor<2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial population from a deterministic
-        // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
+        // `seed_stream` rather than the process-wide Flex RNG (`Device::seed` +
         // `Tensor::random`), whose draws interleave with sibling tests under
         // the parallel runner and are not reproducible across schedules.
         let pop = params.pop_size;
@@ -269,7 +269,7 @@ impl Strategy for DifferentialEvolution {
     /// population rather than generate trial vectors.
     ///
     /// Initial sampling goes through [`seed_stream`] rather than
-    /// `B::seed + Tensor::random` to keep results reproducible across
+    /// `Device::seed` + `Tensor::random` to keep results reproducible across
     /// parallel test threads.
     fn init(&self, params: &DeConfig, rng: &mut dyn Rng, device: &Device) -> DeState {
         debug_assert!(

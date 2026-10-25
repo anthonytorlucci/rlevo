@@ -4,7 +4,7 @@
 //! population tensor and returns a new one with noise added per gene.
 //! The noise is sampled from a caller-supplied host `rng` and
 //! materialised via `Tensor::from_data`, rather than seeding the
-//! process-wide backend RNG (`B::seed` + `Tensor::random`). Host
+//! process-wide backend RNG (`Device::seed` + `Tensor::random`). Host
 //! sampling keeps results reproducible across thread schedules: the
 //! global Flex RNG mutex would otherwise interleave draws with sibling
 //! tests under the parallel runner.

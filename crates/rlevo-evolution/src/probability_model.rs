@@ -47,7 +47,7 @@ use rand::Rng;
 ///   so a model must never read their contents when `prev` is `None`.
 /// - **Host RNG only.** All randomness in [`sample`](Self::sample) must come
 ///   from the supplied `rng`. Implementations must never call `Tensor::random`
-///   or `B::seed`: Burn's GPU PRNG kernels are seeded through process-global
+///   or `Device::seed`: Burn's GPU PRNG kernels are seeded through process-global
 ///   state, which interleaves across parallel strategy calls and breaks the
 ///   per-stream determinism the crate guarantees. Sample on the host and upload
 ///   with `Tensor::from_data`.
@@ -125,7 +125,7 @@ pub trait ProbabilityModel: Send + Sync {
     /// Draw `n` candidate genomes from the fitted model.
     ///
     /// All randomness must be drawn from `rng` (host RNG only — never
-    /// `Tensor::random`/`B::seed`). The returned tensor has shape `(n, D)`
+    /// `Tensor::random`/`Device::seed`). The returned tensor has shape `(n, D)`
     /// where `D` is the model's genome dimensionality.
     ///
     /// # Panics

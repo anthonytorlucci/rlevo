@@ -6,7 +6,7 @@
 //!
 //! All operators that draw random numbers accept an explicit `&mut dyn Rng`
 //! (the host-RNG convention). Operators never touch thread-local or
-//! process-wide backend RNG state (`B::seed` / `Tensor::random`), which
+//! process-wide backend RNG state (`Device::seed` / `Tensor::random`), which
 //! would race with sibling tests under the parallel test runner.
 //!
 //! # Fitness convention

@@ -5,8 +5,7 @@
 //! - `(1+1)` — a single parent, a single offspring, 1/5th success-rule
 //!   `$\sigma$` adaptation.
 //! - `$(1+\lambda)$` — a single parent, `$\lambda$` offspring per generation; the best
-//!   offspring replaces the parent iff its fitness improves. The
-//!   underlying mutation/selection loop is also reused by Cartesian GP.
+//!   offspring replaces the parent iff its fitness improves.
 //! - `$(\mu,\lambda)$` — `$\mu$` parents, `$\lambda$` offspring; parents are discarded each
 //!   generation.
 //! - `$(\mu+\lambda)$` — `$\mu$` parents, `$\lambda$` offspring; survivors are the `$\mu$` best of the
@@ -314,7 +313,7 @@ impl EvolutionStrategy {
         let mu = Self::mu(params.kind);
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial parents from a deterministic `seed_stream`
-        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // rather than the process-wide Flex RNG (`Device::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
         // and are not reproducible across thread schedules.
         let genome_dim = params.genome_dim;

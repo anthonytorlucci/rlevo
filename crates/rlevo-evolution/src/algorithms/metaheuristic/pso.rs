@@ -121,17 +121,21 @@ impl PsoConfig {
     /// where `$\varphi = c_1 + c_2$`.
     ///
     /// Clerc & Kennedy (2002) require `$\varphi > 4$` for the closed form to be
-    /// real-valued. If `$\varphi \le 4$` the discriminant is clamped to zero and
-    /// `$\chi$` falls back to `1.0` (no contraction) so the strategy remains
-    /// numerically well-defined. A `debug_assert!` fires in debug builds
-    /// when this fallback is triggered; it is silent in release builds.
+    /// real-valued, and [`Validate::validate`] rejects a
+    /// [`PsoVariant::Constriction`] config with `$\varphi \le 4$`, so a
+    /// validated run never computes `$\chi$` below that bound. Called directly
+    /// with `$\varphi \le 4$`, the discriminant is clamped to zero and the
+    /// result is `$2 / |2 - \varphi|$`: `1.0` at `$\varphi = 4$`, greater than
+    /// `1.0` for `$0 < \varphi < 4$` (an expansion, not a contraction) and
+    /// infinite at `$\varphi = 2$`. A `debug_assert!` fires in debug builds when
+    /// `$\varphi \le 4$`; release builds return the clamped value.
     #[must_use]
     pub fn constriction_chi(&self) -> f32 {
         let phi = self.c1 + self.c2;
         // Clerc & Kennedy require phi > 4; below that the closed form
-        // becomes imaginary. Fall back to 1.0 (i.e. no contraction) so
-        // the strategy stays numerically well-defined; user-supplied
-        // configs violating the contract are covered by debug_assert.
+        // becomes imaginary. The discriminant is clamped at zero so the
+        // result stays real; `validate` rejects such a config for the
+        // constriction variant, and the debug_assert catches a direct call.
         debug_assert!(phi > 4.0, "PSO constriction requires c1 + c2 > 4");
         let disc = (phi * phi - 4.0 * phi).max(0.0);
         2.0 / (2.0 - phi - disc.sqrt()).abs()
@@ -202,7 +206,7 @@ impl ParticleSwarm {
     fn sample_positions(params: &PsoConfig, rng: &mut dyn Rng, device: &Device) -> Tensor<2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample from a deterministic `seed_stream` rather than the
-        // process-wide Flex RNG (`B::seed` + `Tensor::random`), whose draws
+        // process-wide Flex RNG (`Device::seed` + `Tensor::random`), whose draws
         // interleave with sibling tests under the parallel runner and are
         // not reproducible across thread schedules.
         let pop = params.pop_size;

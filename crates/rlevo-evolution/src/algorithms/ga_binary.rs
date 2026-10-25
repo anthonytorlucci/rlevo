@@ -20,7 +20,7 @@
 //! generational variant is needed.
 //!
 //! All random draws go through [`crate::rng::seed_stream`] — never
-//! `B::seed` + `Tensor::random` — so per-run results are reproducible
+//! `Device::seed` + `Tensor::random` — so per-run results are reproducible
 //! across thread schedules.
 //!
 //! # Fitness convention
@@ -162,7 +162,7 @@ impl BinaryGeneticAlgorithm {
         device: &Device,
     ) -> Tensor<2, Int> {
         // Host-sample U[0,1) from a deterministic `seed_stream` rather than
-        // the process-wide Flex RNG (`B::seed` + `Tensor::random`), whose
+        // the process-wide Flex RNG (`Device::seed` + `Tensor::random`), whose
         // draws interleave with sibling tests under the parallel runner and
         // are not reproducible across thread schedules.
         let pop = params.pop_size;

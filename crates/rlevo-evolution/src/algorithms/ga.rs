@@ -200,7 +200,7 @@ impl GeneticAlgorithm {
     ) -> Tensor<2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial population from a deterministic
-        // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
+        // `seed_stream` rather than the process-wide Flex RNG (`Device::seed` +
         // `Tensor::random`), whose draws interleave with sibling tests under
         // the parallel runner and are not reproducible across schedules.
         let pop = params.pop_size;
