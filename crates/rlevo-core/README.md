@@ -73,7 +73,7 @@ Lives in core so `rlevo-evolution` (which implements it) and `rlevo-harness` (wh
 
 | Item | Description |
 |---|---|
-| `GenerationProbe` | Drive seam for self-paced work (evolutionary generation loops): `begin()`, then `advance() -> Option<Metrics>` until the budget is spent |
+| `GenerationProbe` | Drive seam for self-paced work (evolutionary generation loops): `begin()`, then `advance() -> Option<Metrics>` until the budget is spent, then `emit_metrics()` for the report |
 
 ### `fitness` — Evaluation & Fitness Traits
 
@@ -82,8 +82,7 @@ The landscape side of the benchmark harness and the metric type, also hoisted in
 | Trait / Type | Description |
 |---|---|
 | `Landscape` | Self-evaluating numerical landscape (Sphere, Ackley, Rastrigin) carrying both parameters and `f(x)` |
-| `MetricsProvider` | Reports method-specific `Metric` values at trial boundaries |
-| `Metric` | Method-specific signal emitted by an agent or aggregator |
+| `Metric` | Method-specific signal about a trial so far, read from an agent or a generation loop through `emit_metrics`: a counter is a total since the trial began, a scalar the value at the read |
 
 ### `util` — Shared Utilities
 

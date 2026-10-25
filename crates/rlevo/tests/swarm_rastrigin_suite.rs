@@ -10,7 +10,6 @@
 
 use burn::tensor::Device;
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::MetricsProvider;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_harness::reporter::logging::LoggingReporter;
 
@@ -78,7 +77,6 @@ fn collect_best_returns<P>(
 ) -> f64
 where
     P: GenerationProbe + Send,
-    P::Metrics: MetricsProvider,
 {
     let cfg = cfg();
     let evaluator = Evaluator::new(cfg);

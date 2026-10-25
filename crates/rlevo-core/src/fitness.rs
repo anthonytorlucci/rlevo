@@ -3,16 +3,18 @@
 //! - [`Landscape`] — a self-evaluating numerical landscape, used when the
 //!   "environment" is a pure fitness function (Sphere, Rastrigin, Ackley).
 //!   Consumed by `rlevo-evolution`'s `FromLandscape` adapter.
-//! - [`Metric`] and [`MetricsProvider`] — method-specific signal reported at
-//!   trial boundaries: by an agent through
-//!   [`Agent::emit_metrics`](crate::agent::Agent::emit_metrics), by a
-//!   generation loop's metrics through [`MetricsProvider`]. They live in
-//!   this crate so neither reporter depends on the harness that reads them.
+//! - [`Metric`] — method-specific signal about a trial, read from what the
+//!   trial drives: an agent through
+//!   [`Agent::emit_metrics`](crate::agent::Agent::emit_metrics), a
+//!   generation loop through
+//!   [`GenerationProbe::emit_metrics`](crate::evaluation::GenerationProbe::emit_metrics).
+//!   It lives in this crate so neither producer depends on the harness that
+//!   reads it.
 
 use crate::objective::ObjectiveSense;
 
-/// Method-specific signal emitted by an agent or aggregator at trial
-/// boundaries.
+/// Method-specific signal about a trial, read from the agent or the
+/// generation loop the trial drives.
 ///
 /// Each variant carries a `name` that identifies the metric (e.g.
 /// `"q_loss"`, `"policy_entropy"`). As far as this crate is concerned the name
@@ -25,30 +27,38 @@ use crate::objective::ObjectiveSense;
 /// under a name other than the one given here. Which names a consumer reserves,
 /// and what it does with a collision, is governed by that consumer's own
 /// documentation; this crate neither defines nor constrains it.
+///
+/// # What a read covers
+///
+/// A producer's `emit_metrics` describes the trial so far, from its start to
+/// the read:
+///
+/// - a [`Counter`](Self::Counter) is the total since the trial began;
+/// - a [`Scalar`](Self::Scalar) is the value at the read: a running best, a
+///   mean so far, the latest generation's best;
+/// - a [`Histogram`](Self::Histogram) holds every sample since the trial
+///   began.
+///
+/// A trial begins when its agent is built, or when its generation loop's
+/// `begin` resets it. A read changes nothing, so it can be repeated: each read
+/// is complete on its own, the reader has one value per read, and the latest
+/// is the current one. A reader never adds two reads together. The evaluation
+/// harness reads once, after the last episode or generation it counts; a
+/// reader that logs a time series reads at each boundary and logs every value
+/// at its point on the timeline.
 #[derive(Debug, Clone)]
 pub enum Metric {
     /// A single floating-point measurement (loss, reward, step count as f64).
     Scalar { name: String, value: f64 },
-    /// A distribution of values (per-step returns, priority weights).
-    /// Consumers may summarise via mean/variance. Like [`Metric::Counter`],
-    /// the span the samples cover is [`MetricsProvider::emit`]'s contract, not
-    /// a fixed unit of work.
+    /// A distribution of values (per-step returns, priority weights), every
+    /// sample since the trial began. Consumers may summarise via
+    /// mean/variance.
     Histogram { name: String, values: Vec<f64> },
-    /// A tally of discrete occurrences (environment steps, gradient updates).
-    /// The counted quantity only ever grows — a count is never negative and
-    /// never decreases — so `count` is a number of events, not a level that
-    /// can fall. How much of that tally one emission covers is
-    /// [`MetricsProvider::emit`]'s contract.
+    /// A tally of discrete occurrences (environment steps, gradient updates),
+    /// the total since the trial began. The counted quantity only ever grows
+    /// — a count is never negative and never decreases — so `count` is a
+    /// number of events, not a level that can fall.
     Counter { name: String, count: u64 },
-}
-
-/// Trait implemented by agents (and internal collectors) that can report
-/// method-specific metrics at trial boundaries.
-pub trait MetricsProvider {
-    /// Returns all metrics accumulated since the last call (or since
-    /// construction). Implementations should drain internal accumulators so
-    /// that repeated calls do not double-count.
-    fn emit(&self) -> Vec<Metric>;
 }
 
 /// Self-evaluating numerical fitness landscape.

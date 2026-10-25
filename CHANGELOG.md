@@ -475,6 +475,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   loses what only the dashboard read: `Trend`, `trend_for`, `hint_for`, and
   `MetricDescriptor`'s `trend` and `hint` fields; a descriptor's `name`,
   `kind`, `cadence`, `title` and `unit` stay.
+- **`MetricsProvider` is removed; a generation loop reports through
+  `GenerationProbe::emit_metrics`** (ADR 0097), with the name, the rule and
+  the default (none) of `Agent::emit_metrics`. The trait asked each
+  implementor to drain what it had accumulated on every call, which
+  `emit(&self)` could not do and none did, and its reader keeps only the
+  latest value, so a drained value read twice would have lost the first
+  part. `Metric` now states the one rule both methods follow: a read
+  describes the trial so far (a counter is a total since the trial began,
+  a scalar the value at the read, a histogram every sample) and changes
+  nothing, so a reader may read as often as it likes and keeps the latest.
+  To migrate a generation loop of your own, move the body of `impl
+  MetricsProvider for MyMetrics { fn emit(&self) .. }` into `fn
+  emit_metrics(&self) -> Vec<Metric>` on its `GenerationProbe` impl,
+  reporting the latest generation's metrics and none before the first,
+  and delete any `P::Metrics: MetricsProvider` bound.
+  `rlevo_harness::metrics` re-exports `Metric` alone. `EvolutionaryLoop` and
+  `CoEvolutionaryLoop` report what they did before, under `ea/` and
+  `coea/`.
 
 ### `rlevo`
 

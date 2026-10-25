@@ -34,15 +34,17 @@
 //! copy of `latest_metrics`". So the harness always checks the budget before
 //! it runs a generation, exactly as the hand-written
 //! `while !evo_loop.is_done() { evo_loop.step(); }` does, and neither runs
-//! one past it.
+//! one past it. `emit_metrics` is `latest_metrics` as
+//! [`Metric`]s, under `ea/` or `coea/`, and none before the first generation.
 //!
 //! The trait keeps names of its own because its caller is different. The
-//! harness is generic: it knows nothing about strategies or populations, it
-//! needs each generation's metrics by value, and it must drive any kind of
-//! generation loop through one interface, the co-evolutionary one included.
-//! `Option` gives it the stop signal and the metrics in one value. A person
-//! writing a loop by hand is better served by a call that advances and a
-//! question that reads as a question.
+//! harness is generic: it knows nothing about strategies or populations, and
+//! it must drive any kind of generation loop through one interface, the
+//! co-evolutionary one included. `Option` gives it the stop signal.
+//! `emit_metrics` gives it the report's metrics, with the name and the rule
+//! an agent's have, so a report reads both kinds of trial the same way. A
+//! person writing a loop by hand is better served by a call that advances
+//! and a question that reads as a question.
 //!
 //! # What the harness adds, and one thing to set
 //!
@@ -67,7 +69,8 @@
 //! - for the harness: a `GenerationProbe` impl whose `begin` is `reset` and
 //!   whose `advance` is `is_done`, then `step`, then a clone of those
 //!   metrics. `begin` must re-seed, so that a second run replays the first.
-//!   The metrics type implements `MetricsProvider`, and the driver is `Send`.
+//!   `emit_metrics` returns those metrics as [`Metric`]s, none before the
+//!   first generation, and the driver is `Send`.
 //!
 //! A driver that calls [`Strategy::ask`] and [`Strategy::tell`] itself must
 //! negate a `Minimize` objective and sanitise the fitness itself, in that
@@ -77,9 +80,10 @@
 //!
 //! [`EvolutionaryLoop`]: crate::strategy::EvolutionaryLoop
 //! [`CoEvolutionaryLoop`]: crate::coevolution::CoEvolutionaryLoop
+//! [`Metric`]: rlevo_core::fitness::Metric
 
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::{Metric, MetricsProvider};
+use rlevo_core::fitness::Metric;
 
 use crate::coevolution::{CoEAMetrics, CoEvolutionaryAlgorithm, CoEvolutionaryLoop};
 use crate::fitness::BatchFitnessFn;
@@ -92,46 +96,42 @@ fn scalar(name: &str, value: f64) -> Metric {
     }
 }
 
-/// Reports the single-population generation summary as harness metrics.
+/// The single-population generation summary as harness metrics.
 ///
 /// Names are prefixed `ea/` so a generation trial's scalars never collide with
 /// the episodic `core_metrics` names (`return/mean`, `episode/length_mean`, …)
 /// in the same `TrialReport` metric maps.
-impl MetricsProvider for StrategyMetrics {
-    #[allow(clippy::cast_precision_loss)]
-    fn emit(&self) -> Vec<Metric> {
-        vec![
-            scalar("ea/generation", self.generation() as f64),
-            scalar("ea/population_size", self.population_size() as f64),
-            scalar("ea/best_fitness", f64::from(self.best_fitness())),
-            scalar("ea/best_fitness_ever", f64::from(self.best_fitness_ever())),
-            scalar("ea/mean_fitness", f64::from(self.mean_fitness())),
-            scalar("ea/worst_fitness", f64::from(self.worst_fitness())),
-            scalar("ea/broken_count", self.broken_count() as f64),
-        ]
-    }
+#[allow(clippy::cast_precision_loss)]
+fn strategy_metrics(m: &StrategyMetrics) -> Vec<Metric> {
+    vec![
+        scalar("ea/generation", m.generation() as f64),
+        scalar("ea/population_size", m.population_size() as f64),
+        scalar("ea/best_fitness", f64::from(m.best_fitness())),
+        scalar("ea/best_fitness_ever", f64::from(m.best_fitness_ever())),
+        scalar("ea/mean_fitness", f64::from(m.mean_fitness())),
+        scalar("ea/worst_fitness", f64::from(m.worst_fitness())),
+        scalar("ea/broken_count", m.broken_count() as f64),
+    ]
 }
 
-/// Reports the two-population co-evolutionary summary as harness metrics.
+/// The two-population co-evolutionary summary as harness metrics.
 ///
 /// `coea/binding_fitness` is the canonical (engine-space) value — the weaker
 /// population's best — while the per-population `best`/`mean` fields are in the
 /// objective's natural declared sense (ADR 0023). Emitting both keeps that
 /// distinction visible in the report rather than collapsing it.
-impl MetricsProvider for CoEAMetrics {
-    #[allow(clippy::cast_precision_loss)]
-    fn emit(&self) -> Vec<Metric> {
-        vec![
-            scalar("coea/generation", self.generation as f64),
-            scalar("coea/binding_fitness", f64::from(self.binding_fitness)),
-            scalar("coea/best_fitness_a", f64::from(self.best_fitness_a)),
-            scalar("coea/best_fitness_b", f64::from(self.best_fitness_b)),
-            scalar("coea/mean_fitness_a", f64::from(self.mean_fitness_a)),
-            scalar("coea/mean_fitness_b", f64::from(self.mean_fitness_b)),
-            scalar("coea/hof_size_a", self.hof_size_a as f64),
-            scalar("coea/hof_size_b", self.hof_size_b as f64),
-        ]
-    }
+#[allow(clippy::cast_precision_loss)]
+fn coea_metrics(m: &CoEAMetrics) -> Vec<Metric> {
+    vec![
+        scalar("coea/generation", m.generation as f64),
+        scalar("coea/binding_fitness", f64::from(m.binding_fitness)),
+        scalar("coea/best_fitness_a", f64::from(m.best_fitness_a)),
+        scalar("coea/best_fitness_b", f64::from(m.best_fitness_b)),
+        scalar("coea/mean_fitness_a", f64::from(m.mean_fitness_a)),
+        scalar("coea/mean_fitness_b", f64::from(m.mean_fitness_b)),
+        scalar("coea/hof_size_a", m.hof_size_a as f64),
+        scalar("coea/hof_size_b", m.hof_size_b as f64),
+    ]
 }
 
 impl<S, F> GenerationProbe for EvolutionaryLoop<S, F>
@@ -152,6 +152,12 @@ where
         EvolutionaryLoop::<S, F>::step(self);
         self.latest_metrics().cloned()
     }
+
+    /// The latest generation's metrics, under `ea/`.
+    fn emit_metrics(&self) -> Vec<Metric> {
+        self.latest_metrics()
+            .map_or_else(Vec::new, strategy_metrics)
+    }
 }
 
 impl<C> GenerationProbe for CoEvolutionaryLoop<C>
@@ -171,18 +177,27 @@ where
         CoEvolutionaryLoop::<C>::step(self);
         self.latest_metrics().cloned()
     }
+
+    /// The latest generation's metrics, under `coea/`.
+    fn emit_metrics(&self) -> Vec<Metric> {
+        self.latest_metrics().map_or_else(Vec::new, coea_metrics)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use burn::tensor::{Device, Tensor};
+    use burn::tensor::{Device, Tensor, TensorData};
     use rlevo_core::bounds::Bounds;
+    use rlevo_core::fitness::Metric;
     use rlevo_core::objective::ObjectiveSense;
     use rlevo_core::rate::NonNegativeRate;
 
     use super::GenerationProbe;
     use crate::algorithms::ga::{
         GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
+    };
+    use crate::coevolution::{
+        CoEvolutionaryLoop, CompetitiveCoEA, CompetitiveCoEAParams, CoupledFitness,
     };
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryLoop;
@@ -304,6 +319,125 @@ mod tests {
         assert_eq!(
             first, second,
             "begin must re-seed: a replay is bit-identical, not merely similar"
+        );
+    }
+
+    /// The value of the scalar called `name`, if `metrics` has one.
+    fn scalar_named(metrics: &[Metric], name: &str) -> Option<f64> {
+        metrics.iter().find_map(|m| match m {
+            Metric::Scalar { name: n, value } if n == name => Some(*value),
+            _ => None,
+        })
+    }
+
+    /// `emit_metrics` describes the run so far: none before the first
+    /// generation, then the latest generation's summary, which a second read
+    /// repeats unchanged.
+    #[test]
+    fn emit_metrics_reports_the_latest_generation() {
+        let mut p = evo_loop(3);
+        p.begin();
+        assert!(
+            p.emit_metrics().is_empty(),
+            "no generation has run, so there is nothing to report"
+        );
+
+        assert_eq!(drain(&mut p, 2).len(), 2, "two generations run");
+        let read = p.emit_metrics();
+        assert_eq!(
+            scalar_named(&read, "ea/generation"),
+            Some(2.0),
+            "the second generation's metrics; got {read:?}"
+        );
+        let latest = p.latest_metrics().expect("metrics after a generation");
+        assert_eq!(
+            scalar_named(&read, "ea/best_fitness_ever"),
+            Some(f64::from(latest.best_fitness_ever())),
+            "the running best is the loop's own"
+        );
+        assert_eq!(
+            format!("{read:?}"),
+            format!("{:?}", p.emit_metrics()),
+            "a read changes nothing, so a second read repeats the first"
+        );
+    }
+
+    /// `begin` starts a new run, so a read after it reports none of the
+    /// previous run's generations.
+    #[test]
+    fn emit_metrics_after_begin_reports_nothing_of_the_last_run() {
+        let mut p = evo_loop(3);
+        p.begin();
+        assert_eq!(drain(&mut p, 3 + 4).len(), 3, "budget is 3 generations");
+        assert!(!p.emit_metrics().is_empty(), "the run reports its metrics");
+
+        p.begin();
+        assert!(
+            p.emit_metrics().is_empty(),
+            "a new run has no generation yet; got {:?}",
+            p.emit_metrics()
+        );
+    }
+
+    /// Fitness `i` for row `i` of each population, maximised.
+    struct RowRamp;
+
+    impl CoupledFitness for RowRamp {
+        fn evaluate_coupled(&self, populations: &[Tensor<2>]) -> Vec<Tensor<1>> {
+            populations
+                .iter()
+                .map(|p| {
+                    let n = p.dims()[0];
+                    #[allow(clippy::cast_precision_loss)]
+                    let v: Vec<f32> = (0..n).map(|i| i as f32).collect();
+                    Tensor::<1>::from_data(TensorData::new(v, [n]), &p.device())
+                })
+                .collect()
+        }
+
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
+    }
+
+    /// The co-evolutionary loop reads the same way, under `coea/`.
+    #[test]
+    fn coevolution_emit_metrics_reports_the_latest_generation() {
+        let ga = || GaConfig {
+            pop_size: 4,
+            genome_dim: 2,
+            bounds: Bounds::new(0.0, 1.0),
+            mutation_sigma: NonNegativeRate::new(0.1),
+            selection: GaSelection::Tournament { size: 2 },
+            crossover: GaCrossover::BlxAlpha {
+                alpha: NonNegativeRate::new(0.5),
+            },
+            replacement: GaReplacement::Elitist { elitism_k: 1 },
+        };
+        let algo = CompetitiveCoEA::new(GeneticAlgorithm::new(), GeneticAlgorithm::new(), RowRamp);
+        let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
+            params_a: ga(),
+            params_b: ga(),
+        };
+        let mut p =
+            CoEvolutionaryLoop::new(algo, params, 7, Device::flex(), 2).expect("valid params");
+        p.begin();
+        assert!(
+            p.emit_metrics().is_empty(),
+            "no generation has run, so there is nothing to report"
+        );
+
+        assert_eq!(drain(&mut p, 2 + 4).len(), 2, "budget is 2 generations");
+        let read = p.emit_metrics();
+        assert_eq!(
+            scalar_named(&read, "coea/generation"),
+            Some(2.0),
+            "the last generation's metrics; got {read:?}"
+        );
+        assert_eq!(
+            scalar_named(&read, "coea/binding_fitness"),
+            Some(3.0),
+            "the ramp's best row binds both populations; got {read:?}"
         );
     }
 }

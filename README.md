@@ -36,7 +36,7 @@ The ERL research community has produced a rich ecosystem of Python implementatio
 ## Target Audiences (current focus for `v0.6.0`)
 
 1. **Researchers & Students Learning Evolutionary RL**
-2. **Algorithm Engineers - Brung Your Own Algorithm [BYOA]**
+2. **Algorithm Engineers - Bring Your Own Algorithm [BYOA]**
 3. **Practitioners & Simulation Engineers - Bring Your Own Environment [BYOE]**
 
 ## What's Included

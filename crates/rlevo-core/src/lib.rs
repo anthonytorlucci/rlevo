@@ -16,7 +16,7 @@
 //! | [`episode`] | [`EpisodeGuard`] — the state machine behind `Environment::step`'s post-terminal contract, held by every implementor |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`GenerationProbe`] — drive seam for self-paced work (evolutionary generation loops) |
-//! | [`fitness`] | [`Landscape`], [`Metric`], [`MetricsProvider`] — fitness evaluation and the metric data type |
+//! | [`fitness`] | [`Landscape`], [`Metric`] — fitness evaluation, and the metric data type an agent or a generation loop reports |
 //! | [`objective`] | [`ObjectiveSense`] — the maximise/minimise direction primitive reconciled at one chokepoint |
 //! | [`config`] | [`Validate`], [`ConfigError`] — the shared config-validation convention checked at construction |
 //! | [`bounds`] | [`Bounds`] — an inclusive range valid by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`) |
@@ -84,7 +84,6 @@
 //! [`Transition`]: crate::agent::Transition
 //! [`Landscape`]: crate::fitness::Landscape
 //! [`Metric`]: crate::fitness::Metric
-//! [`MetricsProvider`]: crate::fitness::MetricsProvider
 //! [`ObjectiveSense`]: crate::objective::ObjectiveSense
 //! [`Validate`]: crate::config::Validate
 //! [`ConfigError`]: crate::config::ConfigError
@@ -184,11 +183,10 @@ pub mod evaluation;
 
 /// Fitness evaluation and the metric data type.
 ///
-/// Provides [`Landscape`], [`Metric`], and [`MetricsProvider`].
+/// Provides [`Landscape`] and [`Metric`].
 ///
 /// [`Landscape`]: crate::fitness::Landscape
 /// [`Metric`]: crate::fitness::Metric
-/// [`MetricsProvider`]: crate::fitness::MetricsProvider
 pub mod fitness;
 
 /// Objective direction primitive.

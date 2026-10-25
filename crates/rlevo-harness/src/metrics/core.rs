@@ -84,9 +84,10 @@ const RESERVED_PREFIXES: &[&str] = &["return/", "episode_length/", "throughput/"
 ///
 /// # The invariant, stated symmetrically
 ///
-/// - An **agent** (via [`Agent::emit_metrics`](rlevo_core::agent::Agent::emit_metrics)
-///   or [`MetricsProvider::emit`](crate::metrics::MetricsProvider::emit)) must
-///   never emit a name for which this returns `true`. If it does,
+/// - An **agent** or a **probe** (via
+///   [`Agent::emit_metrics`](rlevo_core::agent::Agent::emit_metrics) or
+///   [`GenerationProbe::emit_metrics`](rlevo_core::evaluation::GenerationProbe::emit_metrics))
+///   must never emit a name for which this returns `true`. If it does,
 ///   [`TrialReport::absorb_metrics`](crate::report::TrialReport::absorb_metrics)
 ///   re-homes the value under `agent/<name>` and records the displacement — the
 ///   harness's own measurement is never overwritten.

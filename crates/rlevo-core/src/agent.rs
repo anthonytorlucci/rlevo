@@ -198,10 +198,12 @@ pub trait Agent<Obs, Act> {
         let _ = training;
     }
 
-    /// Method-specific metrics, pulled once per trial after its last episode
-    /// and covering the whole trial, training included.
+    /// Method-specific metrics about the trial so far, training included, as
+    /// [`Metric`] states: a counter is a total since the agent was built, and
+    /// a read changes nothing.
     ///
-    /// A harness may record these under a namespace of its own; the
+    /// The evaluation harness reads them once, after the trial's last
+    /// episode, and may record one under a namespace of its own; the
     /// [`Metric`] docs say how. The default reports none.
     fn emit_metrics(&self) -> Vec<Metric> {
         Vec::new()

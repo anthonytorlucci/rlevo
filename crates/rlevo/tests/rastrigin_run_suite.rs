@@ -10,7 +10,6 @@ use burn::tensor::Device;
 use std::sync::atomic::AtomicU32;
 
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::MetricsProvider;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo_harness::reporter::logging::LoggingReporter;
 
@@ -154,7 +153,6 @@ fn collect_best_returns<P>(
 ) -> Vec<f64>
 where
     P: GenerationProbe + Send,
-    P::Metrics: MetricsProvider,
 {
     let cfg = cfg();
     let evaluator = Evaluator::new(cfg);
@@ -220,13 +218,12 @@ fn all_strategies_improve_on_rastrigin_via_run_suite() {
 
 /// Sanity: the loop satisfies every bound `run_trials` needs, and is
 /// `Send` so rayon can own one per worker. Doubles as a compile-time check
-/// that the `GenerationProbe` / `MetricsProvider` bounds line up.
+/// that the `GenerationProbe` bound lines up.
 #[test]
 fn loop_is_send_and_satisfies_the_probe_bounds() {
     fn assert_drivable<P>(_: &P)
     where
         P: GenerationProbe + Send,
-        P::Metrics: MetricsProvider,
     {
     }
 
@@ -234,8 +231,11 @@ fn loop_is_send_and_satisfies_the_probe_bounds() {
     let mut evo_loop = ga_factory(0);
     assert_drivable(&evo_loop);
 
-    // One generation runs without panicking, and reports metrics.
+    // One generation runs without panicking, and the loop reports it.
     evo_loop.begin();
-    let m = evo_loop.advance().expect("first generation yields metrics");
-    assert!(!m.emit().is_empty(), "metrics provider emits scalars");
+    evo_loop.advance().expect("first generation yields metrics");
+    assert!(
+        !evo_loop.emit_metrics().is_empty(),
+        "the loop reports the generation it ran"
+    );
 }
