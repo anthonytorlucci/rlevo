@@ -304,7 +304,7 @@ pub const LEARNER1: Walk = Walk {
 ///
 /// It runs as a listing does, reporting nothing itself: `xtask` reads its
 /// run from its exit status and the table's last row. The lint and test
-/// steps are `xtask`'s, run once the crate builds ([`lint`], [`test`]).
+/// steps are `xtask`'s, run once the crate builds ([`lint`], [`test()`]).
 pub const TEMPLATE: Walk = Walk {
     prefix: "TEMPLATE-STEP",
     steps: &[
@@ -337,7 +337,7 @@ pub const TEMPLATE: Walk = Walk {
 
 /// The step [`lint`] reports at.
 pub const LINT: &str = "lint-template";
-/// The step [`test`] reports at.
+/// The step [`test()`] reports at.
 pub const TEST: &str = "test-template";
 
 /// A build level of the probe crate.
