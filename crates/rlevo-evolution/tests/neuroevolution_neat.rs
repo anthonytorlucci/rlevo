@@ -1,7 +1,6 @@
 //! Interpreted NEAT, end-to-end on XOR.
 //!
-//! Drives the standalone [`NeatStrategy`] through the manual generational
-//! loop (`init → loop{ ask → GraphFitnessFn::evaluate → tell }`) on the `Flex`
+//! Drives [`NeatStrategy`] through an [`EvolutionaryLoop`] on the `Flex`
 //! backend and asserts:
 //!
 //! - **Solve** — fitness `$4 - \Sigma(\text{out} - \text{target})^2$` reaches `$\geq 3.9$` within `$\leq 300$`
@@ -13,14 +12,14 @@
 //! criteria are coupled by construction.
 
 use burn::tensor::{Device, Tensor, TensorData};
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
+use rlevo_core::objective::ObjectiveSense;
+use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::neuroevolution::phenotype::{DensePaddedEvaluator, InterpretedPhenotype};
 use rlevo_evolution::neuroevolution::topology::{
     ActivationFn, ConnectionGene, InnovationId, NodeGene, NodeId, NodeKind, TopologyGenome,
 };
-use rlevo_evolution::{GraphFitnessFn, NeatParams, NeatStrategy};
+use rlevo_evolution::{EvolutionaryLoop, NeatParams, NeatStrategy};
 
 /// XOR fitness: `$4 - \Sigma(\text{out} - \text{target})^2$` over the four binary input rows
 /// (maximization; the optimum is `4.0`, a perfect solver scores `$\geq 3.9$`).
@@ -43,10 +42,8 @@ impl XorFitness {
             targets: [0.0, 1.0, 1.0, 0.0],
         }
     }
-}
 
-impl GraphFitnessFn for XorFitness {
-    fn evaluate(&self, population: &[TopologyGenome], _device: &Device) -> Vec<f32> {
+    fn scores(&self, population: &[TopologyGenome]) -> Vec<f32> {
         population
             .iter()
             .map(|genome| {
@@ -61,6 +58,18 @@ impl GraphFitnessFn for XorFitness {
                 4.0 - sse
             })
             .collect()
+    }
+}
+
+impl BatchFitnessFn<Vec<TopologyGenome>> for XorFitness {
+    fn evaluate_batch(&mut self, population: &Vec<TopologyGenome>, device: &Device) -> Tensor<1> {
+        let scores = self.scores(population);
+        let n = scores.len();
+        Tensor::<1>::from_data(TensorData::new(scores, [n]), device)
+    }
+
+    fn sense(&self) -> ObjectiveSense {
+        ObjectiveSense::Maximize
     }
 }
 
@@ -85,21 +94,24 @@ fn test_neat_solves_xor_with_speciation() {
     const SOLVE_THRESHOLD: f32 = 3.9;
 
     let device = Device::flex();
-    let params = xor_params(150);
-    let strat = NeatStrategy::new();
-    let fitness_fn = XorFitness::new(&device);
-
-    let mut rng = StdRng::seed_from_u64(42);
-    let mut state = strat.init(&params, &mut rng, &device);
+    let mut evo = EvolutionaryLoop::new(
+        NeatStrategy::new(),
+        xor_params(150),
+        XorFitness::new(&device),
+        42,
+        device.clone(),
+        MAX_GENERATIONS,
+    )
+    .expect("the XOR parameters are valid");
+    evo.reset();
 
     let mut total_gens = 0usize;
     let mut multi_species_gens = 0usize;
     let mut solved = false;
 
-    for _ in 0..MAX_GENERATIONS {
-        let (population, next) = strat.ask(&params, &state, &mut rng);
-        let fitness = fitness_fn.evaluate(&population, &device);
-        state = strat.tell(&params, population, fitness, next, &mut rng);
+    while !evo.is_done() {
+        evo.step();
+        let state = evo.state().expect("the loop was reset");
 
         total_gens += 1;
         if state.species.len() > 1 {
@@ -115,10 +127,10 @@ fn test_neat_solves_xor_with_speciation() {
         }
     }
 
+    let (champion, best_fitness) = evo.best().expect("a best genome exists");
     assert!(
         solved,
-        "solve: XOR not solved within {MAX_GENERATIONS} generations; best fitness {} < {SOLVE_THRESHOLD}",
-        state.best_fitness
+        "solve: XOR not solved within {MAX_GENERATIONS} generations; best fitness {best_fitness} < {SOLVE_THRESHOLD}"
     );
     assert!(
         multi_species_gens * 2 > total_gens,
@@ -126,8 +138,8 @@ fn test_neat_solves_xor_with_speciation() {
     );
 
     // The recovered champion really solves XOR through the phenotype.
-    let (best_genome, best_fitness) = strat.best(&state).expect("a best genome exists");
-    let recomputed = fitness_fn.evaluate(std::slice::from_ref(best_genome), &device);
+    assert_eq!(champion.len(), 1, "best is a one-genome population");
+    let recomputed = XorFitness::new(&device).scores(&champion);
     approx::assert_relative_eq!(recomputed[0], best_fitness, epsilon = 1e-4);
     assert!(
         recomputed[0] >= SOLVE_THRESHOLD,
@@ -140,18 +152,22 @@ fn test_neat_run_is_reproducible_under_fixed_seed() {
     // End-to-end determinism via the public API: two identical seeded runs reach
     // the same best fitness and the same species count after a fixed budget.
     let device = Device::flex();
-    let params = xor_params(64);
-    let strat = NeatStrategy::new();
-    let fitness_fn = XorFitness::new(&device);
 
     let run = || {
-        let mut rng = StdRng::seed_from_u64(7);
-        let mut state = strat.init(&params, &mut rng, &device);
-        for _ in 0..30 {
-            let (population, next) = strat.ask(&params, &state, &mut rng);
-            let fitness = fitness_fn.evaluate(&population, &device);
-            state = strat.tell(&params, population, fitness, next, &mut rng);
+        let mut evo = EvolutionaryLoop::new(
+            NeatStrategy::new(),
+            xor_params(64),
+            XorFitness::new(&device),
+            7,
+            device.clone(),
+            30,
+        )
+        .expect("the XOR parameters are valid");
+        evo.reset();
+        while !evo.is_done() {
+            evo.step();
         }
+        let state = evo.state().expect("the loop was reset");
         (state.best_fitness, state.species.len(), state.generation)
     };
 
@@ -463,9 +479,9 @@ fn test_dense_padded_panics_over_cap() {
     let _ = DensePaddedEvaluator::new(4).evaluate_population(&genomes, obs, &device);
 }
 
-/// The `BatchGraphFitness` adapter drives `NeatStrategy` to the same XOR fitness
-/// the interpreted `GraphFitnessFn` produces, confirming the two evaluation
-/// seams are interchangeable behind the strategy.
+/// The `BatchGraphFitness` adapter scores the same XOR fitness an interpreted
+/// fitness does, confirming the two evaluation paths are interchangeable
+/// behind the strategy.
 #[test]
 fn test_batch_graph_fitness_matches_interpreted_fitness() {
     use rlevo_evolution::BatchGraphFitness;
@@ -476,12 +492,13 @@ fn test_batch_graph_fitness_matches_interpreted_fitness() {
     let targets = [0.0f32, 1.0, 1.0, 0.0];
 
     // Interpreted per-genome fitness: `$4 - \sum(\text{out} - \text{target})^2$`.
-    let interpreted_fitness = XorFitness::new(&device).evaluate(&genomes, &device);
+    let interpreted_fitness = XorFitness::new(&device).scores(&genomes);
 
     // The same scoring, but reduced over the batched evaluator's output slab.
-    let batched = BatchGraphFitness::new(
+    let mut batched = BatchGraphFitness::new(
         DensePaddedEvaluator::default(),
         obs,
+        ObjectiveSense::Maximize,
         move |slab: &[f32]| {
             let sse: f32 = slab
                 .iter()
@@ -491,7 +508,11 @@ fn test_batch_graph_fitness_matches_interpreted_fitness() {
             4.0 - sse
         },
     );
-    let batched_fitness = batched.evaluate(&genomes, &device);
+    let batched_fitness = batched
+        .evaluate_batch(&genomes, &device)
+        .into_data()
+        .try_into_vec::<f32>()
+        .unwrap();
 
     assert_eq!(batched_fitness.len(), interpreted_fitness.len());
     for (b, i) in batched_fitness.iter().zip(interpreted_fitness.iter()) {

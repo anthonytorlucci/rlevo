@@ -1,41 +1,43 @@
-//! NEAT — topology-evolving neuroevolution as a standalone strategy.
+//! NEAT — topology-evolving neuroevolution.
 //!
 //! `rlevo` implements NEAT (`NeuroEvolution` of Augmenting Topologies; Stanley &
 //! Miikkulainen, 2002). [`NeatStrategy`] grows network topology *and* weights
-//! open-endedly from a minimal seed. Like its sibling
-//! [`ArchNasStrategy`](super::arch_nas::ArchNasStrategy), it is a **standalone
-//! strategy** with inherent `init`/`ask`/`tell`/`best` and does **not** implement
-//! [`Strategy`](crate::strategy::Strategy), so no loop drives it. Its genome is host-side graph data
-//! ([`TopologyGenome`]) with no tensor representation, so the `Strategy`
-//! tensor-genome contract does not fit; the parallel [`GraphFitnessFn`] seam
-//! plays the role [`BatchFitnessFn`](crate::fitness::BatchFitnessFn) plays for
-//! tensor strategies.
+//! open-endedly from a minimal seed. It is a [`Strategy`] whose genome is a
+//! population of host-side graphs, `Vec<TopologyGenome>`, with no tensor
+//! representation. A [`BatchFitnessFn`] over that genome scores it: one network
+//! at a time through
+//! [`InterpretedPhenotype`](crate::neuroevolution::phenotype::InterpretedPhenotype),
+//! or the whole population at once through [`BatchGraphFitness`].
 //!
-//! # Orientation — maximization
+//! # A run
+//!
+//! An [`EvolutionaryLoop`] drives it, and the evaluation harness runs many
+//! through the loop's
+//! [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe), as it runs any
+//! other strategy:
+//!
+//! ```ignore
+//! let params = NeatParams::default_for(150, 2, 1);
+//! let mut evo = EvolutionaryLoop::new(NeatStrategy::new(), params, xor_fitness, seed, device, 300)?;
+//! evo.reset();
+//! while !evo.is_done() {
+//!     evo.step();
+//! }
+//! let (champion, fitness) = evo.best().expect("a generation has run");
+//! let network = InterpretedPhenotype::new(&champion[0]);
+//! ```
+//!
+//! # Orientation and negative fitness
 //!
 //! NEAT is **maximization** (higher fitness is better), matching the crate-wide
 //! maximise convention (canonical space; see
-//! [`ObjectiveSense`](rlevo_core::objective::ObjectiveSense)). Fitness sharing
-//! additionally assumes **non-negative** raw fitness — a NEAT-specific
-//! precondition orthogonal to objective sense. Cost objectives are reconciled
-//! into canonical (maximise) space by the loop/adapter chokepoint, so a
-//! task never hand-negates here.
-//!
-//! # Generational loop
-//!
-//! The caller drives the loop manually, exactly as the `arch_nas` integration
-//! test does:
-//!
-//! ```ignore
-//! let strat = NeatStrategy::new();
-//! let mut state = strat.init(&params, &mut rng, &device);
-//! for _ in 0..generations {
-//!     let (population, next) = strat.ask(&params, &state, &mut rng);
-//!     let fitness = graph_fitness.evaluate(&population, &device);
-//!     state = strat.tell(&params, population, fitness, next, &mut rng);
-//!     if let Some((_, best)) = strat.best(&state) { if best >= target { break; } }
-//! }
-//! ```
+//! [`ObjectiveSense`]). The loop negates a `Minimize` objective before
+//! [`tell`](Strategy::tell), so a task never hand-negates here. Species are
+//! allotted offspring in proportion to their mean fitness, which needs values
+//! that are not negative: when a generation's smallest finite fitness is
+//! negative, every fitness is shifted by it before the shares are taken (see
+//! [`speciate`](crate::neuroevolution::species::speciate)). A generation with no
+//! negative fitness is shared as it stands.
 //!
 //! # Determinism and host RNG
 //!
@@ -51,15 +53,21 @@
 //!
 //! The phenotype is a forward-only bare-tensor evaluator; no autodiff graph is
 //! ever built.
+//!
+//! [`EvolutionaryLoop`]: crate::strategy::EvolutionaryLoop
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use burn::tensor::{Device, Tensor};
+use burn::tensor::{Device, Tensor, TensorData};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
 
+use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::objective::ObjectiveSense;
+
+use crate::fitness::BatchFitnessFn;
 use crate::neuroevolution::innovation::InnovationRegistry;
 use crate::neuroevolution::phenotype::DensePaddedEvaluator;
 use crate::neuroevolution::species::{self, Species, SpeciesId};
@@ -67,12 +75,15 @@ use crate::neuroevolution::topology::{
     ActivationFn, ConnectionGene, NodeGene, NodeId, NodeKind, TopologyGenome,
 };
 use crate::rng::{SeedPurpose, seed_stream};
+use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Static configuration for a NEAT run.
 ///
 /// Build the canonical defaults with [`NeatParams::default_for`]; the
 /// compatibility threshold and the structural-mutation rates (`p_add_node`,
 /// `p_add_connection`) are the knobs most worth tuning per task.
+/// [`EvolutionaryLoop::new`](crate::strategy::EvolutionaryLoop::new) checks
+/// them through the [`Validate`] impl.
 #[derive(Debug, Clone)]
 pub struct NeatParams {
     /// Number of individuals per generation.
@@ -148,11 +159,49 @@ impl NeatParams {
     }
 }
 
+impl Validate for NeatParams {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "NeatParams";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::at_least(C, "num_inputs", self.num_inputs, 1)?;
+        config::at_least(C, "num_outputs", self.num_outputs, 1)?;
+        let non_negative = [
+            ("c1", self.c1),
+            ("c2", self.c2),
+            ("c3", self.c3),
+            ("compat_threshold", self.compat_threshold),
+            ("weight_perturb_std", self.weight_perturb_std),
+            ("weight_init_std", self.weight_init_std),
+        ];
+        for (field, value) in non_negative {
+            config::in_range(C, field, 0.0, f64::INFINITY, f64::from(value))?;
+        }
+        let probabilities = [
+            ("survival_threshold", self.survival_threshold),
+            ("p_mutate_weight", self.p_mutate_weight),
+            ("p_weight_replace", self.p_weight_replace),
+            ("p_add_connection", self.p_add_connection),
+            ("p_add_node", self.p_add_node),
+            ("p_toggle_enable", self.p_toggle_enable),
+            ("p_disable_inherited", self.p_disable_inherited),
+            ("interspecies_mating_rate", self.interspecies_mating_rate),
+            ("mutate_only_fraction", self.mutate_only_fraction),
+        ];
+        for (field, value) in probabilities {
+            config::in_range(C, field, 0.0, 1.0, f64::from(value))?;
+        }
+        Ok(())
+    }
+}
+
 /// Generation-to-generation NEAT state.
 ///
-/// `#[derive(Clone)]` is cheap and correct: all fields are host-side data, and
-/// the `registry` field clones the shared `Arc` handle (the per-run registry
-/// itself is not duplicated).
+/// `#[derive(Clone)]` is cheap: all fields are host-side data, and the
+/// `registry` field clones the shared `Arc` handle (the per-run registry itself
+/// is not duplicated). A clone therefore shares the registry with the state it
+/// was cloned from: it is not an independent snapshot of the run, because
+/// [`ask`](Strategy::ask) allocates innovation and node ids in that registry.
+/// A run started by [`init`](Strategy::init) gets a registry of its own.
 #[derive(Clone, Debug)]
 pub struct NeatState {
     /// Current resident population.
@@ -173,8 +222,8 @@ pub struct NeatState {
     pub best_fitness: f32,
 }
 
-/// Standalone NEAT strategy. Does **not** implement
-/// [`Strategy`](crate::strategy::Strategy) — see the module docs.
+/// NEAT as a [`Strategy`] over `Vec<TopologyGenome>`; the module docs show a
+/// run.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NeatStrategy {}
 
@@ -184,6 +233,12 @@ impl NeatStrategy {
     pub fn new() -> Self {
         Self {}
     }
+}
+
+impl Strategy for NeatStrategy {
+    type Params = NeatParams;
+    type State = NeatState;
+    type Genome = Vec<TopologyGenome>;
 
     /// Build the initial state: a per-run registry plus `pop_size` minimal
     /// genomes (aligned ids, per-individual random weights from one
@@ -194,9 +249,9 @@ impl NeatStrategy {
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`).
-    #[must_use]
-    pub fn init(&self, params: &NeatParams, rng: &mut dyn Rng, device: &Device) -> NeatState {
+    /// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`), which
+    /// [`NeatParams`]' [`Validate`] impl rejects before a loop runs.
+    fn init(&self, params: &NeatParams, rng: &mut dyn Rng, device: &Device) -> NeatState {
         let _ = device;
         let registry = Arc::new(InnovationRegistry::new(
             params.num_inputs + params.num_outputs,
@@ -239,12 +294,14 @@ impl NeatStrategy {
     /// mutation-only, all followed by the four mutation operators. Four `StdRng`
     /// substreams (selection, crossover, mutation, misc) keep operator RNG
     /// independent.
-    #[must_use]
-    pub fn ask(
+    ///
+    /// `device` is unused: NEAT genomes are host-side.
+    fn ask(
         &self,
         params: &NeatParams,
         state: &NeatState,
         rng: &mut dyn Rng,
+        _device: &Device,
     ) -> (Vec<TopologyGenome>, NeatState) {
         // First call: the seed population has not been evaluated yet.
         if state.fitness.is_empty() {
@@ -301,28 +358,29 @@ impl NeatStrategy {
     ///
     /// # Fitness hygiene
     ///
-    /// This is NEAT's **driver chokepoint** (ADR 0034): NEAT is its own driver
-    /// and does **not** run through
-    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop), so there is
-    /// no loop above it to sanitize fitness. `tell` therefore applies
-    /// `sanitize_fitness` to the incoming
-    /// `fitness` (`NaN` `$\to -\infty$`, `$+\infty$` `$\to$` `f32::MAX`, `$-\infty$` and finite pass through)
-    /// **before** it is stored or handed to [`species::speciate`], so a
-    /// non-finite fitness can never poison speciation, offspring apportionment,
-    /// or best-so-far tracking.
+    /// Under [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) the
+    /// fitness arrives canonical and sanitised. `tell` sanitises it again where
+    /// it reaches the host, as [`Strategy::tell`] asks, before it is stored or
+    /// handed to [`species::speciate`], so that for a caller who drives the
+    /// strategy by hand a non-finite fitness can never poison speciation,
+    /// offspring apportionment, or best-so-far tracking (ADR 0034).
     ///
     /// # Panics
     ///
-    /// Panics if `population.len()` differs from `fitness.len()`.
-    #[must_use]
-    pub fn tell(
+    /// Panics if the `fitness` tensor cannot be read back to the host as `f32`,
+    /// or if `population.len()` differs from its length.
+    fn tell(
         &self,
         params: &NeatParams,
         population: Vec<TopologyGenome>,
-        fitness: Vec<f32>,
+        fitness: Tensor<1>,
         mut state: NeatState,
         rng: &mut dyn Rng,
-    ) -> NeatState {
+    ) -> (NeatState, StrategyMetrics) {
+        let fitness = fitness
+            .into_data()
+            .try_into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         assert_eq!(
             population.len(),
             fitness.len(),
@@ -332,8 +390,7 @@ impl NeatStrategy {
         let mut rep_rng = seed_stream(rng.next_u64(), generation, SeedPurpose::Representative);
 
         state.population = population;
-        // Driver chokepoint (ADR 0034): sanitize before store/speciate. NEAT has no loop above
-        // it, so this is the boundary that neutralizes NaN/`$\pm\infty$`.
+        // Sanitise once at the pull, before the store and `speciate`.
         state.fitness = fitness
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -365,82 +422,61 @@ impl NeatStrategy {
         }
 
         state.generation += 1;
-        state
+        let metrics = StrategyMetrics::from_host_fitness(
+            usize::try_from(state.generation).unwrap_or(usize::MAX),
+            &state.fitness,
+            state.best_fitness,
+        );
+        (state, metrics)
     }
 
-    /// Best genome and its fitness seen across all generations.
+    /// Best genome seen across all generations, as a one-genome population,
+    /// and its fitness.
     ///
     /// Returns `None` before the first [`tell`](Self::tell).
-    #[must_use]
-    pub fn best<'s>(&self, state: &'s NeatState) -> Option<(&'s TopologyGenome, f32)> {
-        state.best.as_ref().map(|g| (g, state.best_fitness))
+    fn best(&self, state: &NeatState) -> Option<(Vec<TopologyGenome>, f32)> {
+        state
+            .best
+            .clone()
+            .map(|genome| (vec![genome], state.best_fitness))
     }
 }
 
-/// Evaluation seam for graph genomes — the [`BatchFitnessFn`] analogue for NEAT.
+/// A [`BatchFitnessFn`] that scores the whole population in **one** device-resident
+/// pass via a [`DensePaddedEvaluator`], instead of building each genome's
+/// [`InterpretedPhenotype`](crate::neuroevolution::phenotype::InterpretedPhenotype)
+/// in turn.
 ///
-/// Maximization-oriented (higher is better). The caller drives the generational
-/// loop manually, calling `evaluate` between `ask` and `tell`.
-///
-/// # Example
-///
-/// ```ignore
-/// # use burn::tensor::Device;
-/// struct SumOutputs { inputs: Tensor<2> }
-/// impl GraphFitnessFn for SumOutputs {
-///     fn evaluate(&self, pop: &[TopologyGenome], device: &Device) -> Vec<f32> {
-///         pop.iter().map(|g| {
-///             let net = InterpretedPhenotype::new(g);
-///             let out = net.forward(self.inputs.clone());
-///             out.into_data().try_into_vec::<f32>().expect("output tensor must be readable as f32").iter().sum() // higher = better
-///         }).collect()
-///     }
-/// }
-/// ```
-///
-/// [`BatchFitnessFn`]: crate::fitness::BatchFitnessFn
-pub trait GraphFitnessFn: Send + Sync {
-    /// Score every genome in `population`, returning one **maximization**
-    /// fitness per genome (higher is better, matching the crate-wide canonical
-    /// convention). Fitness sharing assumes the values are non-negative. The
-    /// returned `Vec` has one entry per input genome, in order. An interpreted
-    /// fitness builds each genome's network with
-    /// [`InterpretedPhenotype::new`](crate::neuroevolution::phenotype::InterpretedPhenotype::new);
-    /// `device` is where its scoring tensors live.
-    fn evaluate(&self, population: &[TopologyGenome], device: &Device) -> Vec<f32>;
-}
-
-/// A [`GraphFitnessFn`] that scores the whole population in **one** device-resident
-/// pass via a [`DensePaddedEvaluator`], instead of the per-genome interpreted
-/// loop.
-///
-/// It is a drop-in alternative to an interpreted `GraphFitnessFn` in the same
-/// manual `init → ask → evaluate → tell` loop, so the strategy stays
+/// It is a drop-in alternative to an interpreted fitness, so the strategy stays
 /// evaluation-agnostic and `NeatStrategy`'s determinism is untouched.
 ///
 /// The `reducer` maps one genome's `$\text{batch} \times \text{action\_dim}$` output slab (row-major,
 /// as produced by [`DensePaddedEvaluator::evaluate_population`]) to a single
-/// **maximization** fitness — the batched analogue of the per-genome scoring an
-/// interpreted `GraphFitnessFn` does on `phenotype.forward(...)`.
+/// fitness in the declared `sense` — the batched analogue of the per-genome
+/// scoring an interpreted fitness does on `phenotype.forward(...)`.
 pub struct BatchGraphFitness {
     evaluator: DensePaddedEvaluator,
     obs: Tensor<2>,
+    sense: ObjectiveSense,
     #[allow(clippy::type_complexity)]
     reducer: Box<dyn Fn(&[f32]) -> f32 + Send + Sync>,
 }
 
 impl BatchGraphFitness {
     /// Build a batched fitness from an evaluator, a shared `[batch, obs_dim]`
-    /// observation tensor, and a per-genome `reducer` over the
+    /// observation tensor, the direction of the `reducer`'s scores, and a
+    /// per-genome `reducer` over the
     /// `$\text{batch} \times \text{action\_dim}$` output slab (row-major).
     pub fn new(
         evaluator: DensePaddedEvaluator,
         obs: Tensor<2>,
+        sense: ObjectiveSense,
         reducer: impl Fn(&[f32]) -> f32 + Send + Sync + 'static,
     ) -> Self {
         Self {
             evaluator,
             obs,
+            sense,
             reducer: Box::new(reducer),
         }
     }
@@ -454,23 +490,30 @@ impl std::fmt::Debug for BatchGraphFitness {
     }
 }
 
-impl GraphFitnessFn for BatchGraphFitness {
-    fn evaluate(&self, population: &[TopologyGenome], device: &Device) -> Vec<f32> {
-        if population.is_empty() {
-            return Vec::new();
-        }
-        let out = self
-            .evaluator
-            .evaluate_population(population, self.obs.clone(), device);
-        let [pop, batch, action] = out.dims();
-        let flat = out
-            .into_data()
-            .try_into_vec::<f32>()
-            .expect("output tensor must be readable as f32");
-        let slab = batch * action;
-        (0..pop)
-            .map(|p| (self.reducer)(&flat[p * slab..(p + 1) * slab]))
-            .collect()
+impl BatchFitnessFn<Vec<TopologyGenome>> for BatchGraphFitness {
+    fn evaluate_batch(&mut self, population: &Vec<TopologyGenome>, device: &Device) -> Tensor<1> {
+        let scores: Vec<f32> = if population.is_empty() {
+            Vec::new()
+        } else {
+            let out = self
+                .evaluator
+                .evaluate_population(population, self.obs.clone(), device);
+            let [pop, batch, action] = out.dims();
+            let flat = out
+                .into_data()
+                .try_into_vec::<f32>()
+                .expect("output tensor must be readable as f32");
+            let slab = batch * action;
+            (0..pop)
+                .map(|p| (self.reducer)(&flat[p * slab..(p + 1) * slab]))
+                .collect()
+        };
+        let n = scores.len();
+        Tensor::<1>::from_data(TensorData::new(scores, [n]), device)
+    }
+
+    fn sense(&self) -> ObjectiveSense {
+        self.sense
     }
 }
 
@@ -1186,19 +1229,61 @@ mod tests {
         );
     }
 
+    /// The canonical defaults validate, and each kind of bad value is refused
+    /// by name: a zero count, a probability above one, a negative or
+    /// non-finite coefficient.
+    #[test]
+    fn test_params_validate_accepts_defaults_and_rejects_bad_values() {
+        assert!(NeatParams::default_for(150, 2, 1).validate().is_ok());
+
+        let refused = |edit: fn(&mut NeatParams)| {
+            let mut params = NeatParams::default_for(150, 2, 1);
+            edit(&mut params);
+            params.validate().unwrap_err().field
+        };
+        assert_eq!(refused(|p| p.pop_size = 0), "pop_size");
+        assert_eq!(refused(|p| p.num_inputs = 0), "num_inputs");
+        assert_eq!(refused(|p| p.num_outputs = 0), "num_outputs");
+        assert_eq!(refused(|p| p.p_add_node = 1.5), "p_add_node");
+        assert_eq!(
+            refused(|p| p.survival_threshold = -0.1),
+            "survival_threshold"
+        );
+        assert_eq!(
+            refused(|p| p.mutate_only_fraction = f32::NAN),
+            "mutate_only_fraction"
+        );
+        assert_eq!(refused(|p| p.c3 = -1.0), "c3");
+        assert_eq!(
+            refused(|p| p.compat_threshold = f32::INFINITY),
+            "compat_threshold"
+        );
+        assert_eq!(refused(|p| p.weight_init_std = f32::NAN), "weight_init_std");
+    }
+
     /// `ask`/`tell` run a few generations, preserving `pop_size` and tracking the
     /// best. A trivial maximization fitness rewards more enabled connections.
     #[test]
     fn test_ask_tell_smoke_preserves_pop_size_and_tracks_best() {
         struct ConnCountFitness;
-        impl GraphFitnessFn for ConnCountFitness {
-            fn evaluate(&self, population: &[TopologyGenome], _device: &Device) -> Vec<f32> {
+        impl BatchFitnessFn<Vec<TopologyGenome>> for ConnCountFitness {
+            fn evaluate_batch(
+                &mut self,
+                population: &Vec<TopologyGenome>,
+                device: &Device,
+            ) -> Tensor<1> {
                 // Cast: enabled-connection counts are tiny in this smoke test.
                 #[allow(clippy::cast_precision_loss)]
-                population
+                let counts: Vec<f32> = population
                     .iter()
                     .map(|g| g.connections.iter().filter(|c| c.enabled).count() as f32)
-                    .collect()
+                    .collect();
+                let n = counts.len();
+                Tensor::<1>::from_data(TensorData::new(counts, [n]), device)
+            }
+
+            fn sense(&self) -> ObjectiveSense {
+                ObjectiveSense::Maximize
             }
         }
 
@@ -1210,17 +1295,17 @@ mod tests {
         let strat = NeatStrategy::new();
         let mut rng = StdRng::seed_from_u64(11);
         let mut state = strat.init(&params, &mut rng, &device);
-        let fitness_fn = ConnCountFitness;
+        let mut fitness_fn = ConnCountFitness;
 
         for _ in 0..8 {
-            let (population, next) = strat.ask(&params, &state, &mut rng);
+            let (population, next) = strat.ask(&params, &state, &mut rng, &device);
             assert_eq!(
                 population.len(),
                 params.pop_size,
                 "ask returns pop_size genomes"
             );
-            let fitness = fitness_fn.evaluate(&population, &device);
-            state = strat.tell(&params, population, fitness, next, &mut rng);
+            let fitness = fitness_fn.evaluate_batch(&population, &device);
+            state = strat.tell(&params, population, fitness, next, &mut rng).0;
             assert!(
                 !state.species.is_empty(),
                 "speciation always yields >= 1 species"
@@ -1243,14 +1328,25 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(7);
         let state = strat.init(&params, &mut rng, &device);
 
-        let (population, next) = strat.ask(&params, &state, &mut rng);
+        let (population, next) = strat.ask(&params, &state, &mut rng, &device);
         let n = population.len();
         // Member 0 is NaN (must NOT champion), member 1 is `$+\infty$` (top but finite), the rest
         // are a plain finite value.
         let mut fitness: Vec<f32> = vec![1.0_f32; n];
         fitness[0] = f32::NAN;
         fitness[1] = f32::INFINITY;
-        let state = strat.tell(&params, population, fitness, next, &mut rng);
+        let fitness = Tensor::<1>::from_data(TensorData::new(fitness, [n]), &device);
+        let (state, metrics) = strat.tell(&params, population, fitness, next, &mut rng);
+        assert_eq!(
+            metrics.broken_count(),
+            1,
+            "the NaN member is counted as broken"
+        );
+        assert_eq!(
+            metrics.generation(),
+            1,
+            "the first tell completes generation 1"
+        );
 
         // Stored fitness is sanitized: none is NaN; NaN → `$-\infty$`, `$+\infty$` → f32::MAX.
         assert!(

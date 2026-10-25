@@ -27,11 +27,13 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 
+use rlevo_core::objective::ObjectiveSense;
+use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::neuroevolution::phenotype::{DensePaddedEvaluator, InterpretedPhenotype};
 use rlevo_evolution::neuroevolution::topology::{
     ActivationFn, ConnectionGene, InnovationId, NodeGene, NodeId, NodeKind, TopologyGenome,
 };
-use rlevo_evolution::{BatchGraphFitness, GraphFitnessFn, NeatParams, NeatStrategy};
+use rlevo_evolution::{BatchGraphFitness, NeatParams, NeatStrategy, Strategy};
 
 /// XOR fitness `$4 - \sum(\text{out} - \text{target})^2$` over the four binary input rows.
 struct XorFitness {
@@ -55,9 +57,9 @@ impl XorFitness {
     }
 }
 
-impl GraphFitnessFn for XorFitness {
-    fn evaluate(&self, population: &[TopologyGenome], _device: &Device) -> Vec<f32> {
-        population
+impl BatchFitnessFn<Vec<TopologyGenome>> for XorFitness {
+    fn evaluate_batch(&mut self, population: &Vec<TopologyGenome>, device: &Device) -> Tensor<1> {
+        let scores: Vec<f32> = population
             .iter()
             .map(|genome| {
                 let phenotype = InterpretedPhenotype::new(genome);
@@ -70,7 +72,13 @@ impl GraphFitnessFn for XorFitness {
                     .sum();
                 4.0 - sse
             })
-            .collect()
+            .collect();
+        let n = scores.len();
+        Tensor::<1>::from_data(TensorData::new(scores, [n]), device)
+    }
+
+    fn sense(&self) -> ObjectiveSense {
+        ObjectiveSense::Maximize
     }
 }
 
@@ -86,14 +94,15 @@ fn neat_xor_generation(c: &mut Criterion) {
     let device = Device::flex();
     let params = xor_params();
     let strat = NeatStrategy::new();
-    let fitness_fn = XorFitness::new(&device);
+    let mut fitness_fn = XorFitness::new(&device);
     // Same XOR objective, but scored over the dense-batched evaluator's output.
-    let batched_fitness = BatchGraphFitness::new(
+    let mut batched_fitness = BatchGraphFitness::new(
         DensePaddedEvaluator::default(),
         Tensor::<2>::from_data(
             TensorData::new(vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], [4, 2]),
             &device,
         ),
+        ObjectiveSense::Maximize,
         |slab: &[f32]| {
             let targets = [0.0f32, 1.0, 1.0, 0.0];
             let sse: f32 = slab
@@ -111,9 +120,9 @@ fn neat_xor_generation(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(0);
     let mut state = strat.init(&params, &mut rng, &device);
     for _ in 0..15 {
-        let (population, next) = strat.ask(&params, &state, &mut rng);
-        let fitness = fitness_fn.evaluate(&population, &device);
-        state = strat.tell(&params, population, fitness, next, &mut rng);
+        let (population, next) = strat.ask(&params, &state, &mut rng, &device);
+        let fitness = fitness_fn.evaluate_batch(&population, &device);
+        state = strat.tell(&params, population, fitness, next, &mut rng).0;
     }
     let warm_state = state;
 
@@ -123,9 +132,9 @@ fn neat_xor_generation(c: &mut Criterion) {
         b.iter_batched(
             || (warm_state.clone(), StdRng::seed_from_u64(123)),
             |(state, mut rng)| {
-                let (population, next) = strat.ask(&params, &state, &mut rng);
-                let fitness = fitness_fn.evaluate(&population, &device);
-                let next = strat.tell(&params, population, fitness, next, &mut rng);
+                let (population, next) = strat.ask(&params, &state, &mut rng, &device);
+                let fitness = fitness_fn.evaluate_batch(&population, &device);
+                let (next, _) = strat.tell(&params, population, fitness, next, &mut rng);
                 black_box(next.best_fitness)
             },
             BatchSize::SmallInput,
@@ -135,9 +144,9 @@ fn neat_xor_generation(c: &mut Criterion) {
         b.iter_batched(
             || (warm_state.clone(), StdRng::seed_from_u64(123)),
             |(state, mut rng)| {
-                let (population, next) = strat.ask(&params, &state, &mut rng);
-                let fitness = batched_fitness.evaluate(&population, &device);
-                let next = strat.tell(&params, population, fitness, next, &mut rng);
+                let (population, next) = strat.ask(&params, &state, &mut rng, &device);
+                let fitness = batched_fitness.evaluate_batch(&population, &device);
+                let (next, _) = strat.tell(&params, population, fitness, next, &mut rng);
                 black_box(next.best_fitness)
             },
             BatchSize::SmallInput,

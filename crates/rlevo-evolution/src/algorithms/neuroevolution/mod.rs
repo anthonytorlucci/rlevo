@@ -13,20 +13,24 @@
 //! never inside the strategy.
 //!
 //! **Bounded architecture NAS** ([`arch_nas`]) co-evolves the choice of
-//! architecture: a standalone [`ArchNasStrategy`]
-//! searches *which* fixed-topology `Module` variant — from an enumerated menu —
+//! architecture: [`ArchNasStrategy`], a
+//! [`Strategy`](crate::strategy::Strategy) over its own genome, searches
+//! *which* fixed-topology `Module` variant — from an enumerated menu —
 //! wins a task, alongside each variant's weights, reusing the same per-variant
 //! `ModuleReshaper` infrastructure.
 //!
-//! **NEAT** ([`neat`]) evolves the topology itself: the
-//! standalone [`NeatStrategy`] grows network structure
-//! and weights open-endedly from a minimal seed via innovation-aligned crossover
-//! and speciation, scoring graph genomes through the
-//! [`GraphFitnessFn`] seam. The graph data model lives in
+//! **NEAT** ([`neat`]) evolves the topology itself: [`NeatStrategy`], a
+//! [`Strategy`](crate::strategy::Strategy) over a population of graph genomes,
+//! grows network structure and weights open-endedly from a minimal seed via
+//! innovation-aligned crossover and speciation. The graph data model lives in
 //! [`crate::neuroevolution`]. Genomes are scored either one at a time — the
 //! interpreted, host-side reference path — or a whole population at once through
 //! the device-batched
 //! [`DensePaddedEvaluator`](crate::neuroevolution::phenotype::DensePaddedEvaluator).
+//!
+//! Both are driven like any other strategy, by an
+//! [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) with a
+//! [`BatchFitnessFn`](crate::fitness::BatchFitnessFn) over their genome.
 
 pub mod arch_nas;
 pub mod neat;
@@ -35,4 +39,4 @@ pub use arch_nas::{
     ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, NasBuilderConfig, NasGenome, NasParams,
     NasState, VariantEvaluator,
 };
-pub use neat::{BatchGraphFitness, GraphFitnessFn, NeatParams, NeatState, NeatStrategy};
+pub use neat::{BatchGraphFitness, NeatParams, NeatState, NeatStrategy};

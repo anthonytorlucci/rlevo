@@ -11,10 +11,12 @@
 //! # Orientation
 //!
 //! NEAT is **maximization** (higher fitness is better) — matching the crate-wide
-//! maximise convention. `best_fitness` tracks a maximum and fitness sharing
-//! assumes **non-negative** raw fitness (a NEAT-specific precondition orthogonal
-//! to objective sense); cost objectives are reconciled into canonical space by
-//! the loop/adapter chokepoint, not by hand here.
+//! maximise convention. `best_fitness` tracks a maximum; cost objectives are
+//! reconciled into canonical space by the loop/adapter chokepoint, not by hand
+//! here. Fitness sharing needs fitness that is not negative, and a cost
+//! canonicalised to `$-\text{cost}$` is negative everywhere, so [`speciate`]
+//! shifts a generation whose smallest finite fitness is negative until that
+//! value is zero. A generation with no negative fitness is shared as it stands.
 
 use rand::RngExt;
 use rand::rngs::StdRng;
@@ -82,8 +84,9 @@ pub struct Species {
     pub(crate) best_fitness: f32,
     /// Generation at which `best_fitness` last improved — drives stagnation.
     pub(crate) last_improved_generation: u64,
-    /// Sum of size-adjusted fitness over members (= mean raw fitness); drives
-    /// offspring allocation.
+    /// Sum of size-adjusted fitness over members (= mean fitness, after
+    /// [`speciate`]'s shift of a negative generation); drives offspring
+    /// allocation.
     pub(crate) adjusted_fitness_sum: f32,
 }
 
@@ -216,6 +219,21 @@ pub fn compatibility_distance(
 /// sanitizes too, so the guard is idempotent on that path — and stops a single
 /// `NaN` member from poisoning offspring apportionment for the whole run.
 ///
+/// # Negative fitness
+///
+/// [`allocate_offspring`] shares seats in proportion to each species' mean
+/// fitness, and floors a negative mean at zero. Left alone, a generation whose
+/// fitness is negative everywhere, as a cost canonicalised to `$-\text{cost}$`
+/// is, would floor every species to zero and be split evenly, generation
+/// after generation. So when the smallest finite fitness `$m$` is negative,
+/// each member's fitness enters its species' mean as `$f - m$`: the worst
+/// member counts zero, and the shares are those of the generation lifted
+/// until nothing is negative. Any further shift of the whole generation that
+/// leaves some member negative leaves the shares unchanged (exactly, when
+/// every `$f - m$` is exact in `f32`). A generation
+/// whose finite fitness is all zero or above is not shifted, and a member
+/// sanitised to `$-\infty$` stays at `$-\infty$` either way.
+///
 /// # Panics
 ///
 /// Panics if `fitness.len()` differs from `population.len()`.
@@ -276,6 +294,14 @@ pub fn speciate(
 
     // 4. Update best/stagnation and size-adjusted fitness (maximization).
     //
+    // `shift` is the generation's smallest finite fitness when that is negative, and zero
+    // otherwise, so a generation with no negative fitness is shared exactly as before.
+    let shift = fitness
+        .iter()
+        .map(|&f| crate::fitness::sanitize_fitness(f))
+        .filter(|f| f.is_finite())
+        .fold(0.0_f32, f32::min);
+    //
     // Sanitize NaN → `$-\infty$` / `$+\infty$` → f32::MAX (ADR 0034) before *every* reduction: a
     // raw NaN member would otherwise poison `adjusted_fitness_sum` (a NaN sum), corrupting
     // offspring apportionment for *all* species for the rest of the run. `speciate` is `pub` and
@@ -306,11 +332,14 @@ pub fn speciate(
         //
         // Site-specific: a broken (sanitized-to-`$-\infty$`) member still drives this species' mean
         // to `$-\infty$`, which the downstream `.max(0.0)` in `allocate_offspring` floors to a zero
-        // share, preserving the non-negative fitness-sharing precondition. `sanitized_mean`'s
-        // empty-input case (`$-\infty$`) is unreachable here — step 3 above dropped every empty
-        // species.
+        // share. `sanitized_mean`'s empty-input case (`$-\infty$`) is unreachable here — step 3
+        // above dropped every empty species.
+        //
+        // Each member is shifted before the mean, not the mean after it. Near `1e9` an `f32` is a
+        // multiple of 64, so a mean of unshifted costs narrowed to `f32` would round every species
+        // to that grid before the shift; `f - shift` of two nearby values is exact.
         s.adjusted_fitness_sum =
-            crate::fitness::sanitized_mean(s.members.iter().map(|&i| fitness[i]));
+            crate::fitness::sanitized_mean(s.members.iter().map(|&i| fitness[i] - shift));
     }
 
     // 5. Pick each survivor's next representative at random (canonical, seeded).
@@ -948,6 +977,62 @@ mod tests {
         );
     }
 
+    /// A generation whose fitness is negative everywhere, as a cost canonicalised
+    /// to `$-\text{cost}$` is, keeps fitness-proportional apportionment instead of
+    /// falling back to an even split.
+    ///
+    /// Shifted by the smallest member, `$-20$`, the two species' means are
+    /// `$18.5$` and `$5$`: 15.74 and 4.26 seats of 20, so `[16, 4]` by largest
+    /// remainder. Without the shift both means floor to zero and the seats split
+    /// `[10, 10]`, every generation.
+    #[test]
+    fn test_negative_generation_keeps_proportional_apportionment() {
+        let species = speciate_weights(&[0.0, 0.01, 10.0, 10.01], &[-1.0, -2.0, -10.0, -20.0]);
+        assert_eq!(species.len(), 2, "two well-separated species");
+        assert_eq!(allocate_offspring(&species, 20), vec![16, 4]);
+    }
+
+    /// The shift is by the smallest member, not the smallest species mean.
+    ///
+    /// Shifted by `$-10$`, the means are `$5$` and `$4$`: `[5, 4]` of 9 seats.
+    /// Shifted by the smaller mean, `$-6$`, they would be `$1$` and `$0$`, and the
+    /// second species would get nothing.
+    #[test]
+    fn test_negative_generation_is_shifted_by_its_smallest_member() {
+        let species = speciate_weights(&[0.0, 0.01, 10.0, 10.01], &[-10.0, 0.0, -6.0, -6.0]);
+        assert_eq!(species.len(), 2, "two well-separated species");
+        assert_eq!(allocate_offspring(&species, 9), vec![5, 4]);
+    }
+
+    /// Each member is shifted before its species' mean is taken, so costs near
+    /// `$10^9$`, where neighbouring `f32` values are 64 apart, keep their
+    /// differences.
+    ///
+    /// Shifted by `$-10^9$`, the members are `$0$`, `$64$` and `$64$`, the means
+    /// `$32$` and `$64$`, and 6 seats split `[2, 4]`. The unshifted mean of the
+    /// first species, `$-999\,999\,968$`, falls halfway between two `f32` values,
+    /// so a mean narrowed before the shift would be `$0$` or `$64$`, and the
+    /// split `[0, 6]` or `[3, 3]`.
+    #[test]
+    fn test_large_negative_costs_keep_their_differences() {
+        let species = speciate_weights(
+            &[0.0, 0.01, 10.0],
+            &[-1.0e9, -999_999_936.0, -999_999_936.0],
+        );
+        assert_eq!(species.len(), 2, "two well-separated species");
+        assert_eq!(allocate_offspring(&species, 6), vec![2, 4]);
+    }
+
+    /// A generation with no negative fitness is not shifted: two singleton
+    /// species scoring `$1$` and `$2$` share 3 seats `[1, 2]`. Shifted by its
+    /// smallest member they would share them `[0, 3]`.
+    #[test]
+    fn test_non_negative_generation_is_not_shifted() {
+        let species = speciate_weights(&[0.0, 10.0], &[1.0, 2.0]);
+        assert_eq!(species.len(), 2, "two well-separated species");
+        assert_eq!(allocate_offspring(&species, 3), vec![1, 2]);
+    }
+
     /// Regression (ADR 0069): `allocate_offspring`'s `total` overflows
     /// **independently** of `speciate`. Each species' `adjusted_fitness_sum` here
     /// is individually finite, yet their sum saturates an `f32` accumulator — so
@@ -1023,7 +1108,7 @@ mod tests {
     use proptest::collection::vec as prop_vec;
     // Explicit list, not the glob prelude: the prelude re-exports a `Rng` that
     // would collide with the `rand::RngExt`/`StdRng` pulled in via `use super::*`.
-    use proptest::prelude::{ProptestConfig, any, prop_assert_eq, proptest};
+    use proptest::prelude::{ProptestConfig, any, prop_assert_eq, prop_assume, proptest};
 
     /// Speciate a generated population, drawing representatives from an ADR 0029
     /// `seed_stream` substream — the same `SeedPurpose::Representative` stream
@@ -1178,6 +1263,49 @@ mod tests {
                 baseline,
                 "apportionment changed at scale 2^{}",
                 k
+            );
+        }
+
+        /// Offspring apportionment of a generation with a negative member is
+        /// invariant to translating the whole generation by `c`, as long as a
+        /// member stays negative: `speciate` shifts both by their smallest member,
+        /// so both apportion the same shifted values.
+        ///
+        /// Integer fitness keeps every `$f + c$` and every `$f - m$` exact in `f32`,
+        /// so the assertion is `==` on the counts. Invariance alone would also be
+        /// met by an even split of every negative generation, the defect the shift
+        /// removes, which the known-answer tests above rule out.
+        #[test]
+        fn prop_negative_generation_apportionment_is_invariant_to_translation(
+            // (per-species fitness level, per-species member count).
+            clusters in prop_vec((-1000i32..=1000, 1usize..=3), 2..=4),
+            c in -1000i32..=1000,
+            pop_size in 1usize..=64,
+            seed in any::<u64>(),
+        ) {
+            let mut weights: Vec<f32> = Vec::new();
+            let mut fitness: Vec<f32> = Vec::new();
+            for (k, &(level, size)) in clusters.iter().enumerate() {
+                for j in 0..size {
+                    #[allow(clippy::cast_precision_loss)]
+                    weights.push(10.0 * k as f32 + 0.01 * j as f32);
+                    #[allow(clippy::cast_precision_loss)]
+                    fitness.push(level as f32 + j as f32);
+                }
+            }
+            let min = fitness.iter().copied().fold(f32::INFINITY, f32::min);
+            #[allow(clippy::cast_precision_loss)]
+            let c = c as f32;
+            prop_assume!(min < 0.0 && min + c < 0.0);
+
+            let translated: Vec<f32> = fitness.iter().map(|&f| f + c).collect();
+            let baseline = allocate_offspring(&speciate_seeded(&weights, &fitness, seed), pop_size);
+            prop_assert_eq!(baseline.iter().sum::<usize>(), pop_size);
+            prop_assert_eq!(
+                allocate_offspring(&speciate_seeded(&weights, &translated, seed), pop_size),
+                baseline,
+                "apportionment changed under a translation by {}",
+                c
             );
         }
     }
