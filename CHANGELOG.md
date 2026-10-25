@@ -566,6 +566,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **Each agent reports its counters through `Agent::emit_metrics`**, so a
+  harness trial's report carries them beside its own measurements. Every
+  counter is a `Metric::Counter` named under `rl/`, a total since the agent
+  was built: `rl/env_steps` and `rl/skipped_updates` from all eight agents;
+  `rl/gradient_updates` from DQN, C51 and QR-DQN, `rl/critic_updates` from
+  DDPG, TD3 and SAC, and `rl/iterations` from PPO and PPG; and
+  `rl/dropped_transitions`, `rl/dropped_observations` and
+  `rl/degenerate_action_selections` from the six off-policy agents. Each
+  is what the agent's accessor of that name returns (`step` for
+  `rl/env_steps`, `iteration` for `rl/iterations`).
 - **Default networks for the value-side model traits** (ADR 0094). Until
   now every DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3 and SAC user wrote a
   network by hand; the crate shipped heads for the policy traits only.

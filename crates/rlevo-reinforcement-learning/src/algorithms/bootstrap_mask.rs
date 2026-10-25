@@ -29,6 +29,7 @@ use rlevo_core::action::{BoundedAction, ContinuousAction, DiscreteAction};
 use rlevo_core::agent::{Agent, Transition};
 use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
+use rlevo_core::fitness::Metric;
 use rlevo_core::reward::ScalarReward;
 
 use crate::algorithms::ddpg::ddpg_model::{MlpActor, MlpActorConfig, MlpCritic, MlpCriticConfig};
@@ -369,4 +370,69 @@ where
             obs = snap.observation;
         }
     }
+}
+
+/// Steps [`exercise_counters`] drives before its non-finite inputs.
+const COUNTER_STEPS: usize = 12;
+
+/// Drives `agent` through its [`Agent`] hooks so that the counters an
+/// off-policy agent reports through [`Agent::emit_metrics`] each move by a
+/// different amount: [`drive`] over [`COUNTER_STEPS`] steps whose second
+/// reward is `NaN` (one dropped transition), then two transitions whose
+/// observation is `NaN` (two dropped observations), then three actions on a
+/// `NaN` observation (three degenerate selections).
+pub(crate) fn exercise_counters<Act, G>(agent: &mut G, env: MaskEnv<Act>, rng: &mut StdRng)
+where
+    Act: Action<1> + Clone,
+    G: Agent<MaskObservation, Act>,
+{
+    let mut env = env.with_nan_reward_at(2);
+    drive(&mut env, agent, COUNTER_STEPS, rng);
+    let finite = MaskObservation::new([0.5, 0.5]);
+    let nan = MaskObservation::new([f32::NAN, 0.5]);
+    for _ in 0..2 {
+        let action = agent.act(&finite, rng);
+        agent.on_transition(
+            Transition {
+                obs: &nan,
+                action: &action,
+                reward: 1.0,
+                next_obs: &finite,
+                status: EpisodeStatus::Running,
+            },
+            rng,
+        );
+    }
+    for _ in 0..3 {
+        let _ = agent.act(&nan, rng);
+    }
+}
+
+/// Asserts that `metrics` are exactly `expected`, in order: each a
+/// [`Metric::Counter`] named `rl/` and the expected name, with the expected
+/// count.
+///
+/// The expected counts must differ from one another, or two counters
+/// reported under each other's names would pass.
+pub(crate) fn assert_rl_counters(metrics: &[Metric], expected: &[(&str, u64)]) {
+    let reported: Vec<(String, u64)> = metrics
+        .iter()
+        .map(|metric| match metric {
+            Metric::Counter { name, count } => (name.clone(), *count),
+            other => panic!("every metric an agent reports is a counter, got {other:?}"),
+        })
+        .collect();
+    let wanted: Vec<(String, u64)> = expected
+        .iter()
+        .map(|&(name, count)| (format!("rl/{name}"), count))
+        .collect();
+    assert_eq!(reported, wanted);
+    let mut counts: Vec<u64> = expected.iter().map(|&(_, count)| count).collect();
+    counts.sort_unstable();
+    counts.dedup();
+    assert_eq!(
+        counts.len(),
+        expected.len(),
+        "each counter needs a count of its own, or a swap would pass: {expected:?}"
+    );
 }

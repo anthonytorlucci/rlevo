@@ -10,7 +10,7 @@ All algorithms operate over the `rlevo-core` environment and agent abstractions.
 
 ### Training an agent
 
-A driver steps an agent through `Agent`: `act` for each step, `on_transition` to show it what happened, `on_episode_end` when an episode ends, and `set_training` to switch exploration and learning on or off. The harness has two drivers. `rlevo::harness::evaluator::train(&mut env, &mut agent, steps, max_steps, &mut rng)` trains an agent you keep, and returns the episodes it completed. `Evaluator::run_suite` with `EvaluatorConfig::train_steps` set trains a fresh agent per trial, then evaluates it. The six off-policy agents also keep `remember` and `learn_step` public, for a caller that paces learning itself.
+A driver steps an agent through `Agent`: `act` for each step, `on_transition` to show it what happened, `on_episode_end` when an episode ends, and `set_training` to switch exploration and learning on or off. The harness has two drivers. `rlevo::harness::evaluator::train(&mut env, &mut agent, steps, max_steps, &mut rng)` trains an agent you keep, and returns the episodes it completed. `Evaluator::run_suite` with `EvaluatorConfig::train_steps` set trains a fresh agent per trial, then evaluates it. The six off-policy agents also keep `remember` and `learn_step` public, for a caller that paces learning itself. Each agent reports its counters through `emit_metrics`, which `run_suite` records in the trial's report under `rl/`: `rl/env_steps`, `rl/skipped_updates` and the agent's update count (`rl/gradient_updates`, `rl/critic_updates` or `rl/iterations`), and, for the six off-policy agents, `rl/dropped_transitions`, `rl/dropped_observations` and `rl/degenerate_action_selections`.
 
 ---
 
