@@ -765,6 +765,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **`DeConfig` accepted a `Rand2Bin` population too small to run.**
+  `validate` let `Rand2Bin` through at `pop_size = 5`, but the variant
+  draws five members besides each target, so the second generation, the
+  first to build trial vectors, panicked in the index sampler. The floor
+  is now derived from the count the sampler draws: one more than it, and
+  never below 4. `Rand2Bin` needs 6, and `pop_size = 5` is an `Err` from
+  `validate` and from `EvolutionaryLoop::new`; the other four variants
+  keep 4.
 - **NEAT shared its offspring evenly whenever every fitness was negative**
   (GitHub issue 1067, ADR 0098), as every fitness is for a cost negated to
   canonical form, so selection between species stopped for the whole run
