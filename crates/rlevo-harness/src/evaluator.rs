@@ -26,7 +26,7 @@ use rayon::prelude::*;
 use rlevo_core::agent::{Agent, Transition};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus};
 use rlevo_core::evaluation::GenerationProbe;
-use rlevo_core::fitness::{Metric, MetricsProvider};
+use rlevo_core::fitness::Metric;
 use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
@@ -687,7 +687,8 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 ///
 /// The counterpart to [`EpisodicTrial`] for work that has no episode axis. It
 /// calls `begin` once, then `advance` until the probe reports exhaustion,
-/// and reports the final unit's metrics plus a generation count.
+/// and reports the probe's [`emit_metrics`](GenerationProbe::emit_metrics),
+/// read once after the last generation, plus a generation count.
 ///
 /// # The cap
 ///
@@ -709,14 +710,15 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// `advance` is called once more. An exhausted probe returns `None` and does
 /// no work, which the trait's contract requires. A probe with budget left
 /// runs one more generation, and that generation is dropped: it is in neither
-/// the `generations` scalar, the reported metrics nor the wall clock. A
-/// fitness function that counts its own calls sees it.
+/// the `generations` scalar, the reported metrics nor the wall clock, because
+/// the metrics are read and the clock stopped before that call. A fitness
+/// function that counts its own calls sees it.
 ///
 /// # What a probe must be
 ///
-/// `P::Metrics` implements [`MetricsProvider`], and `P` is `Send`, because
-/// trials run on a thread pool. [`Evaluator::run_trials`] builds one trial
-/// per seed from a closure, so each trial owns its own probe.
+/// `P` is `Send`, because trials run on a thread pool.
+/// [`Evaluator::run_trials`] builds one trial per seed from a closure, so
+/// each trial owns its own probe.
 ///
 /// # Why no episodes
 ///
@@ -741,7 +743,6 @@ impl<P> std::fmt::Debug for GenerationTrial<P> {
 impl<P> Trial for GenerationTrial<P>
 where
     P: GenerationProbe,
-    P::Metrics: MetricsProvider,
 {
     fn run(
         mut self,
@@ -755,21 +756,17 @@ where
         self.probe.begin();
 
         let mut units = 0usize;
-        let mut last: Option<P::Metrics> = None;
         // `max_steps` is a backstop only: the probe owns its own budget and
         // ends the loop by returning `None`. The cap exists so a probe with a
         // broken exhaustion check cannot hang the suite.
-        while units < cfg.max_steps {
-            match self.probe.advance() {
-                Some(m) => {
-                    units += 1;
-                    last = Some(m);
-                }
-                None => break,
-            }
+        while units < cfg.max_steps && self.probe.advance().is_some() {
+            units += 1;
         }
 
         let wall = start.elapsed().as_secs_f64();
+        // Read before the cap check below, which may run one more generation
+        // that this report must not describe.
+        let probe_metrics = self.probe.emit_metrics();
 
         // The loop above ends at the cap exactly when `units == cfg.max_steps`:
         // a probe that returns `None` breaks out before the count reaches it.
@@ -777,8 +774,9 @@ where
         // knows, and `advance` is the one way to ask, so it is called once
         // more and what it returns is dropped. On an exhausted probe that call
         // does no work (the `GenerationProbe` contract), which is what keeps a
-        // budget equal to the cap silent. It comes after the wall clock is
-        // read, so the dropped generation is in no number this trial reports.
+        // budget equal to the cap silent. It comes after the wall clock and the
+        // probe's metrics are read, so the dropped generation is in no number
+        // this trial reports.
         if units == cfg.max_steps && self.probe.advance().is_some() {
             tracing::warn!(
                 target: "rlevo_harness",
@@ -804,9 +802,7 @@ where
                 value: wall,
             },
         ]);
-        if let Some(m) = last {
-            report.absorb_metrics(m.emit());
-        }
+        report.absorb_metrics(probe_metrics);
         report
     }
 }
@@ -1521,14 +1517,13 @@ mod tests {
     /// itself must not displace them (ADR 0079).
     ///
     /// This site had **zero** coverage for the hazard before: it absorbed its
-    /// harness scalars and then `m.emit()`, last-writer-wins, exactly like the
-    /// episodic path. The probe below advances a known number of times and
-    /// emits deliberately wrong values for both keys, so a regression shows up
-    /// as a wrong number rather than a missing one.
+    /// harness scalars and then the probe's metrics, last-writer-wins, exactly
+    /// like the episodic path. The probe below advances a known number of
+    /// times and emits deliberately wrong values for both keys, so a
+    /// regression shows up as a wrong number rather than a missing one.
     #[test]
     fn a_probe_cannot_overwrite_the_harness_generation_scalars() {
         use rlevo_core::evaluation::GenerationProbe;
-        use rlevo_core::fitness::MetricsProvider;
 
         use super::GenerationTrial;
         use crate::metrics::core::{GENERATIONS, WALL_CLOCK_SECONDS};
@@ -1540,11 +1535,26 @@ mod tests {
         /// `UNITS` as the harness reports it — a scalar.
         const UNITS_F: f64 = 5.0;
 
-        #[derive(Debug, Clone, Copy)]
-        struct ColludingMetrics;
+        struct ColludingProbe {
+            remaining: usize,
+        }
 
-        impl MetricsProvider for ColludingMetrics {
-            fn emit(&self) -> Vec<Metric> {
+        impl GenerationProbe for ColludingProbe {
+            type Metrics = ();
+
+            fn begin(&mut self) {
+                self.remaining = UNITS;
+            }
+
+            fn advance(&mut self) -> Option<Self::Metrics> {
+                if self.remaining == 0 {
+                    return None;
+                }
+                self.remaining -= 1;
+                Some(())
+            }
+
+            fn emit_metrics(&self) -> Vec<Metric> {
                 vec![
                     Metric::Scalar {
                         name: GENERATIONS.to_string(),
@@ -1561,26 +1571,6 @@ mod tests {
                         value: 1.5,
                     },
                 ]
-            }
-        }
-
-        struct ColludingProbe {
-            remaining: usize,
-        }
-
-        impl GenerationProbe for ColludingProbe {
-            type Metrics = ColludingMetrics;
-
-            fn begin(&mut self) {
-                self.remaining = UNITS;
-            }
-
-            fn advance(&mut self) -> Option<Self::Metrics> {
-                if self.remaining == 0 {
-                    return None;
-                }
-                self.remaining -= 1;
-                Some(ColludingMetrics)
             }
         }
 
@@ -1650,27 +1640,18 @@ mod tests {
     #[test]
     fn every_generation_trial_harness_key_is_harness_reserved() {
         use rlevo_core::evaluation::GenerationProbe;
-        use rlevo_core::fitness::MetricsProvider;
 
         use super::GenerationTrial;
         use crate::metrics::core::{GENERATIONS, WALL_CLOCK_SECONDS, is_harness_reserved};
 
-        /// Emits nothing, so the report contains harness keys and only those.
-        #[derive(Debug, Clone, Copy)]
-        struct SilentMetrics;
-
-        impl MetricsProvider for SilentMetrics {
-            fn emit(&self) -> Vec<Metric> {
-                Vec::new()
-            }
-        }
-
+        /// Takes `emit_metrics`' default and emits nothing, so the report
+        /// contains harness keys and only those.
         struct SilentProbe {
             remaining: usize,
         }
 
         impl GenerationProbe for SilentProbe {
-            type Metrics = SilentMetrics;
+            type Metrics = ();
 
             fn begin(&mut self) {
                 self.remaining = 3;
@@ -1681,7 +1662,7 @@ mod tests {
                     return None;
                 }
                 self.remaining -= 1;
-                Some(SilentMetrics)
+                Some(())
             }
         }
 
@@ -1738,8 +1719,8 @@ mod tests {
     ///
     /// Returns the report, every `tracing` event the trial emitted, and the
     /// number of times the trial called `advance`. The probe's metric is the
-    /// 1-based index of the generation that produced it, so a report shows
-    /// which generation it was taken from.
+    /// number of generations it has run when it is read, so a report shows
+    /// which generation it was read after.
     fn run_generation_trial_capturing_events(
         budget: usize,
         max_steps: usize,
@@ -1749,22 +1730,8 @@ mod tests {
         use std::rc::Rc;
 
         use rlevo_core::evaluation::GenerationProbe;
-        use rlevo_core::fitness::MetricsProvider;
 
         use super::GenerationTrial;
-
-        #[derive(Debug, Clone, Copy)]
-        struct GenerationIndex(usize);
-
-        impl MetricsProvider for GenerationIndex {
-            fn emit(&self) -> Vec<Metric> {
-                vec![Metric::Scalar {
-                    name: "ea/generation".to_string(),
-                    #[allow(clippy::cast_precision_loss)]
-                    value: self.0 as f64,
-                }]
-            }
-        }
 
         struct CountingProbe {
             budget: usize,
@@ -1773,7 +1740,7 @@ mod tests {
         }
 
         impl GenerationProbe for CountingProbe {
-            type Metrics = GenerationIndex;
+            type Metrics = ();
 
             fn begin(&mut self) {
                 self.done = 0;
@@ -1785,7 +1752,15 @@ mod tests {
                     return None;
                 }
                 self.done += 1;
-                Some(GenerationIndex(self.done))
+                Some(())
+            }
+
+            fn emit_metrics(&self) -> Vec<Metric> {
+                vec![Metric::Scalar {
+                    name: "ea/generation".to_string(),
+                    #[allow(clippy::cast_precision_loss)]
+                    value: self.done as f64,
+                }]
             }
         }
 

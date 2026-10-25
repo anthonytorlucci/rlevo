@@ -15,6 +15,8 @@
 //! [`Environment`]: crate::environment::Environment
 //! [`Snapshot`]: crate::environment::Snapshot
 
+use crate::fitness::Metric;
+
 /// Something that runs a fixed budget of self-paced units of work.
 ///
 /// Where an [`Environment`] models an episodic interaction — observation in,
@@ -36,6 +38,9 @@
 ///   the budget before stepping, so calling it past exhaustion is a cheap
 ///   no-op rather than a panic or an over-run generation.
 /// - `advance` before `begin` is a caller error; implementors may panic.
+/// - [`emit_metrics`](Self::emit_metrics) describes the run so far, since
+///   `begin`, under the rule [`Metric`] states, and changes nothing. Before
+///   the first generation it reports none.
 ///
 /// # Why `Option` rather than a `done` flag
 ///
@@ -58,19 +63,21 @@
 /// the backstop is reached, the evaluator calls `advance` once more to learn
 /// whether the probe was finished, and warns if it was not. The contract
 /// above is what makes that call safe: on a finished probe it does nothing.
-/// On an unfinished one it runs one generation, whose metrics are dropped.
+/// On an unfinished one it runs one generation, whose metrics are dropped:
+/// the evaluator reads `emit_metrics` before that call.
 ///
 /// # Who calls this, and who implements it
 ///
 /// An evaluator calls it, not a person. A user who wants one run drives the
 /// loop's own methods; a user who wants many seeded trials and a report gives
-/// an evaluator a loop per trial, and the evaluator calls `begin` and
-/// `advance` for them.
+/// an evaluator a loop per trial, and the evaluator calls `begin`, `advance`
+/// and `emit_metrics` for them.
 ///
 /// Implement it for a generation loop of your own that an evaluator should
 /// run. `rlevo-evolution`'s `probe` module has the recipe and two worked
-/// impls: `begin` is the loop's reset, and `advance` is its budget check,
-/// then one step, then that step's metrics.
+/// impls: `begin` is the loop's reset, `advance` is its budget check, then
+/// one step, then that step's metrics, and `emit_metrics` turns the latest
+/// generation's metrics into [`Metric`]s.
 pub trait GenerationProbe {
     /// Typed per-unit metrics this probe reports.
     type Metrics;
@@ -80,4 +87,15 @@ pub trait GenerationProbe {
 
     /// Run one unit, or return `None` if the budget is exhausted.
     fn advance(&mut self) -> Option<Self::Metrics>;
+
+    /// Method-specific metrics about the run so far, since
+    /// [`begin`](Self::begin), as [`Metric`] states: the same name and the
+    /// same rule as an agent's
+    /// [`Agent::emit_metrics`](crate::agent::Agent::emit_metrics).
+    ///
+    /// The evaluation harness reads them once, after the last generation it
+    /// counts. The default reports none.
+    fn emit_metrics(&self) -> Vec<Metric> {
+        Vec::new()
+    }
 }

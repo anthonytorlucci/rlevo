@@ -12,14 +12,16 @@
 //! There is no agent and no episode axis: each `advance` runs one GA
 //! generation and reports a typed `GaGenerationMetrics`, so the costs stay in
 //! their natural minimise sense rather than being negated into a scalar
-//! reward. This also shows a type outside `rlevo-evolution` implementing the
+//! reward, and `emit_metrics` hands the trial the latest of them as the
+//! `Metric`s its report records. This also shows a type outside `rlevo-evolution` implementing the
 //! seam — nothing here is an `EvolutionaryLoop`.
 //!
-//! The probe holds the two obligations the trait states. `begin` re-seeds
-//! the RNG from the stored seed and resamples the population, so a second
+//! The probe holds the obligations the trait states. `begin` re-seeds the
+//! RNG from the stored seed and resamples the population, so a second
 //! `begin` replays the first run. `advance` checks the generation budget
 //! before it does any work, so a call past the end returns `None` and runs
-//! nothing. A probe of your own needs both.
+//! nothing. `emit_metrics` describes the run since `begin` and changes
+//! nothing. A probe of your own needs all three.
 //!
 //! # Running
 //!
@@ -51,7 +53,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal, Uniform};
 use rlevo::core::evaluation::GenerationProbe;
-use rlevo::core::fitness::{Landscape, MetricsProvider};
+use rlevo::core::fitness::Landscape;
 use rlevo::envs::landscapes::rastrigin::Rastrigin;
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo::harness::metrics::Metric;
@@ -72,6 +74,8 @@ struct GaEnv {
     generation: usize,
     best_so_far: f64,
     sigma: f64,
+    /// The last generation's summary, which `emit_metrics` reports.
+    latest: Option<GaGenerationMetrics>,
 }
 
 impl GaEnv {
@@ -87,6 +91,7 @@ impl GaEnv {
             generation: 0,
             best_so_far: f64::INFINITY,
             sigma: 0.5,
+            latest: None,
         }
     }
 
@@ -137,15 +142,17 @@ fn sample_population(rng: &mut StdRng, landscape: &Rastrigin, pop_size: usize) -
 ///
 /// A `GenerationProbe` names its own metrics type, so an implementor is not
 /// limited to the single `f64` a `BenchStep` reward could carry.
+#[derive(Clone)]
 struct GaGenerationMetrics {
     generation: usize,
     best_this_generation: f64,
     best_so_far: f64,
 }
 
-impl MetricsProvider for GaGenerationMetrics {
+impl GaGenerationMetrics {
+    /// The summary as the `Metric`s a trial's report records.
     #[allow(clippy::cast_precision_loss)]
-    fn emit(&self) -> Vec<Metric> {
+    fn to_metrics(&self) -> Vec<Metric> {
         vec![
             Metric::Scalar {
                 name: "ga/generation".to_string(),
@@ -173,6 +180,7 @@ impl GenerationProbe for GaEnv {
         self.population = sample_population(&mut self.rng, &self.landscape, self.pop_size);
         self.best_so_far = f64::INFINITY;
         self.generation = 0;
+        self.latest = None;
     }
 
     fn advance(&mut self) -> Option<Self::Metrics> {
@@ -185,11 +193,19 @@ impl GenerationProbe for GaEnv {
         );
         let best = self.evolve();
         self.generation += 1;
-        Some(GaGenerationMetrics {
+        let metrics = GaGenerationMetrics {
             generation: self.generation,
             best_this_generation: best,
             best_so_far: self.best_so_far,
-        })
+        };
+        self.latest = Some(metrics.clone());
+        Some(metrics)
+    }
+
+    fn emit_metrics(&self) -> Vec<Metric> {
+        self.latest
+            .as_ref()
+            .map_or_else(Vec::new, GaGenerationMetrics::to_metrics)
     }
 }
 

@@ -20,7 +20,7 @@ Suite<E>
         │  (rayon parallel)
         ├── Trial::run
         │     ├── EpisodicTrial   ──► Environment::reset / Environment::step
-        │     └── GenerationTrial ──► GenerationProbe::begin / ::advance
+        │     └── GenerationTrial ──► GenerationProbe::begin / ::advance / ::emit_metrics
         │         │
         │    Agent::act / on_transition / on_episode_end   (episodic path only)
         │         │
@@ -28,7 +28,7 @@ Suite<E>
         │         │
         │    TrialReport  ◄── core_metrics + agent emit_metrics     (episodic)
         │                 ◄── generations + wall clock
-        │                     + probe MetricsProvider::emit         (generation)
+        │                     + probe emit_metrics                  (generation)
         │
         ├── checkpoint::save  (atomic JSON write)
         └── Reporter events  (LoggingReporter / JsonReporter / RecordingReporter)
@@ -93,7 +93,7 @@ The traits a trial drives are part of the contract, so they live in `rlevo-core`
 
 ### `metrics` — Metric Collection
 
-Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram`, `Counter`). An agent reports method-specific metrics from `Agent::emit_metrics`, pulled once per trial; a generation loop's metrics implement `MetricsProvider`.
+Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram`, `Counter`). An agent and a generation loop each report method-specific metrics through `emit_metrics`, read once per trial after its last episode or generation. Each value describes the trial so far: a counter is a total since the trial began, a scalar the value at the read, so a reader that reads more often keeps the latest and never adds two reads together.
 
 | Sub-module | Contents |
 |------------|----------|

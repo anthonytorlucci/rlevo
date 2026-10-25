@@ -445,10 +445,11 @@ Three things decide whether such a run is the one you meant:
   (`EvaluatorConfig::num_threads`). On Flex the results do not depend on the
   thread count; see the determinism note above for the two exceptions.
 
-The harness drives each loop through a trait, `GenerationProbe`, whose two
-methods are built from the three calls above: `begin` is `reset`, and `advance`
-is "if `is_done`, stop; otherwise `step` and hand back the metrics". You never
-call `begin` or `advance` yourself. They are the harness's side of the seam, and
+The harness drives each loop through a trait, `GenerationProbe`, whose
+methods are built from the calls above: `begin` is `reset`, `advance` is "if
+`is_done`, stop; otherwise `step` and hand back the metrics", and
+`emit_metrics` is the latest generation's metrics as the `Metric` values the
+trial's report records. You never call them yourself. They are the harness's side of the seam, and
 `EvolutionaryLoop` already implements them. You would implement `GenerationProbe`
 only for a generation loop of your own that the harness should run.
 
@@ -474,9 +475,11 @@ several seeds on a condition of your own, drive a loop per seed yourself.
   (`sanitize_fitness_tensor`, after the negation), the validation of the
   configuration, and turning the metrics back into your objective's own
   direction when you read them. To let the harness run a loop of your own,
-  implement `GenerationProbe` for it: `begin` re-seeds and starts over, and
+  implement `GenerationProbe` for it: `begin` re-seeds and starts over,
   `advance` checks your budget, runs one generation and returns its metrics,
-  or `None` once the budget is spent.
+  or `None` once the budget is spent, and `emit_metrics` reports the run so
+  far as `Metric`s: a running best is the best so far, a count is a total
+  since `begin`.
 
 ## Where this connects
 
