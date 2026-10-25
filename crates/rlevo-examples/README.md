@@ -40,11 +40,14 @@ and which report panels it lights up — read it alongside the entry below.
 ### Evaluation harness
 
 The two harness demos, `tabular_bandit` and `ga_rastrigin`, moved to the
-umbrella with ADR 0084:
+umbrella with ADR 0084, and a third lives beside them: weight-only
+neuroevolution (CMA-ES, no gradient) against PPO and DQN on CartPole under
+one training budget.
 
 ```bash
 cargo run -p rlevo --example tabular_bandit
 cargo run -p rlevo --example ga_rastrigin
+cargo run --release -p rlevo --example neuroevolution_vs_gradient
 ```
 
 ### Evolutionary algorithms — no features required

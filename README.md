@@ -158,9 +158,13 @@ you want.
 
 The harness that runs an agent over a suite of environments and reports
 the result is part of `rlevo`, as `rlevo::harness`: `Suite`, `Evaluator`,
-the metrics and the reporters. Two examples show it,
-`cargo run -p rlevo --example tabular_bandit` and
-`cargo run -p rlevo --example ga_rastrigin`. Like the backend features, the
+the metrics and the reporters. Three examples show it:
+`cargo run -p rlevo --example tabular_bandit`,
+`cargo run -p rlevo --example ga_rastrigin`, and
+`cargo run --release -p rlevo --example neuroevolution_vs_gradient`, which
+trains a gradient-free CMA-ES search over a policy network's weights beside
+PPO and DQN on CartPole, under one budget, and prints the comparison. Like
+the backend features, the
 re-export is on `main` and ships with the next release. The published
 0.5.0 does not carry the harness: add the crate yourself, under the name
 it has in that release, `rlevo-benchmarks`.
