@@ -939,6 +939,22 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Added**
 
+- **The `rlevo-algo` template.** Three `cargo-generate` templates under
+  `templates/rlevo-algo/`, one per seam an author implements: `agent`
+  (`Agent`), `environment` (`Environment`, with `HostRow` on its
+  observation) and `strategy` (`Strategy`). A generated crate depends on
+  `rlevo` alone and works as it stands: `cargo run` trains and measures the
+  author's placeholder beside a random baseline and a shipped reference
+  (`DqnAgent` over `MlpQNetwork`, or `CmaEs`) under one configuration and
+  prints the rows as a Markdown table; `cargo test` runs tests of the
+  seam's contract, among them that the agent's TD target bootstraps through
+  a `Truncated` step and not a `Terminated` one. `cargo generate --git
+  https://github.com/anthonytorlucci/rlevo --tag <release>
+  templates/rlevo-algo` offers the three. `crate-tests.yml` renders each
+  seam as `cargo generate` would, then builds, lints with `clippy -D
+  warnings`, tests and runs it on every pull request, as `probe
+  (rlevo-algo-<seam>)`. Each seam's `rlevo` line and the command's tag must
+  name the release the checkout builds.
 - **A learner's walk, `learner-1`.** The README's Quick Start, copied as
   written into a crate outside the workspace: its dependency block becomes
   the manifest's, its program `src/main.rs`. The program must build, exit

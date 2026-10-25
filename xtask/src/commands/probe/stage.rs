@@ -304,6 +304,8 @@ pub fn resolve(probe_dir: &Path, target_dir: &Path, stage: &Stage) -> Result<Res
                 .filter_map(|dependency| dependency["name"].as_str())
                 .map(str::to_string)
                 .collect();
+            // The probe itself, which a template's probe names `rlevo-algo-*`.
+            continue;
         }
         if !is_rlevo_crate(name) {
             continue;

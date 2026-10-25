@@ -176,6 +176,26 @@ cargo test --workspace
 cargo doc --workspace --no-deps --open
 ```
 
+### Start from a template
+
+`templates/rlevo-algo` holds three
+[`cargo-generate`](https://github.com/cargo-generate/cargo-generate)
+templates, one for each thing an author implements: `agent` (an `Agent`
+that learns), `environment` (an `Environment`) and `strategy` (an
+evolutionary `Strategy`).
+
+```bash
+cargo generate --git https://github.com/anthonytorlucci/rlevo --tag v0.5.0 templates/rlevo-algo
+```
+
+`cargo generate` asks which template and what to name the crate. The
+generated crate depends on `rlevo` alone and works as it stands: `cargo run`
+trains and measures your implementation beside a random baseline and a
+shipped one (`DqnAgent`, or `CmaEs`) under one configuration and prints the
+rows as a Markdown table, and `cargo test` runs its tests. Like the harness
+re-export, the templates are on `main` and ship with the next release; the
+command's tag names the release the rest of this README does.
+
 ## Development Status
 
 `rlevo` is **alpha software**. The core trait API is largely settled; algorithm implementations and environments are under active development. Breaking changes may occur before 1.0.

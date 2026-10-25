@@ -1,0 +1,5 @@
+# The seams `cargo generate` offers when it is pointed at this directory,
+# in the order it offers them. Each is a template of its own, with its own
+# `cargo-generate.toml`.
+[template]
+sub_templates = ["agent", "environment", "strategy"]

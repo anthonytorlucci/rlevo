@@ -108,7 +108,8 @@ jobs:
       # `--list` runs no tests; it asserts the tier is total and prints a JSON
       # array on stdout (xtask logs to stderr, so the capture stays clean).
       # The probe table is enumerated the same way and checked against
-      # `xtask/probes/`, so a template no probe runs fails here.
+      # `xtask/probes/` and `templates/rlevo-algo/`, so a template no probe
+      # runs fails here.
       - name: Enumerate the tier
         id: enumerate
         run: |
