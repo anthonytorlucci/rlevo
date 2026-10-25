@@ -88,6 +88,14 @@ impl DeVariant {
         }
     }
 
+    /// Smallest population the variant runs with: one more than
+    /// [`random_indices`](Self::random_indices), so the sampler can draw
+    /// them all besides `i`, and never below 4.
+    const fn min_pop_size(self) -> usize {
+        let needed = self.random_indices() + 1;
+        if needed > 4 { needed } else { 4 }
+    }
+
     /// Whether this variant uses exponential crossover.
     const fn is_exponential(self) -> bool {
         matches!(self, DeVariant::Rand1Exp)
@@ -97,7 +105,12 @@ impl DeVariant {
 /// Static configuration for a [`DifferentialEvolution`] run.
 #[derive(Debug, Clone)]
 pub struct DeConfig {
-    /// Population size (`$\geq$` 5 for `Rand2Bin`, `$\geq$` 4 otherwise).
+    /// Population size (`$\geq$` 6 for `Rand2Bin`, `$\geq$` 4 otherwise).
+    ///
+    /// Each trial vector draws distinct members other than its own target:
+    /// five for `Rand2Bin`, three for `Rand1Bin` and `Rand1Exp`, two for
+    /// `Best1Bin` and `CurrentToBest1Bin`. The population must exceed that
+    /// count and is never below 4.
     pub pop_size: usize,
     /// Genome dimensionality.
     pub genome_dim: usize,
@@ -133,12 +146,7 @@ impl DeConfig {
 impl Validate for DeConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "DeConfig";
-        let min_pop = if self.variant == DeVariant::Rand2Bin {
-            5
-        } else {
-            4
-        };
-        config::at_least(C, "pop_size", self.pop_size, min_pop)?;
+        config::at_least(C, "pop_size", self.pop_size, self.variant.min_pop_size())?;
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::in_range(C, "f", 0.0, 2.0, f64::from(self.f))?;
         config::in_range(C, "cr", 0.0, 1.0, f64::from(self.cr))?;
@@ -555,6 +563,73 @@ mod tests {
         let mut cfg = DeConfig::default_for(3, 10);
         cfg.pop_size = 3;
         assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
+    }
+
+    const ALL_VARIANTS: [DeVariant; 5] = [
+        DeVariant::Rand1Bin,
+        DeVariant::Best1Bin,
+        DeVariant::CurrentToBest1Bin,
+        DeVariant::Rand2Bin,
+        DeVariant::Rand1Exp,
+    ];
+
+    /// The smallest `pop_size` a variant's config validates at, scanning a
+    /// bounded range so a floor that rose past it fails instead of looping.
+    fn smallest_valid_pop_size(variant: DeVariant) -> usize {
+        (1..=16)
+            .find(|&pop_size| {
+                let mut cfg = DeConfig::default_for(pop_size, 4);
+                cfg.variant = variant;
+                cfg.validate().is_ok()
+            })
+            .expect("some pop_size up to 16 validates")
+    }
+
+    /// A config that validates must run: every variant, at the smallest
+    /// population its config accepts, gets through a generation that builds
+    /// trial vectors. `Rand2Bin` used to validate at 5 and panic in the
+    /// sampler, which needs 5 indices besides the current individual.
+    #[test]
+    fn every_variant_runs_at_its_smallest_valid_pop_size() {
+        for variant in ALL_VARIANTS {
+            let mut params = DeConfig::default_for(smallest_valid_pop_size(variant), 4);
+            params.variant = variant;
+            // Generation 1 evaluates the initial population; generation 2 is
+            // the first whose `ask` samples indices.
+            let mut evo_loop = EvolutionaryLoop::new(
+                DifferentialEvolution::new(),
+                params,
+                FromLandscape::new(Sphere),
+                7,
+                Device::flex(),
+                2,
+            )
+            .expect("a config that validated");
+            evo_loop.reset();
+            while !evo_loop.is_done() {
+                evo_loop.step();
+            }
+        }
+    }
+
+    /// Each variant's floor is one more than the indices it draws, and never
+    /// below 4.
+    #[test]
+    fn smallest_valid_pop_size_per_variant() {
+        let floors: Vec<(DeVariant, usize)> = ALL_VARIANTS
+            .into_iter()
+            .map(|v| (v, smallest_valid_pop_size(v)))
+            .collect();
+        assert_eq!(
+            floors,
+            [
+                (DeVariant::Rand1Bin, 4),
+                (DeVariant::Best1Bin, 4),
+                (DeVariant::CurrentToBest1Bin, 4),
+                (DeVariant::Rand2Bin, 6),
+                (DeVariant::Rand1Exp, 4),
+            ]
+        );
     }
 
     /// [`DifferentialEvolution::sample_distinct_excluding`] must return
