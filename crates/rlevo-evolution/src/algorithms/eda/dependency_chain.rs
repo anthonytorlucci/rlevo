@@ -343,7 +343,7 @@ impl ProbabilityModel for DependencyChain {
     /// ```
     ///
     /// All randomness is drawn from `rng` (host RNG only; never
-    /// `Tensor::random` / `B::seed`). The returned tensor has shape `(n, D)`.
+    /// `Tensor::random` / `Device::seed`). The returned tensor has shape `(n, D)`.
     /// This is `$O(D)$` per individual drawn.
     ///
     /// # Panics

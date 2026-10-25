@@ -357,7 +357,7 @@ mod tests {
 
     // --- Bounded-NAS enum-derive probe ---------------------------------------
     //
-    // Question: does Burn 0.21 `#[derive(Module)]` work on a Rust *enum* whose
+    // Question: does Burn's `#[derive(Module)]` work on a Rust *enum* whose
     // arms hold heterogeneous concrete `Module` variants? The bounded-NAS
     // design (closure-erased `VariantEvaluator` registry) does NOT depend on
     // the answer; this probe records the finding (it compiles) for reference.

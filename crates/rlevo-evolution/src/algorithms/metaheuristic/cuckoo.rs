@@ -12,14 +12,14 @@
 //! (Mantegna's algorithm, `$\beta$` `$\approx$` 1.5).
 //!
 //! `tell` greedy-accepts each new egg against its own slot, then abandons the `$p_a \cdot N$` worst
-//! nests and reinitializes them from the search bounds. Abandoned slots carry sentinel `$+\infty$`
-//! fitness so the next generation's Lévy proposal always lands.
+//! nests and reinitializes them from the search bounds. Abandoned slots carry sentinel `$-\infty$`
+//! fitness (the worst under maximisation) so the next generation's Lévy proposal always lands.
 //!
-//! # Numerical parity caveat
+//! # Backend parity
 //!
-//! The fractional power `$|v|^{1/\beta}$` is FMA-reorder-sensitive — wgpu
-//! reductions can drift ~`1e-3` relative from flex on the same seed.
-//! The backend-parity test relaxes tolerance for CS accordingly.
+//! The Lévy step, its fractional power `$|v|^{1/\beta}$` included, is computed on the host from a
+//! [`seed_stream`] and uploaded, so every backend receives the same steps; the device work in
+//! `ask` is the elementwise update and the clamp to bounds.
 //!
 //! # References
 //!
@@ -98,7 +98,7 @@ impl Validate for CuckooConfig {
 pub struct CuckooState {
     /// Current nests, shape `(pop_size, D)`.
     nests: Tensor<2>,
-    /// Host-side fitness cache; `$+\infty$` for abandoned slots.
+    /// Host-side fitness cache; `$-\infty$` for abandoned slots.
     fitness: Vec<f32>,
     /// Best-so-far genome.
     best_genome: Option<Tensor<2>>,
@@ -274,7 +274,7 @@ impl Strategy for CuckooSearch {
         );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial nests from a deterministic `seed_stream`
-        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // rather than the process-wide Flex RNG (`Device::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
         // and are not reproducible across thread schedules.
         let pop = params.pop_size;
@@ -351,10 +351,10 @@ impl Strategy for CuckooSearch {
     /// On subsequent calls:
     ///
     /// 1. **Greedy accept** — egg `i` replaces nest `i` iff
-    ///    `$\text{fitness}[i] \leq \text{state.fitness}[i]$`.
+    ///    `$\text{fitness}[i] \geq \text{state.fitness}[i]$`.
     /// 2. **Abandonment** — the `$\lfloor p_a \cdot \text{pop\_size} \rfloor$` worst nests are
     ///    re-initialized from `bounds` via [`seed_stream`]; abandoned
-    ///    slots carry sentinel `$+\infty$` fitness so the next generation's Lévy
+    ///    slots carry sentinel `$-\infty$` fitness so the next generation's Lévy
     ///    proposal always lands on them.
     // Mirrors the same allow on `ArtificialBeeColony::tell`: the body is a
     // straight-line accept → abandon → best-update pipeline, and splitting it

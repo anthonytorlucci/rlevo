@@ -205,7 +205,7 @@ impl ProbabilityModel for CompactGenetic {
     ///
     /// Each gene is sampled independently as `1.0` with probability `prob[j]`,
     /// `0.0` otherwise, using the supplied host RNG (never `Tensor::random` /
-    /// `B::seed`). The returned tensor has shape `(n, D)` and contains only
+    /// `Device::seed`). The returned tensor has shape `(n, D)` and contains only
     /// `0.0` and `1.0` values.
     ///
     /// # Panics

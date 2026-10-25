@@ -860,6 +860,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   is given, names `Device::seed`, and passes `Device::flex()`.
   `docs/rules.md`'s host-sampling rule named `B::seed(..)` too, and now
   names `Device::seed(..)`.
+- **Strategy docs that contradicted the code.** Cartesian GP's `tell`
+  gave its tie rule backwards: the best offspring replaces the parent when
+  its fitness is at least the parent's, since fitness is maximised. Cuckoo
+  Search said an abandoned nest carries positive infinity, where it
+  carries negative infinity, and that its Lévy step drifts between
+  backends, where it is computed on the host. PSO's constriction factor
+  said `c1 + c2 <= 4` falls back to no contraction, where it expands and
+  is infinite at 2; `validate` rejects that config for the constriction
+  variant. `FireflyConfig::gamma` read as scaled to the bounds, which it
+  is not. The `# Panics` sections of ABC, GWO and the Salp swarm named a
+  `pop_size` floor that `init` checks only in debug builds; each now says
+  what a release build does. WOA's and the Salp swarm's named a trigger,
+  `ask` twice without a `tell`, that does not panic, and missed the one
+  that does: a first generation whose every fitness is `NaN` or negative
+  infinity. Comments that named `B::seed` and Burn 0.21 now name
+  `Device::seed` and Burn 0.22, the `ops` module lists the mutation
+  operators it has, and `AcoRState::weights` and the classical ES module
+  no longer claim a recomputation and a reuse that do not happen.
 
 ### `rlevo-hybrid`
 

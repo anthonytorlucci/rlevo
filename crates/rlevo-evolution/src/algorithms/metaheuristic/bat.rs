@@ -272,7 +272,7 @@ impl Strategy for BatAlgorithm {
         // `seed_stream`, mirroring `ask`/`tell`. The Flex backend's
         // `Tensor::random` draws from a process-wide RNG mutex; under the
         // parallel test runner those draws interleave with sibling tests,
-        // so `B::seed` + `Tensor::random` is NOT reproducible across
+        // so `Device::seed` + `Tensor::random` is NOT reproducible across
         // thread schedules. Host sampling keeps initialisation bit-stable
         // regardless of core count or test ordering.
         let pop = params.pop_size;

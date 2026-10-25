@@ -217,9 +217,11 @@ impl AbcState {
 ///
 /// # Panics
 ///
-/// [`Strategy::init`] panics if `params.pop_size < 2`, since the
+/// In debug builds, [`Strategy::init`] panics on a config that fails
+/// [`Validate::validate`], `params.pop_size < 2` among them, since the
 /// employed-phase neighbour `$k \neq i$` cannot be drawn from a colony of
-/// one.
+/// one. Release builds do not check in `init`, and a colony of one runs with
+/// the bee as its own neighbour.
 ///
 /// # Example
 ///
@@ -298,7 +300,7 @@ impl Strategy for ArtificialBeeColony {
         );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial colony from a deterministic `seed_stream`
-        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // rather than the process-wide Flex RNG (`Device::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
         // and are not reproducible across thread schedules.
         let pop = params.pop_size;

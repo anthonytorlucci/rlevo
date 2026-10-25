@@ -4,7 +4,7 @@
 //! `(N, D)` and produce an offspring tensor of the same shape. Each
 //! operator draws its randomness from a caller-supplied host `rng` and
 //! materialises the draws via `Tensor::from_data`, rather than seeding
-//! the process-wide backend RNG (`B::seed` + `Tensor::random`). Host
+//! the process-wide backend RNG (`Device::seed` + `Tensor::random`). Host
 //! sampling keeps results reproducible across thread schedules: the
 //! global Flex RNG mutex would otherwise interleave draws with sibling
 //! tests under the parallel runner.

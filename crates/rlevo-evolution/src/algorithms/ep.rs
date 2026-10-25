@@ -194,7 +194,7 @@ impl Strategy for EvolutionaryProgramming {
     /// fitness cache.
     ///
     /// Initial sampling goes through [`seed_stream`] rather than
-    /// `B::seed + Tensor::random` to keep results reproducible across
+    /// `Device::seed` + `Tensor::random` to keep results reproducible across
     /// parallel test threads.
     fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &Device) -> EpState {
         debug_assert!(
@@ -203,7 +203,7 @@ impl Strategy for EvolutionaryProgramming {
         );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial parents from a deterministic `seed_stream`
-        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // rather than the process-wide Flex RNG (`Device::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
         // and are not reproducible across thread schedules.
         let mu = params.mu;

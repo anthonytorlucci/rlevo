@@ -12,7 +12,7 @@
 //! # Host-RNG convention
 //!
 //! All randomness in `rlevo-evolution` **must** go through [`seed_stream`].
-//! Do **not** use `B::seed(…) + Tensor::random(…)` for stochastic EA
+//! Do **not** use `Device::seed(…) + Tensor::random(…)` for stochastic EA
 //! operators. Burn's backend-level RNG is a process-wide mutex; seeding it
 //! from inside an operator races with parallel test threads and with other
 //! concurrent strategy calls, making results non-reproducible and causing

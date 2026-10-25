@@ -425,10 +425,11 @@ impl Strategy for CartesianGeneticProgramming {
 
     /// Applies `$(1+\lambda)$` selection and returns the updated state.
     ///
-    /// The canonical CGP tie-breaking rule is used: an offspring replaces the
-    /// parent when its fitness is **less than or equal to** the parent's,
-    /// allowing neutral mutations to accumulate and maintain genetic diversity
-    /// in the inactive (non-coding) portion of the genome.
+    /// The canonical CGP tie-breaking rule is used: the best offspring replaces
+    /// the parent when its fitness is **greater than or equal to** the parent's
+    /// (fitness is maximised), allowing neutral mutations to accumulate and
+    /// maintain genetic diversity in the inactive (non-coding) portion of the
+    /// genome.
     ///
     /// The first `tell` after `init` bootstraps the parent fitness from the
     /// initial single-genome evaluation rather than running selection.
