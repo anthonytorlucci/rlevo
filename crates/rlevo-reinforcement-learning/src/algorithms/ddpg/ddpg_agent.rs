@@ -9,6 +9,7 @@
 //! and run gradient updates on a cadence of the caller's own.
 
 use rlevo_core::agent::{Agent, Transition};
+use rlevo_core::fitness::Metric;
 use std::marker::PhantomData;
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
@@ -29,7 +30,7 @@ use crate::algorithms::ddpg::exploration::GaussianNoise;
 use crate::algorithms::shared::param_checksum;
 use crate::algorithms::shared::{
     FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
-    action_bound_tensors, assert_bounds_match_components, clip_to_action_bounds,
+    action_bound_tensors, assert_bounds_match_components, clip_to_action_bounds, rl_counter,
 };
 use crate::utils::{PolyakError, compute_target_q_values, polyak_update};
 
@@ -960,6 +961,13 @@ where
 /// advances the step counter and takes a learning step, which does nothing
 /// until the buffer holds `learning_starts` transitions. While evaluating it
 /// does nothing.
+///
+/// [`emit_metrics`](Agent::emit_metrics) reports six [`Metric::Counter`]s,
+/// each a total since the agent was built, under `rl/`: `rl/env_steps`
+/// ([`step`](DdpgAgent::step)), then `rl/critic_updates`,
+/// `rl/skipped_updates`, `rl/dropped_transitions`,
+/// `rl/dropped_observations` and `rl/degenerate_action_selections`, each
+/// what the accessor of that name returns.
 impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
     Agent<O, A> for DdpgAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
 where
@@ -989,6 +997,20 @@ where
 
     fn set_training(&mut self, training: bool) {
         self.training = training;
+    }
+
+    fn emit_metrics(&self) -> Vec<Metric> {
+        vec![
+            rl_counter("env_steps", self.step() as u64),
+            rl_counter("critic_updates", self.critic_updates() as u64),
+            rl_counter("skipped_updates", self.skipped_updates()),
+            rl_counter("dropped_transitions", self.dropped_transitions()),
+            rl_counter("dropped_observations", self.dropped_observations()),
+            rl_counter(
+                "degenerate_action_selections",
+                self.degenerate_action_selections(),
+            ),
+        ]
     }
 }
 
@@ -1867,6 +1889,52 @@ mod driven_tests {
         assert!(
             flags.iter().all(|f| !f),
             "truncation must not zero the bootstrap; got {flags:?}"
+        );
+    }
+
+    /// [`Agent::emit_metrics`] reports every counter under its own name,
+    /// with the count its accessor returns.
+    #[test]
+    fn test_ddpg_emit_metrics_reports_each_counter_under_its_name() {
+        use crate::algorithms::bootstrap_mask::{assert_rl_counters, exercise_counters};
+
+        let device = Device::flex();
+        let config = DdpgTrainingConfig {
+            learning_starts: 4,
+            batch_size: 2,
+            replay_buffer_capacity: 64,
+            ..DdpgTrainingConfig::default()
+        };
+        let mut agent = DdpgAgent::<
+            MlpActor,
+            MlpCritic,
+            MaskObservation,
+            MaskContinuousAction,
+            1,
+            2,
+            1,
+            2,
+        >::new(tiny_actor(&device), tiny_critic(&device), config, device)
+        .expect("valid config");
+        let mut rng = StdRng::seed_from_u64(7);
+        exercise_counters(
+            &mut agent,
+            ContinuousMaskEnv::new(PERIOD, EpisodeStatus::Terminated),
+            &mut rng,
+        );
+        assert_rl_counters(
+            &agent.emit_metrics(),
+            &[
+                ("env_steps", agent.step() as u64),
+                ("critic_updates", agent.critic_updates() as u64),
+                ("skipped_updates", agent.skipped_updates()),
+                ("dropped_transitions", agent.dropped_transitions()),
+                ("dropped_observations", agent.dropped_observations()),
+                (
+                    "degenerate_action_selections",
+                    agent.degenerate_action_selections(),
+                ),
+            ],
         );
     }
 }

@@ -12,8 +12,9 @@ use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rlevo_core::action::{ContinuousAction, DiscreteAction};
 use rlevo_core::agent::{Agent, Transition};
+use rlevo_core::fitness::Metric;
 
-use crate::algorithms::shared::{FiniteLossGuard, Slot};
+use crate::algorithms::shared::{FiniteLossGuard, Slot, rl_counter};
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
@@ -380,6 +381,15 @@ where
     pub const fn skipped_updates(&self) -> u64 {
         self.skipped_policy_updates()
             .saturating_add(self.skipped_value_updates())
+    }
+
+    /// What every head's [`Agent::emit_metrics`] reports.
+    fn rl_counters(&self) -> Vec<Metric> {
+        vec![
+            rl_counter("env_steps", self.step() as u64),
+            rl_counter("iterations", self.iteration() as u64),
+            rl_counter("skipped_updates", self.skipped_updates()),
+        ]
     }
 
     /// Immutable access to the current config.
@@ -836,6 +846,12 @@ where
 /// from its own next observation, so the advantages never run across the
 /// driver's reset into the next episode.
 ///
+/// [`emit_metrics`](Agent::emit_metrics) reports three [`Metric::Counter`]s,
+/// each a total since the agent was built, under `rl/`: `rl/env_steps`
+/// ([`step`](PpoAgent::step)), `rl/iterations`
+/// ([`iteration`](PpoAgent::iteration)) and `rl/skipped_updates`
+/// ([`skipped_updates`](PpoAgent::skipped_updates)).
+///
 /// # Panics
 ///
 /// `on_transition` panics, while training, when no [`act`](Agent::act)
@@ -872,6 +888,10 @@ where
         self.close_open_step();
         self.training = training;
     }
+
+    fn emit_metrics(&self) -> Vec<Metric> {
+        self.rl_counters()
+    }
 }
 
 /// Driven through [`Agent`], the agent samples from its policy while
@@ -888,6 +908,12 @@ where
 /// without the environment ending it becomes a truncation that bootstraps
 /// from its own next observation, so the advantages never run across the
 /// driver's reset into the next episode.
+///
+/// [`emit_metrics`](Agent::emit_metrics) reports three [`Metric::Counter`]s,
+/// each a total since the agent was built, under `rl/`: `rl/env_steps`
+/// ([`step`](PpoAgent::step)), `rl/iterations`
+/// ([`iteration`](PpoAgent::iteration)) and `rl/skipped_updates`
+/// ([`skipped_updates`](PpoAgent::skipped_updates)).
 ///
 /// # Panics
 ///
@@ -924,6 +950,10 @@ where
     fn set_training(&mut self, training: bool) {
         self.close_open_step();
         self.training = training;
+    }
+
+    fn emit_metrics(&self) -> Vec<Metric> {
+        self.rl_counters()
     }
 }
 
@@ -1608,5 +1638,46 @@ mod update_telemetry_tests {
         );
         Agent::<CartPoleObservation, CartPoleAction>::set_training(&mut agent, true);
         assert_eq!(agent.buffer_len(), 2);
+    }
+
+    /// Each head's [`Agent::emit_metrics`] reports every counter under its
+    /// own name, with the count its accessor returns. Nine steps of a
+    /// four-step rollout make two iterations, so no two counts are equal.
+    #[test]
+    fn test_ppo_emit_metrics_reports_each_counter_under_its_name() {
+        use crate::algorithms::bootstrap_mask::{assert_rl_counters, drive};
+
+        let mut rng = StdRng::seed_from_u64(5);
+        let mut env = CartPole::with_config(CartPoleConfig {
+            seed: 5,
+            ..CartPoleConfig::default()
+        })
+        .expect("valid config");
+        let mut agent = cart_pole_agent(4);
+        drive(&mut env, &mut agent, 9, &mut rng);
+        assert_rl_counters(
+            &Agent::<CartPoleObservation, CartPoleAction>::emit_metrics(&agent),
+            &[
+                ("env_steps", agent.step() as u64),
+                ("iterations", agent.iteration() as u64),
+                ("skipped_updates", agent.skipped_updates()),
+            ],
+        );
+
+        let mut env = Pendulum::with_config(PendulumConfig {
+            seed: 5,
+            ..PendulumConfig::default()
+        })
+        .expect("valid config");
+        let mut agent = pendulum_agent(4);
+        drive(&mut env, &mut agent, 9, &mut rng);
+        assert_rl_counters(
+            &Agent::<PendulumObservation, PendulumAction>::emit_metrics(&agent),
+            &[
+                ("env_steps", agent.step() as u64),
+                ("iterations", agent.iteration() as u64),
+                ("skipped_updates", agent.skipped_updates()),
+            ],
+        );
     }
 }

@@ -16,7 +16,9 @@ use burn::tensor::{Device, Tensor};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo::harness::evaluator::train;
+use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, train};
+use rlevo::harness::reporter::logging::LoggingReporter;
+use rlevo::harness::suite::Suite;
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
@@ -364,4 +366,79 @@ fn dqn_cartpole_hard_target_copies_inside_train() {
         hard_max_abs_diff(&refreshed, &copied) > 0.0,
         "the refresh must pick up the policy's drift, not re-copy the stale weights"
     );
+}
+
+/// A DQN agent trained and evaluated through `Evaluator::run_suite` reports
+/// its counters into the trial's report under its own `rl/` names, none of
+/// them re-homed: the harness renames only the names it reserves.
+///
+/// The agent remembers only while training, so `rl/env_steps` is exactly the
+/// training budget.
+#[test]
+fn dqn_run_suite_reports_the_agents_counters() {
+    const TRAIN_STEPS: usize = 200;
+
+    let _guard = flex_guard();
+    let suite = Suite::new("dqn-counters").with_env("cartpole", cartpole_seeded);
+    let evaluator = Evaluator::new(EvaluatorConfig {
+        num_episodes: 2,
+        train_steps: TRAIN_STEPS,
+        max_steps: 200,
+        num_trials_per_env: 1,
+        base_seed: 7,
+        num_threads: Some(1),
+        ..EvaluatorConfig::default()
+    });
+    let report = evaluator.run_suite(
+        &suite,
+        |seed| -> Agent {
+            let device = seeded_device(seed);
+            let config = DqnTrainingConfig {
+                batch_size: 16,
+                learning_starts: 50,
+                train_frequency: 1,
+                replay_buffer_capacity: 1_000,
+                ..Default::default()
+            };
+            DqnAgent::new(q_network(&device), config, device).expect("valid config")
+        },
+        &mut LoggingReporter::new(),
+    );
+
+    let trial = &report.trials[0];
+    assert!(
+        !trial.errored,
+        "the trial errored: {:?}",
+        trial.error_message
+    );
+    assert!(
+        trial.displaced_metrics.is_empty(),
+        "no agent counter may collide with a harness name: {:?}",
+        trial.displaced_metrics
+    );
+    assert_eq!(
+        trial.counters.get("rl/env_steps"),
+        Some(&(TRAIN_STEPS as u64)),
+        "the agent counts the steps it trained on, and only those"
+    );
+    assert!(
+        trial
+            .counters
+            .get("rl/gradient_updates")
+            .is_some_and(|&n| n > 0),
+        "{TRAIN_STEPS} steps past `learning_starts` must take gradient steps: {:?}",
+        trial.counters
+    );
+    for name in [
+        "rl/skipped_updates",
+        "rl/dropped_transitions",
+        "rl/dropped_observations",
+        "rl/degenerate_action_selections",
+    ] {
+        assert!(
+            trial.counters.contains_key(name),
+            "missing {name}: {:?}",
+            trial.counters
+        );
+    }
 }

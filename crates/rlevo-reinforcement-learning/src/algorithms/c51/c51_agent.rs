@@ -8,6 +8,7 @@
 //! minimises the categorical cross-entropy against the policy's log-probabilities.
 
 use rlevo_core::agent::{Agent, Transition};
+use rlevo_core::fitness::Metric;
 use std::marker::PhantomData;
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
@@ -30,7 +31,7 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
 use crate::algorithms::shared::{
     FiniteLossGuard, FiniteObsGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA,
-    reduce_weighted_loss,
+    reduce_weighted_loss, rl_counter,
 };
 use crate::utils::{PolyakError, polyak_update};
 
@@ -933,6 +934,13 @@ where
 /// advances the step counter, takes a learning step when
 /// `should_train` says so, and decays `$\epsilon$`. While
 /// evaluating it does nothing.
+///
+/// [`emit_metrics`](Agent::emit_metrics) reports six [`Metric::Counter`]s,
+/// each a total since the agent was built, under `rl/`: `rl/env_steps`
+/// ([`step`](C51Agent::step)), then `rl/gradient_updates`,
+/// `rl/skipped_updates`, `rl/dropped_transitions`,
+/// `rl/dropped_observations` and `rl/degenerate_action_selections`, each
+/// what the accessor of that name returns.
 impl<M, O, A, const OR: usize, const BS: usize> Agent<O, A> for C51Agent<M, O, A, OR, BS>
 where
     M: DqnModel<BS, 3>,
@@ -967,6 +975,20 @@ where
 
     fn set_training(&mut self, training: bool) {
         self.training = training;
+    }
+
+    fn emit_metrics(&self) -> Vec<Metric> {
+        vec![
+            rl_counter("env_steps", self.step() as u64),
+            rl_counter("gradient_updates", self.gradient_updates() as u64),
+            rl_counter("skipped_updates", self.skipped_updates()),
+            rl_counter("dropped_transitions", self.dropped_transitions()),
+            rl_counter("dropped_observations", self.dropped_observations()),
+            rl_counter(
+                "degenerate_action_selections",
+                self.degenerate_action_selections(),
+            ),
+        ]
     }
 }
 
@@ -1914,5 +1936,47 @@ mod driven_tests {
                 "an evaluating agent acts greedily"
             );
         }
+    }
+
+    /// [`Agent::emit_metrics`] reports every counter under its own name,
+    /// with the count its accessor returns.
+    #[test]
+    fn test_c51_emit_metrics_reports_each_counter_under_its_name() {
+        use crate::algorithms::bootstrap_mask::{assert_rl_counters, exercise_counters};
+
+        let device = Device::flex();
+        let config = C51TrainingConfig {
+            learning_starts: 4,
+            batch_size: 2,
+            train_frequency: 1,
+            replay_buffer_capacity: 64,
+            ..C51TrainingConfig::default()
+        };
+        let net = atom_net(config.num_atoms, &device);
+        let mut agent =
+            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+                net, config, device,
+            )
+            .expect("valid config");
+        let mut rng = StdRng::seed_from_u64(7);
+        exercise_counters(
+            &mut agent,
+            DiscreteMaskEnv::new(PERIOD, EpisodeStatus::Terminated),
+            &mut rng,
+        );
+        assert_rl_counters(
+            &agent.emit_metrics(),
+            &[
+                ("env_steps", agent.step() as u64),
+                ("gradient_updates", agent.gradient_updates() as u64),
+                ("skipped_updates", agent.skipped_updates()),
+                ("dropped_transitions", agent.dropped_transitions()),
+                ("dropped_observations", agent.dropped_observations()),
+                (
+                    "degenerate_action_selections",
+                    agent.degenerate_action_selections(),
+                ),
+            ],
+        );
     }
 }
