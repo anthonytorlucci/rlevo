@@ -16,10 +16,10 @@
 //! # Orientation
 //!
 //! NEAT is **maximization** (higher fitness is better) — matching the crate-wide
-//! maximise convention. [`Species`] best/stagnation tracking, fitness sharing,
-//! and the [`GraphFitnessFn`](crate::algorithms::neuroevolution::neat::GraphFitnessFn)
-//! seam all treat higher as better; a cost objective is reconciled into
-//! canonical space by the loop/adapter chokepoint, not by hand here.
+//! maximise convention. [`Species`] best/stagnation tracking and fitness
+//! sharing treat higher as better; a cost objective is reconciled into
+//! canonical space by the loop/adapter chokepoint, not by hand here, and
+//! [`speciate`] shifts a generation with negative fitness before sharing.
 
 pub mod innovation;
 pub mod phenotype;

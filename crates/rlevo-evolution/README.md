@@ -29,6 +29,8 @@ backend the caller selects; this crate selects none.
 | Estimation of Distribution (EDA) | `algorithms::eda::EdaStrategy` | `Tensor<2>` | 5 model variants: univariate Gaussian/Bernoulli, compact GA, dependency-chain, Bayesian network |
 | Memetic wrapper | `algorithms::memetic::MemeticWrapper` | wraps any `Strategy` | hybridizes a population strategy with local search |
 | Neuroevolution — weight-only | any flat-genome `Strategy` with `param_reshaper::ModuleReshaper` and `module_eval_fn::ModuleEvalFn` | fixed-topology network weights | evolves weights of a fixed architecture; `rlevo-hybrid`'s `RolloutFitness` scores them by rollout |
+| Neuroevolution — bounded architecture search | `algorithms::neuroevolution::arch_nas::ArchNasStrategy` | `NasGenome`: an architecture id per individual beside zero-padded weights | chooses among a fixed menu of network architectures while evolving each one's weights; `ArchNasBuilder` emits its parameters and its fitness function together |
+| Neuroevolution — NEAT | `algorithms::neuroevolution::neat::NeatStrategy` | `Vec<TopologyGenome>`, a population of graphs | complexifying topology search over growing networks, scored one network at a time or in one batched pass (`BatchGraphFitness`); XOR solved within 300 generations |
 
 Every row above implements [`Strategy`](src/strategy.rs) and is run by
 `EvolutionaryLoop`.
@@ -39,8 +41,6 @@ Also shipping, and not a `Strategy`:
 |---|---|---|
 | Local search | `local_search::{HillClimbing, NelderMead, RandomRestart, SimulatedAnnealing}` | standalone local-search operators, also used inside `MemeticWrapper` |
 | Coevolution | `coevolution::{CompetitiveCoEA, CooperativeCoEA, CoEvolutionaryLoop, HallOfFame}` | two-population competitive/cooperative coevolution with hall-of-fame tracking, run by its own `CoEvolutionaryLoop` |
-| Neuroevolution — NEAT | `algorithms::neuroevolution::neat::NeatStrategy` | complexifying topology search over growing networks. A standalone strategy with its own `init`/`ask`/`tell`: no loop drives it, you write the generation loop |
-| Neuroevolution — bounded architecture search | `algorithms::neuroevolution::arch_nas::ArchNasStrategy` | chooses among a fixed menu of network architectures while evolving each one's weights. Standalone, like NEAT |
 
 ## Swarm & metaheuristic suite
 

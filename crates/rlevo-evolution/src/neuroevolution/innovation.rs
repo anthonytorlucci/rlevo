@@ -9,7 +9,7 @@
 //!
 //! # Determinism
 //!
-//! Mutation is applied sequentially host-side inside `tell` under the seeded
+//! Mutation is applied sequentially host-side inside `ask` under the seeded
 //! `seed_stream` RNG, so the `Mutex` never contends and id-issue order is
 //! seed-fixed. The caches additionally make the *result* of a repeated
 //! structural mutation order-independent: only first-issue assignment depends on

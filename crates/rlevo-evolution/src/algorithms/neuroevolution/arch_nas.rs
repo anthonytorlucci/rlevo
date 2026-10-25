@@ -7,16 +7,31 @@
 //! menu of concrete `Module` variants, and each population member carries a
 //! categorical **architecture id** plus a per-variant **weight vector**.
 //!
-//! # Why a standalone type, not [`Strategy`](crate::strategy::Strategy)
+//! # A `Strategy` with a genome of its own
 //!
-//! [`Strategy`](crate::strategy::Strategy)'s `Genome = Tensor<2>` is a
-//! homogeneous float contract. An architecture selector is a *categorical
-//! integer*; encoding it as a float is fragile under mutation, and a parallel
-//! `Int` tensor breaks the `Strategy` signature. So [`ArchNasStrategy`] is a
-//! **standalone type** with its own [`NasGenome`] (a `Vec<usize>` of arch ids
-//! beside a zero-padded `Tensor<2>` of weights) and inherent
-//! `init`/`ask`/`tell`/`best` methods mirroring the `Strategy` shape — it does
-//! **not** implement `Strategy`.
+//! An architecture selector is a *categorical integer*; encoding it as a float
+//! column is fragile under mutation. So [`ArchNasStrategy`] implements
+//! [`Strategy`] with its own genome, [`NasGenome`]: a `Vec<usize>` of arch ids
+//! beside a zero-padded `Tensor<2>` of weights. [`ArchNasFitnessFn`] is the
+//! [`BatchFitnessFn`] that scores it, so an [`EvolutionaryLoop`] drives a run,
+//! and the evaluation harness runs many through the loop's
+//! [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe), as it runs any
+//! other strategy:
+//!
+//! ```ignore
+//! let (params, fitness) = builder.build(cfg);
+//! let mut evo = EvolutionaryLoop::new(ArchNasStrategy::new(), params, fitness, seed, device, 50)?;
+//! evo.reset();
+//! while !evo.is_done() {
+//!     evo.step();
+//! }
+//! let (champion, fitness) = evo.best().expect("a generation has run");
+//! let arch_id = champion.arch_ids()[0];
+//! ```
+//!
+//! The loop negates a `Minimize` objective and sanitises fitness before
+//! [`tell`](Strategy::tell); the strategy's selection is by rank, so either
+//! sense works.
 //!
 //! # Architecture dispatch — closure-erased registry
 //!
@@ -46,6 +61,8 @@
 //! (architecture ids, selection, crossover, weight perturbation) goes through
 //! [`seed_stream`] host-side `StdRng` substreams; the
 //! process-wide backend RNG is never touched (see [`crate::rng`]).
+//!
+//! [`EvolutionaryLoop`]: crate::strategy::EvolutionaryLoop
 
 use burn::module::Module;
 use burn::tensor::{Device, Tensor, TensorData};
@@ -53,10 +70,13 @@ use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
 
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+use rlevo_core::objective::ObjectiveSense;
 
+use crate::fitness::BatchFitnessFn;
 use crate::ops::selection::{argmax_host, tournament_indices_host, truncation_indices_host};
 use crate::param_reshaper::ModuleReshaper;
 use crate::rng::{SeedPurpose, seed_stream};
+use crate::strategy::{Strategy, StrategyMetrics};
 
 /// One population's worth of architecture-NAS genomes.
 ///
@@ -64,15 +84,10 @@ use crate::rng::{SeedPurpose, seed_stream};
 /// `0..num_variants`); row `i` of `weights` holds that individual's flat
 /// weight vector, padded with trailing zeros out to `max_param_count`.
 ///
-/// # Not `Clone`
-///
-/// `NasGenome` deliberately does **not** derive [`Clone`]: Burn tensors alias
-/// their underlying storage, so a derived `Clone` would silently share buffers
-/// rather than copy them. [`ArchNasStrategy::ask`] constructs a *fresh*
-/// `NasGenome` with newly allocated tensors (built host-side via
-/// [`Tensor::from_data`]) instead of cloning the struct — consistent with the
-/// phase-1 strategies.
-#[derive(Debug)]
+/// It is the [`Strategy::Genome`] of [`ArchNasStrategy`]: `ask` returns one,
+/// [`ArchNasFitnessFn`] scores it, and [`Strategy::best`] returns the champion
+/// as a one-row `NasGenome`.
+#[derive(Debug, Clone)]
 pub struct NasGenome {
     /// Architecture index of each individual; length `pop_size`, each value in
     /// `0..num_variants`.
@@ -282,99 +297,6 @@ impl Validate for NasParams {
                 kind: ConstraintKind::Custom("per_variant_params length must equal num_variants"),
             });
         }
-        config::at_least(C, "tournament_size", self.tournament_size, 1)?;
-        if self.elite_count > self.pop_size {
-            return Err(ConfigError {
-                config: C,
-                field: "elite_count",
-                kind: ConstraintKind::Custom("elite_count must not exceed pop_size"),
-            });
-        }
-        Ok(())
-    }
-}
-
-/// Evolving state for [`ArchNasStrategy`]: resident population plus best-ever
-/// tracking.
-///
-/// Carries no PRNG state (the caller owns all stochasticity). Not `Clone`
-/// (it holds a [`NasGenome`], which is intentionally not `Clone`); the strategy
-/// threads state by explicit reconstruction.
-#[derive(Debug)]
-pub struct NasState {
-    population: NasGenome,
-    /// Resident fitness; empty until the first [`tell`](ArchNasStrategy::tell).
-    fitness: Vec<f32>,
-    best_arch_id: Option<usize>,
-    /// Best-ever padded weight row, length `max_param_count`.
-    best_weights: Option<Tensor<1>>,
-    best_fitness: f32,
-    generation: usize,
-}
-
-impl NasState {
-    /// Rebuild this state with freshly cloned tensors so it can be handed from
-    /// `ask` to `tell` without sharing the resident buffers.
-    fn carry_forward(&self) -> Self {
-        Self {
-            population: NasGenome {
-                arch_ids: self.population.arch_ids.clone(),
-                weights: self.population.weights.clone(),
-            },
-            fitness: self.fitness.clone(),
-            best_arch_id: self.best_arch_id,
-            best_weights: self.best_weights.clone(),
-            best_fitness: self.best_fitness,
-            generation: self.generation,
-        }
-    }
-
-    /// Completed-generation counter (number of `tell` calls).
-    #[must_use]
-    pub fn generation(&self) -> usize {
-        self.generation
-    }
-
-    /// Borrow the current resident population.
-    ///
-    /// After [`init`](ArchNasStrategy::init) this is the seed population; after
-    /// each [`tell`](ArchNasStrategy::tell) it is the most recently evaluated
-    /// population. Exposed so callers can inspect architecture coverage and the
-    /// padded weight tensor.
-    #[must_use]
-    pub fn population(&self) -> &NasGenome {
-        &self.population
-    }
-
-    /// Best-ever fitness seen so far (canonical maximise), or `$-\infty$` before the
-    /// first [`tell`](ArchNasStrategy::tell).
-    #[must_use]
-    pub fn best_fitness(&self) -> f32 {
-        self.best_fitness
-    }
-}
-
-/// Knobs [`ArchNasBuilder::build`] cannot derive from the registered variants.
-#[derive(Debug, Clone, Copy)]
-pub struct NasBuilderConfig {
-    /// Number of individuals per generation.
-    pub pop_size: usize,
-    /// Per-individual architecture-mutation probability.
-    pub arch_mutation_rate: f32,
-    /// Gaussian weight-perturbation standard deviation.
-    pub weight_mutation_std: f32,
-    /// Gaussian weight-initialization standard deviation.
-    pub weight_init_std: f32,
-    /// Tournament size for parent selection.
-    pub tournament_size: usize,
-    /// Number of elites preserved unmutated each generation.
-    pub elite_count: usize,
-}
-
-impl Validate for NasBuilderConfig {
-    fn validate(&self) -> Result<(), ConfigError> {
-        const C: &str = "NasBuilderConfig";
-        config::at_least(C, "pop_size", self.pop_size, 1)?;
         config::in_range(
             C,
             "arch_mutation_rate",
@@ -406,6 +328,72 @@ impl Validate for NasBuilderConfig {
         }
         Ok(())
     }
+}
+
+/// Evolving state for [`ArchNasStrategy`]: resident population plus best-ever
+/// tracking.
+///
+/// Carries no PRNG state (the caller owns all stochasticity).
+#[derive(Debug, Clone)]
+pub struct NasState {
+    population: NasGenome,
+    /// Resident fitness; empty until the first [`tell`](Strategy::tell).
+    fitness: Vec<f32>,
+    /// Best-ever individual as a one-row genome.
+    best: Option<NasGenome>,
+    best_fitness: f32,
+    generation: usize,
+}
+
+impl NasState {
+    /// Completed-generation counter (number of `tell` calls).
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// Borrow the current resident population.
+    ///
+    /// After [`init`](Strategy::init) this is the seed population; after
+    /// each [`tell`](Strategy::tell) it is the most recently evaluated
+    /// population. Exposed so callers can inspect architecture coverage and the
+    /// padded weight tensor.
+    #[must_use]
+    pub fn population(&self) -> &NasGenome {
+        &self.population
+    }
+
+    /// Best-ever fitness seen so far (canonical maximise), or `$-\infty$` before the
+    /// first [`tell`](Strategy::tell).
+    #[must_use]
+    pub fn best_fitness(&self) -> f32 {
+        self.best_fitness
+    }
+}
+
+/// Knobs [`ArchNasBuilder::build`] cannot derive from the registered variants.
+///
+/// [`NasParams`]' [`Validate`] impl checks the ranges, when
+/// [`EvolutionaryLoop::new`](crate::strategy::EvolutionaryLoop::new) is given
+/// the built parameters.
+#[derive(Debug, Clone, Copy)]
+pub struct NasBuilderConfig {
+    /// Number of individuals per generation.
+    pub pop_size: usize,
+    /// Per-individual architecture-mutation probability.
+    pub arch_mutation_rate: f32,
+    /// Gaussian weight-perturbation standard deviation.
+    pub weight_mutation_std: f32,
+    /// Gaussian weight-initialization standard deviation.
+    pub weight_init_std: f32,
+    /// Tournament size for parent selection.
+    pub tournament_size: usize,
+    /// Number of elites preserved unmutated each generation.
+    pub elite_count: usize,
+    /// The direction of every registered scorer: `Maximize` for an accuracy or
+    /// a reward, `Minimize` for a loss. [`ArchNasFitnessFn`] declares it to the
+    /// loop, which negates a `Minimize` score before the strategy sees it.
+    pub sense: ObjectiveSense,
 }
 
 /// Builder that registers architecture variants in order and emits a matched
@@ -485,6 +473,7 @@ impl ArchNasBuilder {
         };
         let fitness = ArchNasFitnessFn {
             evaluators: self.evaluators,
+            sense: cfg.sense,
         };
         (params, fitness)
     }
@@ -492,13 +481,14 @@ impl ArchNasBuilder {
 
 /// Arch-dispatched, loop-over-N fitness adapter; owns the type-erased registry.
 ///
-/// `evaluate` walks the population row by row, dispatches each to its variant's
-/// evaluator by `arch_id` index, and assembles a `[pop_size]` fitness tensor.
-/// Burn 0.21 has no batched/`vmap` forward, so evaluation is loop-over-N; a
+/// Its [`BatchFitnessFn::evaluate_batch`] walks the population row by row,
+/// dispatches each to its variant's evaluator by `arch_id` index, and
+/// assembles a `[pop_size]` fitness tensor, one forward per individual. A
 /// batched arch-dispatched path is a future addition.
 #[derive(Debug)]
 pub struct ArchNasFitnessFn {
     evaluators: Vec<VariantEvaluator>,
+    sense: ObjectiveSense,
 }
 
 impl ArchNasFitnessFn {
@@ -507,8 +497,11 @@ impl ArchNasFitnessFn {
     pub fn num_variants(&self) -> usize {
         self.evaluators.len()
     }
+}
 
-    /// Evaluate a population, returning `[pop_size]` fitness (canonical maximise).
+impl BatchFitnessFn<NasGenome> for ArchNasFitnessFn {
+    /// Score a population, returning `[pop_size]` fitness in the scorers'
+    /// natural sense, the one [`NasBuilderConfig::sense`] declares.
     ///
     /// Row `i` is dispatched to `evaluators[genome.arch_ids[i]]`.
     ///
@@ -516,8 +509,7 @@ impl ArchNasFitnessFn {
     ///
     /// Panics if any `arch_id` is out of range for the registry, or if the
     /// weight tensor's row count disagrees with `arch_ids.len()`.
-    #[must_use]
-    pub fn evaluate(&self, genome: &NasGenome, device: &Device) -> Tensor<1> {
+    fn evaluate_batch(&mut self, genome: &NasGenome, device: &Device) -> Tensor<1> {
         let [pop_size, max_param_count] = genome.weights.dims();
         assert_eq!(
             pop_size,
@@ -536,24 +528,16 @@ impl ArchNasFitnessFn {
         }
         Tensor::<1>::from_data(TensorData::new(fitness, [pop_size]), device)
     }
+
+    fn sense(&self) -> ObjectiveSense {
+        self.sense
+    }
 }
 
-/// Standalone NAS strategy. Does **not** implement
-/// [`Strategy`](crate::strategy::Strategy) — see the module docs.
+/// Bounded architecture search as a [`Strategy`] over [`NasGenome`]; the
+/// module docs show a run.
 ///
-/// The strategy is stateless; all evolving state lives in [`NasState`]. Drive
-/// it with the same ask/tell loop as a [`Strategy`](crate::strategy::Strategy):
-///
-/// ```ignore
-/// let strat = ArchNasStrategy::new();
-/// let mut state = strat.init(&params, &mut rng, &device);
-/// for _ in 0..generations {
-///     let (genome, next) = strat.ask(&params, &state, &mut rng, &device);
-///     let fitness = fitness_fn.evaluate(&genome, &device);
-///     state = strat.tell(&params, genome, fitness, next, &mut rng);
-/// }
-/// let (arch_id, weights, fitness) = strat.best(&state).unwrap();
-/// ```
+/// The strategy is stateless; all evolving state lives in [`NasState`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ArchNasStrategy {}
 
@@ -563,6 +547,12 @@ impl ArchNasStrategy {
     pub fn new() -> Self {
         Self {}
     }
+}
+
+impl Strategy for ArchNasStrategy {
+    type Params = NasParams;
+    type State = NasState;
+    type Genome = NasGenome;
 
     /// Build the initial state: uniform random architecture ids and
     /// Gaussian-initialized active weights (padding zeroed).
@@ -572,9 +562,9 @@ impl ArchNasStrategy {
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`).
-    #[must_use]
-    pub fn init(&self, params: &NasParams, rng: &mut dyn Rng, device: &Device) -> NasState {
+    /// Panics if `weight_init_std` is non-finite (`$+\infty$` or `NaN`), which
+    /// [`NasParams`]' [`Validate`] impl rejects before a loop runs.
+    fn init(&self, params: &NasParams, rng: &mut dyn Rng, device: &Device) -> NasState {
         debug_assert!(
             params.validate().is_ok(),
             "invalid NasParams reached init: {params:?}"
@@ -606,8 +596,7 @@ impl ArchNasStrategy {
         NasState {
             population: NasGenome { arch_ids, weights },
             fitness: Vec::new(),
-            best_arch_id: None,
-            best_weights: None,
+            best: None,
             best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
@@ -626,15 +615,12 @@ impl ArchNasStrategy {
     /// selection, crossover, mutation, architecture (re)assignment, and weight
     /// re-initialization.
     ///
-    /// The returned [`NasGenome`] is freshly allocated (no struct-level clone).
-    ///
     /// # Panics
     ///
     /// Panics if `weight_init_std` or `weight_mutation_std` is non-finite
     /// (`$+\infty$` or `NaN`), or if the resident weight tensor cannot be read back to
     /// the host as `f32`.
-    #[must_use]
-    pub fn ask(
+    fn ask(
         &self,
         params: &NasParams,
         state: &NasState,
@@ -646,11 +632,7 @@ impl ArchNasStrategy {
 
         // First call: the caller has not evaluated the seed population yet.
         if state.fitness.is_empty() {
-            let genome = NasGenome {
-                arch_ids: state.population.arch_ids.clone(),
-                weights: state.population.weights.clone(),
-            };
-            return (genome, state.carry_forward());
+            return (state.population.clone(), state.clone());
         }
 
         let gen_idx = state.generation as u64;
@@ -752,45 +734,40 @@ impl ArchNasStrategy {
             arch_ids: child_arch,
             weights,
         };
-        (genome, state.carry_forward())
+        (genome, state.clone())
     }
 
     /// Consume a population's fitness and produce the next state.
     ///
     /// Records the told population as the new residents, updates the best-ever
-    /// `(arch_id, weights, fitness)` triple, and increments the generation.
-    /// `fitness` follows the canonical maximise convention (higher is better).
+    /// individual, and increments the generation. `fitness` follows the
+    /// canonical maximise convention (higher is better).
     ///
     /// # Fitness hygiene
     ///
-    /// This is the `ArchNasStrategy` **driver chokepoint** (ADR 0034): the
-    /// strategy is its own driver and does **not** run through
-    /// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop), so there is
-    /// no loop above it. `tell` applies
-    /// `sanitize_fitness` to the host fitness
-    /// vector (`NaN` → `$-\infty$`, `$+\infty$` → `f32::MAX`, `$-\infty$` and finite pass through)
-    /// **before** `update_best` and before it is stored as `state.fitness`, so
-    /// a non-finite fitness can never become an immortal champion nor win the
-    /// next [`ask`](Self::ask)'s elite carry or tournament.
+    /// Under [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop) the
+    /// fitness arrives canonical and sanitised. `tell` sanitises it again where
+    /// it reaches the host, as [`Strategy::tell`] asks, so that for a caller who
+    /// drives the strategy by hand a `NaN` can neither become an immortal
+    /// champion nor win the next [`ask`](Self::ask)'s elite carry or tournament
+    /// (ADR 0034).
     ///
     /// # Panics
     ///
     /// Panics if the `fitness` tensor cannot be read back to the host as `f32`.
-    #[must_use]
-    pub fn tell(
+    fn tell(
         &self,
         params: &NasParams,
         population: NasGenome,
         fitness: Tensor<1>,
         mut state: NasState,
         _rng: &mut dyn Rng,
-    ) -> NasState {
+    ) -> (NasState, StrategyMetrics) {
         let raw = fitness
             .into_data()
             .try_into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
-        // Driver chokepoint (ADR 0034): sanitize before update_best/store so a NaN/`$\pm\infty$`
-        // can neither become the champion nor pollute the next ask.
+        // Sanitise once at the pull, before update_best and the store.
         let fitness_host: Vec<f32> = raw
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
@@ -802,21 +779,22 @@ impl ArchNasStrategy {
             params.max_param_count,
         );
         state.population = population;
-        state.fitness = fitness_host;
         state.generation += 1;
-        state
+        let metrics =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
+        state.fitness = fitness_host;
+        (state, metrics)
     }
 
-    /// Best-ever individual: `(arch_id, padded weights, fitness)`.
+    /// Best-ever individual as a one-row [`NasGenome`], with its fitness.
     ///
-    /// The weight tensor has length `max_param_count` (trailing padding
-    /// retained). Returns `None` before the first [`tell`](Self::tell).
-    #[must_use]
-    pub fn best(&self, state: &NasState) -> Option<(usize, Tensor<1>, f32)> {
-        match (state.best_arch_id, state.best_weights.as_ref()) {
-            (Some(arch_id), Some(weights)) => Some((arch_id, weights.clone(), state.best_fitness)),
-            _ => None,
-        }
+    /// The row's weights keep their trailing padding out to `max_param_count`.
+    /// Returns `None` before the first [`tell`](Self::tell).
+    fn best(&self, state: &NasState) -> Option<(NasGenome, f32)> {
+        state
+            .best
+            .clone()
+            .map(|genome| (genome, state.best_fitness))
     }
 }
 
@@ -824,9 +802,9 @@ impl ArchNasStrategy {
 ///
 /// Both the argmax ([`argmax_host`], seeded at `f32::NEG_INFINITY`) and the
 /// running champion (`state.best_fitness`, initialised to `f32::NEG_INFINITY`
-/// in [`init`](ArchNasStrategy::init)) start from the maximise-space worst
+/// in [`init`](Strategy::init)) start from the maximise-space worst
 /// sentinel, so a leading broken member cannot suppress a later valid best.
-/// `fitness` is expected pre-sanitized by [`tell`](ArchNasStrategy::tell).
+/// `fitness` is expected pre-sanitized by [`tell`](Strategy::tell).
 fn update_best(state: &mut NasState, pop: &NasGenome, fitness: &[f32], max_param_count: usize) {
     if fitness.is_empty() {
         return;
@@ -834,14 +812,13 @@ fn update_best(state: &mut NasState, pop: &NasGenome, fitness: &[f32], max_param
     let best_idx = argmax_host(fitness);
     let best_f = fitness[best_idx];
     if best_f > state.best_fitness {
-        #[allow(clippy::single_range_in_vec_init)]
-        let row: Tensor<1> = pop
-            .weights
-            .clone()
-            .slice([best_idx..best_idx + 1])
-            .reshape([max_param_count]);
-        state.best_weights = Some(row);
-        state.best_arch_id = Some(pop.arch_ids[best_idx]);
+        state.best = Some(NasGenome {
+            arch_ids: vec![pop.arch_ids[best_idx]],
+            weights: pop
+                .weights
+                .clone()
+                .slice([best_idx..best_idx + 1, 0..max_param_count]),
+        });
         state.best_fitness = best_f;
     }
 }
@@ -872,19 +849,33 @@ mod tests {
             weight_init_std: 0.5,
             tournament_size: 2,
             elite_count: 1,
+            sense: ObjectiveSense::Maximize,
         }
     }
 
+    /// The builder's knobs are checked where the loop checks them, on the
+    /// built [`NasParams`].
     #[test]
-    fn builder_config_validates() {
-        assert!(valid_builder_config().validate().is_ok());
-    }
+    fn built_params_validate_the_builder_knobs() {
+        let device = Device::flex();
+        let built = |cfg: NasBuilderConfig| two_variant_builder(&device).build(cfg).0.validate();
+        assert!(built(valid_builder_config()).is_ok());
 
-    #[test]
-    fn builder_config_rejects_elite_above_pop() {
         let mut cfg = valid_builder_config();
         cfg.elite_count = 32;
-        assert_eq!(cfg.validate().unwrap_err().field, "elite_count");
+        assert_eq!(built(cfg).unwrap_err().field, "elite_count");
+
+        let mut cfg = valid_builder_config();
+        cfg.arch_mutation_rate = 1.5;
+        assert_eq!(built(cfg).unwrap_err().field, "arch_mutation_rate");
+
+        let mut cfg = valid_builder_config();
+        cfg.weight_mutation_std = -0.1;
+        assert_eq!(built(cfg).unwrap_err().field, "weight_mutation_std");
+
+        let mut cfg = valid_builder_config();
+        cfg.weight_init_std = f32::NAN;
+        assert_eq!(built(cfg).unwrap_err().field, "weight_init_std");
     }
 
     #[test]
@@ -971,6 +962,7 @@ mod tests {
             weight_init_std: 0.5,
             tournament_size: 2,
             elite_count: 1,
+            sense: ObjectiveSense::Maximize,
         });
         assert_eq!(params.num_variants, 2);
         assert_eq!(params.per_variant_params, vec![17, 65]);
@@ -991,13 +983,14 @@ mod tests {
             let _ = &m.l1;
             n
         });
-        let (params, fitness) = builder.build(NasBuilderConfig {
+        let (params, mut fitness) = builder.build(NasBuilderConfig {
             pop_size: 1,
             arch_mutation_rate: 0.0,
             weight_mutation_std: 0.0,
             weight_init_std: 0.1,
             tournament_size: 1,
             elite_count: 0,
+            sense: ObjectiveSense::Maximize,
         });
         // Build a one-row genome with arch 0 and 17 active params, padded to 17.
         let weights = Tensor::<2>::from_data(
@@ -1012,7 +1005,7 @@ mod tests {
             weights,
         };
         let fit = fitness
-            .evaluate(&genome, &device)
+            .evaluate_batch(&genome, &device)
             .into_data()
             .try_into_vec::<f32>()
             .expect("fitness host-read of a tensor this test just built");
@@ -1029,6 +1022,7 @@ mod tests {
             weight_init_std: 0.5,
             tournament_size: 2,
             elite_count: 1,
+            sense: ObjectiveSense::Maximize,
         });
         let strat = ArchNasStrategy::new();
         let mut rng = StdRng::seed_from_u64(7);
@@ -1088,13 +1082,14 @@ mod tests {
         builder
             .add_variant(ShallowMlp::new(4, &device), sq)
             .add_variant(DeepMlp::new(&device), sq_deep);
-        let (params, fitness) = builder.build(NasBuilderConfig {
+        let (params, mut fitness) = builder.build(NasBuilderConfig {
             pop_size: 30,
             arch_mutation_rate: 0.1,
             weight_mutation_std: 0.05,
             weight_init_std: 0.5,
             tournament_size: 3,
             elite_count: 2,
+            sense: ObjectiveSense::Maximize,
         });
 
         let strat = ArchNasStrategy::new();
@@ -1103,17 +1098,17 @@ mod tests {
 
         // Generation 0.
         let (genome, next) = strat.ask(&params, &state, &mut rng, &device);
-        let fit = fitness.evaluate(&genome, &device);
-        state = strat.tell(&params, genome, fit, next, &mut rng);
-        let gen0_best = strat.best(&state).map(|(_, _, f)| f).unwrap();
+        let fit = fitness.evaluate_batch(&genome, &device);
+        state = strat.tell(&params, genome, fit, next, &mut rng).0;
+        let gen0_best = strat.best(&state).map(|(_, f)| f).unwrap();
 
         // Generations 1..6.
         for _ in 0..6 {
             let (genome, next) = strat.ask(&params, &state, &mut rng, &device);
-            let fit = fitness.evaluate(&genome, &device);
-            state = strat.tell(&params, genome, fit, next, &mut rng);
+            let fit = fitness.evaluate_batch(&genome, &device);
+            state = strat.tell(&params, genome, fit, next, &mut rng).0;
         }
-        let final_best = strat.best(&state).map(|(_, _, f)| f).unwrap();
+        let final_best = strat.best(&state).map(|(_, f)| f).unwrap();
 
         assert!(
             final_best >= gen0_best,
@@ -1137,6 +1132,7 @@ mod tests {
             weight_init_std: 0.5,
             tournament_size: 2,
             elite_count: 1,
+            sense: ObjectiveSense::Maximize,
         });
         let strat = ArchNasStrategy::new();
         let mut rng = StdRng::seed_from_u64(9);
@@ -1150,7 +1146,17 @@ mod tests {
             TensorData::new(vec![f32::NAN, f32::INFINITY, 1.0_f32, 2.0], [4]),
             &device,
         );
-        let state = strat.tell(&params, genome, fitness, next, &mut rng);
+        let (state, metrics) = strat.tell(&params, genome, fitness, next, &mut rng);
+        assert_eq!(
+            metrics.broken_count(),
+            1,
+            "the NaN member is counted as broken"
+        );
+        assert_eq!(
+            metrics.generation(),
+            1,
+            "the first tell completes generation 1"
+        );
 
         // Stored fitness is sanitized: no NaN; NaN → `$-\infty$`, `$+\infty$` → f32::MAX.
         assert!(
@@ -1165,7 +1171,8 @@ mod tests {
 
         // The champion is the sanitized `$+\infty$` = f32::MAX (finite), at row 1 — not the NaN
         // row.
-        let (best_arch, _weights, best_f) = strat.best(&state).expect("best exists after tell");
+        let (best, best_f) = strat.best(&state).expect("best exists after tell");
+        let best_arch = best.arch_ids()[0];
         assert!(
             best_f.is_finite(),
             "champion fitness is finite (never NaN/±∞); got {best_f}"
