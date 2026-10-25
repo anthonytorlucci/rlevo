@@ -137,7 +137,8 @@ pub struct SalpState {
     pub positions: Tensor<2>,
     /// Host-side fitness cache.
     pub fitness: Vec<f32>,
-    /// Food-source (best) genome.
+    /// Food-source (best) genome, or `None` until a salp scores above
+    /// `$-\infty$`.
     pub best_genome: Option<Tensor<2>>,
     /// Food-source fitness.
     pub best_fitness: f32,
@@ -154,15 +155,6 @@ pub struct SalpState {
 /// leader/follower split requires at least one of each. Release builds do not
 /// check in `init`; a swarm of one panics instead in the first
 /// [`Strategy::ask`] after a [`Strategy::tell`].
-///
-/// [`Strategy::ask`] panics when the state holds a fitness cache but no
-/// `best_genome`. [`Strategy::tell`] leaves a state so when every fitness of
-/// the first generation is `NaN` or `$-\infty$` in the maximise convention,
-/// since no value then beats the initial `$-\infty$` best; this holds whether
-/// the run is driven by hand or by
-/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). A [`SalpState`]
-/// built with a non-empty `fitness` and `best_genome: None` reaches it
-/// directly.
 ///
 /// # Example
 ///
@@ -230,7 +222,9 @@ impl Strategy for SalpSwarm {
     ///
     /// - **Leaders** (`0..pop_size/2`): each leader moves toward the food
     ///   source with a signed, decaying step proportional to `c1` and a
-    ///   host-sampled uniform offset over [`SalpConfig::bounds`].
+    ///   host-sampled uniform offset over [`SalpConfig::bounds`]. While no
+    ///   salp has scored above `$-\infty$` there is no food source, and the
+    ///   leaders move toward the population's best row instead.
     /// - **Followers** (`pop_size/2..pop_size`): each follower averages its
     ///   current position with the position of the salp directly ahead (a
     ///   parallel stencil over the updated leader block).
@@ -274,11 +268,20 @@ impl Strategy for SalpSwarm {
             }
         }
 
+        // No food source is crowned while every fitness so far was broken;
+        // steer by the population's best row until one is, as GWO takes its
+        // leaders from the fitness cache.
         let best = state
             .best_genome
-            .as_ref()
-            .expect("best_genome populated after first tell")
             .clone()
+            .unwrap_or_else(|| {
+                #[allow(clippy::cast_possible_wrap)]
+                let row = Tensor::<1, Int>::from_data(
+                    TensorData::new(vec![argmax_host(&state.fitness) as i64], [1]),
+                    device,
+                );
+                state.positions.clone().select(0, row)
+            })
             .expand([n_leaders, genome_dim]);
         let delta = Tensor::<2>::from_data(
             TensorData::new(leader_delta, [n_leaders, genome_dim]),
@@ -356,8 +359,10 @@ impl Strategy for SalpSwarm {
         (state, m)
     }
 
-    /// Returns the food-source genome and its fitness, or `None` before the
-    /// first [`tell`](Strategy::tell) call.
+    /// Returns the food-source genome and its fitness, or `None` until a
+    /// salp scores above `$-\infty$`: before the first
+    /// [`tell`](Strategy::tell), and after generations whose every fitness
+    /// was broken.
     fn best(&self, state: &SalpState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
@@ -369,11 +374,12 @@ impl Strategy for SalpSwarm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromLandscape;
+    use crate::fitness::{BatchFitnessFn, FromLandscape};
     use crate::strategy::EvolutionaryLoop;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
+    use rlevo_core::objective::ObjectiveSense;
 
     /// A schedule horizon for the tests that drive no loop, or drive one
     /// too briefly for the schedule to matter.
@@ -579,5 +585,95 @@ mod tests {
         assert!(evo_loop.is_done());
         assert_eq!(evo_loop.generation(), 1);
         assert!(evo_loop.latest_metrics().is_some());
+    }
+
+    /// `Maximize` objective whose first batch is all `NaN` and whose later
+    /// batches are the negated Sphere: a run that opens on a generation in
+    /// which every salp is broken.
+    struct NanFirstGeneration {
+        calls: usize,
+    }
+    impl BatchFitnessFn<Tensor<2>> for NanFirstGeneration {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
+            let [n, d] = population.dims();
+            self.calls += 1;
+            let vals: Vec<f32> = if self.calls == 1 {
+                vec![f32::NAN; n]
+            } else {
+                let x = population
+                    .clone()
+                    .into_data()
+                    .try_into_vec::<f32>()
+                    .expect("population readable as f32");
+                x.chunks(d)
+                    .map(|row| -row.iter().map(|v| v * v).sum::<f32>())
+                    .collect()
+            };
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
+    }
+
+    /// A generation in which every fitness is `NaN` crowns no salp as the
+    /// food source, and the `ask` after it proposes a generation instead of
+    /// panicking on the missing one.
+    #[test]
+    fn all_nan_first_generation_crowns_nothing_and_does_not_panic() {
+        let device = Device::flex();
+        let params = SalpConfig::default_for(6, 3, 5);
+        let fitness_fn = NanFirstGeneration { calls: 0 };
+        let mut evo_loop =
+            EvolutionaryLoop::new(SalpSwarm::new(), params, fitness_fn, 5, device, 5)
+                .expect("valid params");
+        evo_loop.reset();
+        evo_loop.step();
+        assert!(
+            evo_loop.best().is_none(),
+            "a generation of NaN crowned a food source"
+        );
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
+        let (_, best) = evo_loop.best().expect("finite generations followed");
+        assert!(best.is_finite(), "best={best}");
+    }
+
+    /// With no food source crowned, the leaders steer by the population's
+    /// best row, not by row 0. Past the horizon `$c_1 \approx 2 \cdot 10^{-7}$`,
+    /// so every leader lands within `1e-5` of that row.
+    #[test]
+    fn leaders_steer_by_the_best_row_while_nothing_is_crowned() {
+        let device = Device::flex();
+        let strategy = SalpSwarm::new();
+        let params = SalpConfig::default_for(6, 3, 1);
+        let mut rng = StdRng::seed_from_u64(0);
+        let positions = strategy.init(&params, &mut rng, &device).positions;
+        let state = SalpState {
+            positions: positions.clone(),
+            fitness: vec![-5.0, -4.0, -1.0, -3.0, -6.0, -2.0],
+            best_genome: None,
+            best_fitness: f32::NEG_INFINITY,
+            generation: 1,
+        };
+        let (proposed, _) = strategy.ask(&params, &state, &mut rng, &device);
+        let rows = |t: Tensor<2>| -> Vec<Vec<f32>> {
+            t.into_data()
+                .try_into_vec::<f32>()
+                .expect("readable as f32")
+                .chunks(params.genome_dim)
+                .map(<[f32]>::to_vec)
+                .collect()
+        };
+        let target = rows(positions)[2].clone();
+        for (i, leader) in rows(proposed).iter().take(params.pop_size / 2).enumerate() {
+            for (got, want) in leader.iter().zip(&target) {
+                assert!(
+                    (got - want).abs() < 1e-5,
+                    "leader {i} at {leader:?}, not by the best row {target:?}"
+                );
+            }
+        }
     }
 }
