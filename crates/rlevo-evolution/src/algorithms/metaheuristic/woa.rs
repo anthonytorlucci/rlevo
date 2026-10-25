@@ -208,7 +208,7 @@ impl WoaState {
         &self.fitness
     }
 
-    /// Best-so-far genome, or `None` before the first `tell`.
+    /// Best-so-far genome, or `None` until a whale scores above `$-\infty$`.
     #[must_use]
     pub fn best_genome(&self) -> Option<&Tensor<2>> {
         self.best_genome.as_ref()
@@ -228,17 +228,6 @@ impl WoaState {
 }
 
 /// Whale Optimization Algorithm strategy.
-///
-/// # Panics
-///
-/// [`Strategy::ask`] panics when the state holds a fitness cache but no best
-/// genome. [`Strategy::tell`] leaves a state so when every fitness of the
-/// first generation is `NaN` or `$-\infty$` in the maximise convention, since
-/// no value then beats the initial `$-\infty$` best; this holds whether the
-/// run is driven by hand or by
-/// [`EvolutionaryLoop`](crate::strategy::EvolutionaryLoop). A state built by
-/// [`WoaState::try_new`] with a non-empty `fitness` and `best_genome: None`
-/// reaches it directly.
 ///
 /// # Example
 ///
@@ -307,6 +296,9 @@ impl Strategy for WhaleOptimization {
     /// - `$p < 0.5,\ |A| \geq 1$` — search toward a random other whale,
     /// - `$p \geq 0.5$` — spiral toward the current best.
     ///
+    /// The current best is the best-so-far genome or, while no whale has
+    /// scored above `$-\infty$`, the population's best row.
+    ///
     /// The three candidate tensors are computed in parallel and composed
     /// with boolean masks; no divergent kernel paths are used. Results are
     /// clamped to [`WoaConfig::bounds`].
@@ -374,11 +366,20 @@ impl Strategy for WhaleOptimization {
         let rand_idx_t = Tensor::<1, Int>::from_data(TensorData::new(rand_idx, [pop_size]), device);
         let x_rand = state.positions.clone().select(0, rand_idx_t);
 
+        // No best is crowned while every fitness so far was broken; steer by
+        // the population's best row until one is, as GWO takes its leaders
+        // from the fitness cache.
         let x_best = state
             .best_genome
-            .as_ref()
-            .expect("best_genome populated after the first tell")
             .clone()
+            .unwrap_or_else(|| {
+                #[allow(clippy::cast_possible_wrap)]
+                let row = Tensor::<1, Int>::from_data(
+                    TensorData::new(vec![argmax_host(&state.fitness) as i64], [1]),
+                    device,
+                );
+                state.positions.clone().select(0, row)
+            })
             .expand([pop_size, genome_dim]);
 
         // Encircle toward X_best:  `$X_{best} - A \cdot \lvert C X_{best} - X\rvert$`
@@ -471,7 +472,9 @@ impl Strategy for WhaleOptimization {
     }
 
     /// Returns the best-so-far (food-source) genome and its fitness, or
-    /// `None` before the first [`tell`](Strategy::tell) call.
+    /// `None` until a whale scores above `$-\infty$`: before the first
+    /// [`tell`](Strategy::tell), and after generations whose every fitness
+    /// was broken.
     fn best(&self, state: &WoaState) -> Option<(Tensor<2>, f32)> {
         state
             .best_genome
@@ -483,11 +486,12 @@ impl Strategy for WhaleOptimization {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromLandscape;
+    use crate::fitness::{BatchFitnessFn, FromLandscape};
     use crate::strategy::EvolutionaryLoop;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::fitness::Landscape;
+    use rlevo_core::objective::ObjectiveSense;
 
     /// A schedule horizon for the tests that drive no loop, or drive one
     /// too briefly for the schedule to matter.
@@ -692,6 +696,89 @@ mod tests {
             state.fitness()[0].is_infinite() && state.fitness()[0].is_sign_negative(),
             "sanitized NaN must land as -inf in the whale-0 fitness cache: {:?}",
             state.fitness()
+        );
+    }
+
+    /// `Maximize` objective whose first batch is all `NaN` and whose later
+    /// batches are the negated Sphere: a run that opens on a generation in
+    /// which every whale is broken.
+    struct NanFirstGeneration {
+        calls: usize,
+    }
+    impl BatchFitnessFn<Tensor<2>> for NanFirstGeneration {
+        fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
+            let [n, d] = population.dims();
+            self.calls += 1;
+            let vals: Vec<f32> = if self.calls == 1 {
+                vec![f32::NAN; n]
+            } else {
+                let x = population
+                    .clone()
+                    .into_data()
+                    .try_into_vec::<f32>()
+                    .expect("population readable as f32");
+                x.chunks(d)
+                    .map(|row| -row.iter().map(|v| v * v).sum::<f32>())
+                    .collect()
+            };
+            Tensor::<1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
+    }
+
+    /// A generation in which every fitness is `NaN` crowns no whale, and the
+    /// `ask` after it proposes a generation instead of panicking on the
+    /// missing best.
+    #[test]
+    fn all_nan_first_generation_crowns_nothing_and_does_not_panic() {
+        let device = Device::flex();
+        let params = WoaConfig::default_for(6, 3, 5);
+        let fitness_fn = NanFirstGeneration { calls: 0 };
+        let mut evo_loop =
+            EvolutionaryLoop::new(WhaleOptimization::new(), params, fitness_fn, 5, device, 5)
+                .expect("valid params");
+        evo_loop.reset();
+        evo_loop.step();
+        assert!(
+            evo_loop.best().is_none(),
+            "a generation of NaN crowned a best"
+        );
+        while !evo_loop.is_done() {
+            evo_loop.step();
+        }
+        let (_, best) = evo_loop.best().expect("finite generations followed");
+        assert!(best.is_finite(), "best={best}");
+    }
+
+    /// With no best crowned, the moves steer by the population's best row,
+    /// not by row 0. At `$a = 0$` an encircling whale lands exactly on the
+    /// row the swarm steers by, and the steering whale stays where it is.
+    #[test]
+    fn steers_by_the_best_row_while_nothing_is_crowned() {
+        let device = Device::flex();
+        let strategy = WhaleOptimization::new();
+        let params = WoaConfig::default_for(6, 3, 1);
+        let mut rng = StdRng::seed_from_u64(0);
+        let positions = strategy.init(&params, &mut rng, &device).positions;
+        let fitness = vec![-5.0, -4.0, -1.0, -3.0, -6.0, -2.0];
+        let state = WoaState::try_new(positions.clone(), fitness, None, f32::NEG_INFINITY, 1)
+            .expect("valid state");
+        let (proposed, _) = strategy.ask(&params, &state, &mut rng, &device);
+        let bits = |t: Tensor<2>| -> Vec<Vec<u32>> {
+            t.into_data()
+                .try_into_vec::<f32>()
+                .expect("readable as f32")
+                .chunks(params.genome_dim)
+                .map(|row| row.iter().map(|v| v.to_bits()).collect())
+                .collect()
+        };
+        let target = bits(positions)[2].clone();
+        let landed = bits(proposed).iter().filter(|row| **row == target).count();
+        assert!(
+            landed >= 2,
+            "{landed} whales landed on the best row; expected it and an encircler"
         );
     }
 }

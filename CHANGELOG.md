@@ -780,6 +780,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   is now shifted until that value is zero before the shares are taken. A
   generation with no negative fitness is shared exactly as before, so no
   run that was valid changes.
+- **WOA and the Salp swarm panicked after a generation whose every
+  fitness was broken.** `tell` crowns a best only when a member scores
+  above `-inf`, and a `NaN` is sanitised to `-inf`, so a first generation
+  of all `NaN` left no best, and the next `ask` panicked on the missing
+  one. Until a member scores above `-inf`, `ask` now steers by the
+  population's best row, as GWO takes its leaders from the fitness cache,
+  and `best()` stays `None`, so a broken member is never crowned. A run
+  with a finite fitness in its first generation is unchanged.
 - **Every in-tree run of GWO, WOA and the Salp swarm used the wrong
   schedule.** None set `max_generations`, so all ran on the constructors'
   500 whatever the loop's budget: the determinism test at 30 generations,
@@ -872,12 +880,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   is not. The `# Panics` sections of ABC, GWO and the Salp swarm named a
   `pop_size` floor that `init` checks only in debug builds; each now says
   what a release build does. WOA's and the Salp swarm's named a trigger,
-  `ask` twice without a `tell`, that does not panic, and missed the one
-  that does: a first generation whose every fitness is `NaN` or negative
-  infinity. Comments that named `B::seed` and Burn 0.21 now name
-  `Device::seed` and Burn 0.22, the `ops` module lists the mutation
-  operators it has, and `AcoRState::weights` and the classical ES module
-  no longer claim a recomputation and a reuse that do not happen.
+  `ask` twice without a `tell`, that does not panic; those paragraphs are
+  gone, and the panic they missed is fixed (above). Comments that named
+  `B::seed` and Burn 0.21 now name `Device::seed` and Burn 0.22, the `ops`
+  module lists the mutation operators it has, and `AcoRState::weights` and
+  the classical ES module no longer claim a recomputation and a reuse that
+  do not happen.
 
 ### `rlevo-hybrid`
 
