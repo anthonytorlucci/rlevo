@@ -493,6 +493,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `rlevo_harness::metrics` re-exports `Metric` alone. `EvolutionaryLoop` and
   `CoEvolutionaryLoop` report what they did before, under `ea/` and
   `coea/`.
+- **`NeatStrategy` and `ArchNasStrategy` implement `Strategy`; NEAT's
+  `GraphFitnessFn` is removed** (ADR 0098). An `EvolutionaryLoop` drives
+  both, so `Evaluator::run_trials` runs them like any other strategy and
+  each trial reports the `ea/` metrics. To migrate:
+  - Replace a hand-written ask/evaluate/tell loop with `EvolutionaryLoop::new(
+    strategy, params, fitness, seed, device, max_generations)`, `reset` and
+    `step` until `is_done`, and read the champion from `best()`: a one-genome
+    `Vec<TopologyGenome>` for NEAT, a one-row `NasGenome` for ArchNAS
+    (`arch_ids()[0]`, `weights()`).
+  - If you call the methods yourself, import `Strategy`: NEAT's `ask`
+    takes a `&Device`, both `tell`s take the fitness as a `Tensor<1>` and
+    return `(state, StrategyMetrics)`, and both `best`s return a population
+    and its fitness.
+  - Implement `BatchFitnessFn<Vec<TopologyGenome>>` instead of
+    `GraphFitnessFn`: return a `Tensor<1>` from `evaluate_batch` and declare
+    `sense()`. `BatchGraphFitness::new` takes the sense of its reducer
+    before the reducer.
+  - Add `sense` to a `NasBuilderConfig` literal (`ObjectiveSense::Maximize`
+    for a score, `Minimize` for a loss; the loop negates a loss, so a scorer
+    no longer hand-negates). `ArchNasFitnessFn::evaluate` is now
+    `BatchFitnessFn::evaluate_batch`, and `NasBuilderConfig`'s `Validate`
+    impl is gone: `NasParams::validate` checks the same ranges, when
+    `EvolutionaryLoop::new` is given the built parameters.
+  - `NeatParams` now implements `Validate`, which `EvolutionaryLoop::new`
+    calls: a probability outside `[0, 1]` or a negative or non-finite
+    coefficient or standard deviation is refused there.
 
 ### `rlevo`
 
@@ -728,6 +754,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **NEAT shared its offspring evenly whenever every fitness was negative**
+  (GitHub issue 1067, ADR 0098), as every fitness is for a cost negated to
+  canonical form, so selection between species stopped for the whole run
+  without a sign. A generation whose smallest finite fitness is negative
+  is now shifted until that value is zero before the shares are taken. A
+  generation with no negative fitness is shared exactly as before, so no
+  run that was valid changes.
 - **Every in-tree run of GWO, WOA and the Salp swarm used the wrong
   schedule.** None set `max_generations`, so all ran on the constructors'
   500 whatever the loop's budget: the determinism test at 30 generations,
