@@ -1,0 +1,5 @@
+# Only these two files hold placeholders. Everything else, the Rust sources
+# included, is copied as written: Liquid would read the `{{` of a format
+# string as one of its own tags.
+[template]
+include = ["Cargo.toml", "README.md"]
