@@ -148,6 +148,11 @@ const BYOE1_NOTE: &str = "BYOE-1 does not end at the harness run: recording the 
 const BYOE2_NOTE: &str = "BYOE-2 does not end at the harness run: recording the population \
                           and drawing the landscape are not walked yet";
 
+/// What a green BYOA-1a walk does not yet show.
+const BYOA1A_NOTE: &str = "BYOA-1a does not end at the baseline: recording the run, the \
+                           learner's own metrics in the record, and showing that two \
+                           submissions faced one task are not walked yet";
+
 /// What a green BYOA-1b walk does not yet show.
 const BYOA1B_NOTE: &str = "BYOA-1b does not end at the determinism check: recording the run \
                            and showing that two submissions faced one task are not walked yet";
@@ -191,6 +196,17 @@ const PROBES: &[Probe] = &[
             contract: Some("src/well_siting.rs"),
         },
         note: Some(BYOE2_NOTE),
+    },
+    // An algorithm author: a learner of their own, trained and measured
+    // through the harness on a shipped environment, against a random agent.
+    Probe {
+        name: "byoa-1a",
+        title: "BYOA-1a",
+        kind: Kind::Walk {
+            walk: &walk::BYOA1A,
+            contract: None,
+        },
+        note: Some(BYOA1A_NOTE),
     },
     // An optimiser author: a strategy of their own, and a control that never
     // moves, on a shipped landscape.
