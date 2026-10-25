@@ -554,6 +554,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   They spell every path through `rlevo`, as a consumer does, and
   `tabular_bandit` builds its `Suite` inline where it called a preset.
   Their results are unchanged.
+- **A `neuroevolution_vs_gradient` example** (`cargo run --release -p
+  rlevo --example neuroevolution_vs_gradient`): weight-only
+  neuroevolution against backpropagation on CartPole, through the
+  harness. CMA-ES searches the weights of a 4-16-16-2 policy network with
+  no gradient, written as an `Agent` whose every training episode scores
+  one candidate, so `run_suite` trains it under the same `train_steps`,
+  seeds and evaluation episodes as PPO and DQN over the same network
+  shape. It prints one table: each learner's weights, updates, mean
+  evaluation return, solved trials and time. With no weight-only strategy
+  type, it is also the worked example of searching a network's weights
+  with a `ModuleReshaper`.
 
 **Fixed**
 
