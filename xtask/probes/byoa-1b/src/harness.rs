@@ -7,19 +7,16 @@ use std::collections::BTreeMap;
 use rlevo::burn::tensor::{Device, Tensor};
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::fitness::FromLandscape;
-use rlevo::evo::strategy::{EvolutionaryLoop, Strategy};
+use rlevo::evo::strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
-use rlevo::harness::metrics::core::{GENERATIONS, WALL_CLOCK_SECONDS};
+use rlevo::harness::metrics::{GENERATIONS, WALL_CLOCK_SECONDS};
 use rlevo::harness::report::{BenchmarkReport, TrialReport};
 use rlevo::harness::reporter::logging::LoggingReporter;
 
 use crate::hill_climber::{HillClimber, HillClimberParams};
 use crate::null::Null;
 
-// FINDING: `rlevo::harness::metrics::ea` has `BEST_FITNESS` and no constant
-// for the key the loop reports its best-ever fitness under. It is spelled
-// here as `docs/ask-tell-contract.md` spells it.
-const BEST_EVER: &str = "ea/best_fitness_ever";
+const BEST_EVER: &str = StrategyMetrics::BEST_FITNESS_EVER;
 
 /// The shipped landscape's dimension.
 const DIM: usize = 4;
@@ -56,7 +53,7 @@ where
     let config = EvaluatorConfig {
         num_trials_per_env: TRIALS,
         // The cap must not cut a trial short of the loop's own budget.
-        max_steps: BUDGET,
+        max_generations: BUDGET,
         base_seed: BASE_SEED,
         num_threads: Some(2),
         ..EvaluatorConfig::default()

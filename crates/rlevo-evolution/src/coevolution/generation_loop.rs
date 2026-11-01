@@ -30,6 +30,16 @@ use super::CoEvolutionaryAlgorithm;
 /// reported in the objective's **natural** declared sense (parity with
 /// single-population `StrategyMetrics`); the separate `binding_fitness` field
 /// stays canonical (engine-space) (ADR 0023).
+///
+/// # Metric names
+///
+/// [`CoEvolutionaryLoop`]'s
+/// [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe) impl reports
+/// each field as a scalar under the name in the associated constant of the
+/// same name: [`binding_fitness`](Self::binding_fitness) as
+/// [`BINDING_FITNESS`](Self::BINDING_FITNESS), `"coea/binding_fitness"`. Read a
+/// trial's report through the constants. The strings are wire format: a report
+/// or recording an earlier binary wrote carries them.
 #[derive(Debug, Clone)]
 pub struct CoEAMetrics {
     /// Number of completed simultaneous-update generations.
@@ -55,6 +65,25 @@ pub struct CoEAMetrics {
     pub hof_size_a: usize,
     /// Hall-of-fame archive size for population B (`0` if no archive).
     pub hof_size_b: usize,
+}
+
+impl CoEAMetrics {
+    /// The name the loop reports [`generation`](Self::generation) under.
+    pub const GENERATION: &str = "coea/generation";
+    /// The name the loop reports [`best_fitness_a`](Self::best_fitness_a) under.
+    pub const BEST_FITNESS_A: &str = "coea/best_fitness_a";
+    /// The name the loop reports [`best_fitness_b`](Self::best_fitness_b) under.
+    pub const BEST_FITNESS_B: &str = "coea/best_fitness_b";
+    /// The name the loop reports [`mean_fitness_a`](Self::mean_fitness_a) under.
+    pub const MEAN_FITNESS_A: &str = "coea/mean_fitness_a";
+    /// The name the loop reports [`mean_fitness_b`](Self::mean_fitness_b) under.
+    pub const MEAN_FITNESS_B: &str = "coea/mean_fitness_b";
+    /// The name the loop reports [`binding_fitness`](Self::binding_fitness) under.
+    pub const BINDING_FITNESS: &str = "coea/binding_fitness";
+    /// The name the loop reports [`hof_size_a`](Self::hof_size_a) under.
+    pub const HOF_SIZE_A: &str = "coea/hof_size_a";
+    /// The name the loop reports [`hof_size_b`](Self::hof_size_b) under.
+    pub const HOF_SIZE_B: &str = "coea/hof_size_b";
 }
 
 /// Runs a [`CoEvolutionaryAlgorithm`] one generation per call, owning the

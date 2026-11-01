@@ -33,8 +33,9 @@
 
 use std::marker::PhantomData;
 
-use rlevo::core::fitness::Metric;
-use rlevo::prelude::{Agent, DiscreteAction, EpisodeStatus, HostRow, Rng, RngExt, Transition};
+use rlevo::prelude::{
+    Agent, DiscreteAction, EpisodeStatus, HostRow, Metric, Rng, RngExt, Transition,
+};
 
 /// Step size of each update.
 const ALPHA: f32 = 0.1;

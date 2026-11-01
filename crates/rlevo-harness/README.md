@@ -66,7 +66,8 @@ The traits a trial drives are part of the contract, so they live in `rlevo-core`
 |-------|---------|---------|
 | `num_episodes` | `100` | Episodes per trial |
 | `num_trials_per_env` | `1` | Trials per environment |
-| `max_steps` | `1000` | Step ceiling per episode; for a `GenerationTrial`, a cap on generations that warns when it ends a trial early |
+| `max_steps` | `1000` | Step ceiling per episode |
+| `max_generations` | `1000` | Generation ceiling for a `GenerationTrial`, a backstop that warns when it ends a trial early |
 | `base_seed` | `0` | The suite's seed: the root of `SeedStream`, from which every trial's seeds are derived. Not the seed of any one run |
 | `num_threads` | `None` (Rayon default) | Thread pool size |
 | `checkpoint_dir` | `None` | Directory for checkpoint files |
@@ -95,10 +96,9 @@ The traits a trial drives are part of the contract, so they live in `rlevo-core`
 
 Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram`, `Counter`). An agent and a generation loop each report method-specific metrics through `emit_metrics`, read once per trial after its last episode or generation. Each value describes the trial so far: a counter is a total since the trial began, a scalar the value at the read, so a reader that reads more often keeps the latest and never adds two reads together.
 
-| Sub-module | Contents |
-|------------|----------|
-| `metrics::core` | `return/{mean,median,std,min,max}`, `episode_length/mean`, `throughput/steps_per_sec`, `wall_clock_seconds`, `success_rate` |
-| `metrics::ea` | `ea/population_diversity`, `ea/best_fitness`, `ea/generations_to_converge`, `ea/fitness_variance` |
+The module's constants name what the harness measures itself: `return/{mean,median,std,min,max}`, `return/non_finite_steps`, `episode_length/mean`, `throughput/steps_per_sec`, `wall_clock_seconds`, `success_rate` and `generations`. `is_harness_reserved` reserves them, so an agent or a probe cannot overwrite one.
+
+A name an agent or a strategy reports is declared beside the code that emits it. An `EvolutionaryLoop`'s names are associated constants on `rlevo_evolution::strategy::StrategyMetrics`, next to the accessor of each value (`StrategyMetrics::BEST_FITNESS_EVER` is `ea/best_fitness_ever`), and a `CoEvolutionaryLoop`'s are on `CoEAMetrics`.
 
 ### `metrics_registry` — Canonical Metric Names
 

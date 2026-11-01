@@ -41,7 +41,7 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
 use crate::metrics::Metric;
-use crate::metrics::core::is_harness_reserved;
+use crate::metrics::is_harness_reserved;
 use crate::suite::TrialKey;
 
 /// Compact summary of a single episode within a trial.

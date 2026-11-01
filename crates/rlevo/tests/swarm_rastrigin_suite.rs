@@ -26,7 +26,7 @@ use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
 use rlevo_evolution::fitness::FromLandscape;
-use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy};
+use rlevo_evolution::strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};
 
 const DIM: usize = 10;
 const MAX_GENS: usize = 120;
@@ -36,7 +36,7 @@ const MAX_GENS: usize = 120;
 /// Key values:
 /// - `num_trials_per_env: 2` — enough signal to catch systematic failures without
 ///   inflating wall-clock time.
-/// - `max_steps: MAX_GENS` (120) — matches the generation budget given to each
+/// - `max_generations: MAX_GENS` (120) — matches the generation budget given to each
 ///   [`EvolutionaryLoop`]. The same constant is the schedule horizon of the
 ///   three strategies that have one (GWO, WOA, SSA).
 /// - `num_threads: Some(1)` — forces single-threaded trial dispatch. Burn's `Flex`
@@ -49,7 +49,7 @@ fn cfg() -> EvaluatorConfig {
         num_episodes: 1,
         train_steps: 0,
         num_trials_per_env: 2,
-        max_steps: MAX_GENS,
+        max_generations: MAX_GENS,
         base_seed: 29,
         // Single-threaded — see rastrigin_run_suite.rs for the
         // Flex-RNG-mutex rationale.
@@ -57,6 +57,7 @@ fn cfg() -> EvaluatorConfig {
         checkpoint_dir: None,
         fail_fast: false,
         success_threshold: None,
+        ..EvaluatorConfig::default()
     }
 }
 
@@ -94,7 +95,7 @@ where
         .iter()
         .map(|t| {
             *t.scalars
-                .get("ea/best_fitness_ever")
+                .get(StrategyMetrics::BEST_FITNESS_EVER)
                 .expect("generation trial emits ea/best_fitness_ever")
         })
         .collect();

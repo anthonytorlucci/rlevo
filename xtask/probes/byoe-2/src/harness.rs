@@ -3,18 +3,16 @@
 
 use std::collections::BTreeMap;
 
+use rlevo::evo::strategy::StrategyMetrics;
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
-use rlevo::harness::metrics::core::GENERATIONS;
+use rlevo::harness::metrics::GENERATIONS;
 use rlevo::harness::report::BenchmarkReport;
 use rlevo::harness::reporter::logging::LoggingReporter;
 
 use crate::strategy::evo_loop;
 use crate::well_siting::WellSiting;
 
-// FINDING: `rlevo::harness::metrics::ea` has `BEST_FITNESS` and no constant
-// for the key the loop reports its best-ever fitness under. It is spelled
-// here as `docs/ask-tell-contract.md` spells it.
-const BEST_EVER: &str = "ea/best_fitness_ever";
+const BEST_EVER: &str = StrategyMetrics::BEST_FITNESS_EVER;
 
 const TRIALS: usize = 2;
 const BUDGET: usize = 30;
@@ -25,7 +23,7 @@ fn run_suite(generations: usize) -> BenchmarkReport {
     let config = EvaluatorConfig {
         num_trials_per_env: TRIALS,
         // The cap must not cut a trial short of the loop's own budget.
-        max_steps: BUDGET,
+        max_generations: BUDGET,
         base_seed: BASE_SEED,
         num_threads: Some(2),
         ..EvaluatorConfig::default()

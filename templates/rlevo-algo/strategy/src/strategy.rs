@@ -33,7 +33,7 @@ use rlevo::prelude::{Rng, RngExt};
 
 /// A run's fixed settings.
 #[derive(Debug, Clone)]
-pub struct MyParams {
+pub struct MyConfig {
     /// Coordinates in a point.
     pub dim: usize,
     /// The lowest value a coordinate takes.
@@ -44,9 +44,9 @@ pub struct MyParams {
     pub population: usize,
 }
 
-impl Validate for MyParams {
+impl Validate for MyConfig {
     fn validate(&self) -> Result<(), ConfigError> {
-        const NAME: &str = "MyParams";
+        const NAME: &str = "MyConfig";
         nonzero(NAME, "dim", self.dim)?;
         nonzero(NAME, "population", self.population)?;
         ordered(NAME, "low", f64::from(self.low), f64::from(self.high))
@@ -67,11 +67,11 @@ pub struct MyState {
 pub struct MyStrategy;
 
 impl Strategy for MyStrategy {
-    type Params = MyParams;
+    type Params = MyConfig;
     type State = MyState;
     type Genome = Tensor<2>;
 
-    fn init(&self, _params: &MyParams, _rng: &mut dyn Rng, _device: &Device) -> MyState {
+    fn init(&self, _params: &MyConfig, _rng: &mut dyn Rng, _device: &Device) -> MyState {
         MyState {
             best: None,
             generation: 0,
@@ -81,7 +81,7 @@ impl Strategy for MyStrategy {
     /// `population` points, uniform inside the bounds.
     fn ask(
         &self,
-        params: &MyParams,
+        params: &MyConfig,
         state: &MyState,
         rng: &mut dyn Rng,
         device: &Device,
@@ -99,7 +99,7 @@ impl Strategy for MyStrategy {
     /// Keeps the generation's best point if it beats every earlier one.
     fn tell(
         &self,
-        params: &MyParams,
+        params: &MyConfig,
         population: Tensor<2>,
         fitness: Tensor<1>,
         mut state: MyState,
@@ -140,8 +140,8 @@ mod tests {
 
     use super::*;
 
-    fn params() -> MyParams {
-        MyParams {
+    fn params() -> MyConfig {
+        MyConfig {
             dim: 2,
             low: -1.0,
             high: 1.0,
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn bounds_in_the_wrong_order_are_refused() {
-        let backwards = MyParams {
+        let backwards = MyConfig {
             low: 1.0,
             high: -1.0,
             ..params()

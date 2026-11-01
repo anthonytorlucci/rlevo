@@ -67,13 +67,6 @@ where the cost is 9.94. A run that reported a lower value would be
 reporting something other than the cost. The file implements `evaluate`
 alone, and leaves the direction to the trait's default.
 
-## Findings in the source
-
-One `FINDING:` comment, in `src/harness.rs`, records friction that
-compiles. `rlevo::harness::metrics::ea` names a constant for
-`ea/best_fitness` and none for `ea/best_fitness_ever`, the key the loop
-reports. The probe spells the key as `docs/ask-tell-contract.md` does.
-
 ## Files
 
 | File | What it is |

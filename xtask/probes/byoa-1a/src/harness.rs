@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use rlevo::core::fitness::Metric;
 use rlevo::harness::evaluator::Evaluator;
-use rlevo::harness::metrics::core::{RETURN_MEAN, STEPS_PER_SEC, WALL_CLOCK_SECONDS};
+use rlevo::harness::metrics::{RETURN_MEAN, STEPS_PER_SEC, WALL_CLOCK_SECONDS};
 use rlevo::harness::report::{BenchmarkReport, TrialReport};
 use rlevo::harness::reporter::logging::LoggingReporter;
 use rlevo::harness::suite::Suite;

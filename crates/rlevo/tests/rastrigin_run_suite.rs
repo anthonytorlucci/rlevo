@@ -24,7 +24,7 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::fitness::FromLandscape;
-use rlevo_evolution::strategy::EvolutionaryLoop;
+use rlevo_evolution::strategy::{EvolutionaryLoop, StrategyMetrics};
 
 const DIM: usize = 10;
 const MAX_GENS: usize = 80;
@@ -128,12 +128,13 @@ fn cfg() -> EvaluatorConfig {
         num_episodes: 1,
         train_steps: 0,
         num_trials_per_env: 2,
-        max_steps: MAX_GENS,
+        max_generations: MAX_GENS,
         base_seed: 17,
         num_threads: Some(1),
         checkpoint_dir: None,
         fail_fast: false,
         success_threshold: None,
+        ..EvaluatorConfig::default()
     }
 }
 
@@ -170,7 +171,7 @@ where
         .iter()
         .map(|t| {
             *t.scalars
-                .get("ea/best_fitness_ever")
+                .get(StrategyMetrics::BEST_FITNESS_EVER)
                 .expect("generation trial emits ea/best_fitness_ever")
         })
         .collect()

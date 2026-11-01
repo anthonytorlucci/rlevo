@@ -108,6 +108,10 @@ pub use burn;
 /// [`Agent`](core::agent::Agent),
 /// [`Transition`](core::agent::Transition)
 ///
+/// **Metric** (`rlevo::core::fitness`), what an agent's or a generation
+/// loop's `emit_metrics` returns:
+/// [`Metric`](core::fitness::Metric)
+///
 /// **Environment** (`rlevo::core::environment`):
 /// [`Environment`](core::environment::Environment),
 /// [`Snapshot`](core::environment::Snapshot),
@@ -136,8 +140,9 @@ pub mod prelude {
     // Base traits
     pub use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
 
-    // Agent seam
+    // Agent seam, and the metric an agent or a generation loop reports
     pub use rlevo_core::agent::{Agent, Transition};
+    pub use rlevo_core::fitness::Metric;
 
     // Environment protocol
     pub use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};

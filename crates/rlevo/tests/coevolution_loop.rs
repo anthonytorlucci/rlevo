@@ -18,8 +18,11 @@ use rlevo_evolution::CoEvolutionaryLoop;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
-use rlevo_evolution::coevolution::{CompetitiveCoEA, CompetitiveCoEAParams, CoupledFitness};
+use rlevo_evolution::coevolution::{
+    CoEAMetrics, CompetitiveCoEA, CompetitiveCoEAParams, CoupledFitness,
+};
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
+use rlevo_harness::metrics::GENERATIONS;
 use rlevo_harness::reporter::logging::LoggingReporter;
 
 const DIM: usize = 2;
@@ -111,7 +114,7 @@ fn coevolutionary_loop_runs_through_evaluator() {
         num_episodes: 1,
         train_steps: 0,
         num_trials_per_env: 2,
-        max_steps: MAX_GENS,
+        max_generations: MAX_GENS,
         base_seed: 17,
         // Flex seeds via a process-global mutex; pin to one thread for
         // reproducibility (mirrors the other run-suite integration tests).
@@ -119,6 +122,7 @@ fn coevolutionary_loop_runs_through_evaluator() {
         checkpoint_dir: None,
         fail_fast: false,
         success_threshold: None,
+        ..EvaluatorConfig::default()
     };
 
     let evaluator = Evaluator::new(cfg);
@@ -144,18 +148,18 @@ fn coevolutionary_loop_runs_through_evaluator() {
 
         // One `advance` drives one simultaneous-update generation.
         assert_eq!(
-            trial.scalars.get("generations").copied(),
+            trial.scalars.get(GENERATIONS).copied(),
             Some(MAX_GENS as f64),
             "one advance should drive one generation"
         );
         assert_eq!(
-            trial.scalars.get("coea/generation").copied(),
+            trial.scalars.get(CoEAMetrics::GENERATION).copied(),
             Some(MAX_GENS as f64),
             "the loop's counter agrees with the trial's own count"
         );
 
         // The binding fitness is the canonical value the loop reports.
-        let binding = trial.scalars["coea/binding_fitness"];
+        let binding = trial.scalars[CoEAMetrics::BINDING_FITNESS];
         assert!(
             binding.is_finite(),
             "binding fitness should be finite, got {binding}"

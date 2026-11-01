@@ -55,7 +55,7 @@ use rlevo::evo::algorithms::cma_es::{CmaEs, CmaEsConfig, CmaEsState};
 use rlevo::evo::fitness::sanitize_fitness_tensor;
 use rlevo::evo::param_reshaper::ModuleReshaper;
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig};
-use rlevo::harness::metrics::core::{EPISODE_LENGTH_MEAN, RETURN_MEAN};
+use rlevo::harness::metrics::{EPISODE_LENGTH_MEAN, RETURN_MEAN};
 use rlevo::harness::report::BenchmarkReport;
 use rlevo::harness::reporter::logging::LoggingReporter;
 use rlevo::harness::suite::Suite;

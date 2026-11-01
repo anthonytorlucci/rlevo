@@ -14,9 +14,9 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_evolution::fitness::BatchFitnessFn;
-use rlevo_evolution::strategy::EvolutionaryLoop;
+use rlevo_evolution::strategy::{EvolutionaryLoop, StrategyMetrics};
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
-use rlevo_harness::metrics::core::WALL_CLOCK_SECONDS;
+use rlevo_harness::metrics::{GENERATIONS, WALL_CLOCK_SECONDS};
 use rlevo_harness::reporter::logging::LoggingReporter;
 
 const GENS: usize = 12;
@@ -67,8 +67,11 @@ fn cfg() -> EvaluatorConfig {
         num_episodes: 7,
         train_steps: 0,
         num_trials_per_env: 2,
+        // Steps per episode, which a generation trial ignores: set to a value
+        // that would cut the run after one generation if it were the cap.
+        max_steps: 1,
         // Backstop only; the probe's own budget (GENS) must end the loop.
-        max_steps: GENS * 10,
+        max_generations: GENS * 10,
         base_seed: 17,
         num_threads: Some(1),
         checkpoint_dir: None,
@@ -103,10 +106,11 @@ fn generation_trial_runs_through_the_shared_machinery() {
             t.episodes.len()
         );
 
-        // The probe's budget ended the loop, not `max_steps`, and `num_episodes`
-        // did not multiply the work.
+        // The probe's budget ended the loop: neither the decoy `max_steps` nor
+        // the `max_generations` backstop did, and `num_episodes` did not
+        // multiply the work.
         assert_eq!(
-            t.scalars.get("generations").copied(),
+            t.scalars.get(GENERATIONS).copied(),
             Some(GENS as f64),
             "probe budget governs the loop"
         );
@@ -116,12 +120,12 @@ fn generation_trial_runs_through_the_shared_machinery() {
         // trial's independently maintained `units` count — if these ever
         // diverge, one of the two loops is miscounting.
         assert_eq!(
-            t.scalars.get("ea/generation").copied(),
+            t.scalars.get(StrategyMetrics::GENERATION).copied(),
             Some(GENS as f64),
             "the loop's generation counter agrees with the trial's own count"
         );
-        assert!(t.scalars.contains_key("ea/best_fitness_ever"));
-        assert!(t.scalars.contains_key("ea/population_size"));
+        assert!(t.scalars.contains_key(StrategyMetrics::BEST_FITNESS_EVER));
+        assert!(t.scalars.contains_key(StrategyMetrics::POPULATION_SIZE));
     }
 }
 
@@ -143,7 +147,7 @@ fn distinct_trial_seeds_give_distinct_runs() {
     let bests: Vec<f64> = report
         .trials
         .iter()
-        .map(|t| t.scalars["ea/best_fitness_ever"])
+        .map(|t| t.scalars[StrategyMetrics::BEST_FITNESS_EVER])
         .collect();
 
     assert_eq!(bests.len(), 2);

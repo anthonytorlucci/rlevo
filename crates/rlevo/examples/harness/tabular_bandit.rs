@@ -110,6 +110,7 @@ fn main() {
         checkpoint_dir: None,
         fail_fast: false,
         success_threshold: Some(0.0),
+        ..EvaluatorConfig::default()
     };
 
     // `with_seed` routes the per-trial seed into the arm-mean RNG.
