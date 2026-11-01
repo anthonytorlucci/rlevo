@@ -1,3 +1,11 @@
+//! Objective direction primitive.
+//!
+//! Provides [`ObjectiveSense`], the typed maximise/minimise direction that
+//! reconciles the library's maximise-native engine with cost objectives at a
+//! single chokepoint.
+//!
+//! [`ObjectiveSense`]: crate::objective::ObjectiveSense
+//!
 //! Objective direction: the [`ObjectiveSense`] primitive.
 //!
 //! `rlevo` spans three fields whose native optimisation conventions disagree —

@@ -132,6 +132,12 @@ breaks the rule: a file and line, a crate and its feature, the copy that
 differs, or, for a viz package, the `cargo tree -i` command that prints the
 path to it. The guards are in `xtask/src/commands/guards.rs`.
 
+Docs as **docs.rs** builds them, on a current nightly rather than the pin,
+are `tools/docs-rs.sh [toolchain] [crate...]`; a rustdoc warning fails it
+as well as an error. `docs-rs.yml` runs it, and its header says when and
+why: it is advisory and must never be a required check, and a release
+branch's run is the one to wait for before tagging.
+
 A change to a crate's public surface reports its **surface delta** (ADR 0081):
 `tools/public-surface.sh <crate>` lists the public items, one per line, and
 the delta is the diff of the listing at the base commit and on the branch. A

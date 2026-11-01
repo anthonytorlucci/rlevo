@@ -1,3 +1,5 @@
+//! [`RecordingLayer`] — `tracing` subscriber that forwards metric events to the sink.
+//!
 //! [`RecordingLayer`] — a `tracing` Layer that pushes
 //! [`MetricSample`]s into a [`RecordSink`].
 //!

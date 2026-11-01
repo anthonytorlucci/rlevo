@@ -1,3 +1,5 @@
+//! On-disk type definitions and wire-format constants.
+//!
 //! On-disk record types written by the recording surface.
 //!
 //! Encoding: bincode 2.x with the explicit
@@ -8,7 +10,7 @@
 //! The format-version byte lives at the very start of every
 //! `episode_*.rec` file so a loader can peek the version with a
 //! 16-byte read before committing to a decode pass — the writer's
-//! preamble is handled in [`writer`].
+//! preamble is handled in [the `writer` module](crate::record::writer).
 
 use std::collections::BTreeMap;
 

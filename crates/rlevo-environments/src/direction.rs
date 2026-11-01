@@ -1,3 +1,9 @@
+//! Cardinal direction primitive (4-way heading + rotation) shared across
+//! environments. It sits at the crate root so non-grid environments (e.g. the
+//! Santa Fe ant) use it without depending on the Minigrid framework;
+//! [`grids::core`](crate::grids::core) re-exports the module and its
+//! `Direction` type.
+//!
 //! Cardinal direction the agent is facing.
 //!
 //! World coordinates are oriented with `+x` pointing right (East) and

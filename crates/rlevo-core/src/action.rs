@@ -1,3 +1,10 @@
+//! Layered action-space traits: [`DiscreteAction`], [`ContinuousAction`] and
+//! [`BoundedAction`].
+//!
+//! [`DiscreteAction`]: crate::action::DiscreteAction
+//! [`ContinuousAction`]: crate::action::ContinuousAction
+//! [`BoundedAction`]: crate::action::BoundedAction
+//!
 //! Action space abstractions for reinforcement learning environments.
 //!
 //! This module provides a flexible type system for representing agent actions in RL environments.
@@ -6,7 +13,7 @@
 //! # Design Philosophy
 //!
 //! The action traits follow a layered design:
-//! - [`Action`](crate::base::Action): Base trait providing validation and cloning semantics
+//! - [`Action` trait](crate::base::Action): Base trait providing validation and cloning semantics
 //! - [`DiscreteAction`], [`ContinuousAction`]: Type-specific extensions
 //! - [`BoundedAction`]: a [`ContinuousAction`] with per-component bounds
 //!

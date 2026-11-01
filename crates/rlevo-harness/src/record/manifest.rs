@@ -1,3 +1,5 @@
+//! [`RunManifest`] — atomic `run.toml` writer for run-level metadata.
+//!
 //! Run-level manifest written atomically as `run.toml` at run end.
 //!
 //! [`RunManifest`] carries the metadata a report-tier loader needs to

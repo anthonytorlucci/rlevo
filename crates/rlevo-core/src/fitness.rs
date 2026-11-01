@@ -1,3 +1,10 @@
+//! Fitness evaluation and the metric data type.
+//!
+//! Provides [`Landscape`] and [`Metric`].
+//!
+//! [`Landscape`]: crate::fitness::Landscape
+//! [`Metric`]: crate::fitness::Metric
+//!
 //! Fitness evaluation, and the metric data type.
 //!
 //! - [`Landscape`] — a self-evaluating numerical landscape, used when the

@@ -1,3 +1,5 @@
+//! Shared utility helpers used across `rlevo-core` modules.
+//!
 //! Shared utilities used across `rlevo-core` consumers.
 //!
 //! Currently houses the [`seed`] module's deterministic seed-derivation

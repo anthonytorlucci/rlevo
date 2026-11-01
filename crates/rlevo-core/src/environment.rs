@@ -1,3 +1,13 @@
+//! Agent/environment interaction protocol.
+//!
+//! Defines [`Environment`], [`Snapshot`], [`EpisodeStatus`],
+//! and [`EnvironmentError`].
+//!
+//! [`Environment`]: crate::environment::Environment
+//! [`Snapshot`]: crate::environment::Snapshot
+//! [`EpisodeStatus`]: crate::environment::EpisodeStatus
+//! [`EnvironmentError`]: crate::environment::EnvironmentError
+//!
 //! Environment interaction protocol and snapshot types.
 //!
 //! This module defines the contract between an agent and a problem domain:

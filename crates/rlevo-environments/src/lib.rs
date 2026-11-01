@@ -92,13 +92,7 @@ pub mod landscapes {
 pub mod bench;
 pub mod box2d;
 pub mod classic;
-/// Cardinal direction primitive (4-way heading + rotation) shared across
-/// environments. It sits at the crate root so non-grid environments (e.g. the
-/// Santa Fe ant) use it without depending on the Minigrid framework;
-/// [`grids::core`] re-exports the module and its `Direction` type.
 pub mod direction;
-/// The post-terminal conformance check this crate's tests share. The guard it
-/// checks for is [`rlevo_core::episode::EpisodeGuard`].
 #[cfg(test)]
 mod episode;
 /// Board-game environments — **stub, no `Environment` impl yet**.

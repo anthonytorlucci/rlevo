@@ -26,7 +26,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 authors = ["Anthony Torlucci"]
 description = "Deep Reinforcement Learning with Evolutionary Optimization"
 license = "MIT OR Apache-2.0"
@@ -47,12 +47,10 @@ burn = { version = "0.22.1", default-features = false, features = ["std"] }
 # Utilities
 rand = "0.10.1"
 rand_distr = "0.6.0"
-ringbuffer = "0.16.0"
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 
-# Benchmarking and profiling
+# Benchmarking
 criterion = { version = "0.8", features = ["html_reports"] }
-pprof = { version = "0.15", features = ["flamegraph", "criterion"] }
 # Pin the global thread pool to one thread in benches for reproducible
 # floating-point results (burn-flex's gemm parallelises via rayon).
 rayon = "1.12"
@@ -63,7 +61,6 @@ tracing-subscriber = "0.3"
 
 # Error handling
 thiserror = "2.0"
-anyhow = "1.0"
 
 # Physics (Box2D-style environments)
 rapier2d = { version = "0.32", features = ["enhanced-determinism"] }

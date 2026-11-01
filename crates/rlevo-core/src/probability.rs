@@ -1,3 +1,15 @@
+//! Validated unit-interval probability primitive.
+//!
+//! Provides [`Probability`], a value in the closed interval `[0, 1]` valid by
+//! construction (invariant `0.0 <= p <= 1.0`: rejects `NaN`, `Inf`, and
+//! out-of-range values), plus its [`ProbabilityError`]. Makes the silent
+//! all-false-mask degeneracy of a `NaN`/out-of-range Bernoulli rate
+//! unrepresentable wherever a `Probability` is held. Complements the
+//! [`config`](crate::config) convention rather than replacing it (ADR 0031).
+//!
+//! [`Probability`]: crate::probability::Probability
+//! [`ProbabilityError`]: crate::probability::ProbabilityError
+//!
 //! Validated unit-interval probability: the [`Probability`] newtype and
 //! [`ProbabilityError`].
 //!
@@ -17,7 +29,7 @@
 //! by construction — the invariant travels with the value rather than being
 //! re-checked (or, today, silently skipped) at each boundary.
 //!
-//! This complements the [`config`] validation convention (ADR
+//! This complements the [`config` validation convention](crate::config) (ADR
 //! 0026), exactly as [`Bounds`](crate::bounds::Bounds) does (ADR 0027): a config
 //! field of type `Probability` is self-validating, so its
 //! [`Validate`](crate::config::Validate) impl no longer repeats a

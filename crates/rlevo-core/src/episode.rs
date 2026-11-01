@@ -1,3 +1,14 @@
+//! Episode-lifecycle guard.
+//!
+//! Provides [`EpisodeGuard`], the state machine an [`Environment`] holds to
+//! meet the post-terminal contract on `step`: a step taken after the episode
+//! ended returns [`EnvironmentError::StepAfterEpisodeEnd`] and changes
+//! nothing (ADR 0044).
+//!
+//! [`EpisodeGuard`]: crate::episode::EpisodeGuard
+//! [`Environment`]: crate::environment::Environment
+//! [`EnvironmentError::StepAfterEpisodeEnd`]: crate::environment::EnvironmentError::StepAfterEpisodeEnd
+//!
 //! The episode-lifecycle guard an [`Environment`] holds.
 //!
 //! An episode that has emitted a snapshot with

@@ -1,3 +1,6 @@
+//! The post-terminal conformance check this crate's tests share. The guard it
+//! checks for is [`rlevo_core::episode::EpisodeGuard`].
+//!
 //! The conformance check for the post-terminal `step` contract, shared by
 //! this crate's tests.
 //!

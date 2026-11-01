@@ -1,4 +1,8 @@
 //! [`StateError`]: why a value is not a legal state of an environment.
+//!
+//! [`StateError`]: crate::state::StateError
+//!
+//! [`StateError`]: why a value is not a legal state of an environment.
 
 /// Error type for state validation failures.
 ///

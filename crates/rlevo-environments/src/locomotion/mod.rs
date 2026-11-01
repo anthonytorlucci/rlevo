@@ -20,7 +20,7 @@
 //!
 //! | Env | Action dim | Obs dim (default) | Terminates? |
 //! |---|---|---|---|
-//! | InvertedPendulum | 1 | 4 | `$|\text{angle}| \geq 0.2$` |
+//! | InvertedPendulum | 1 | 4 | `$\lvert\text{angle}\rvert \geq 0.2$` |
 //! | InvertedDoublePendulum | 1 | 9 | `$y_{\text{tip}} \leq 1.0$` |
 //! | Reacher | 2 | 10 | never |
 //! | Swimmer | 2 | 8 | never |

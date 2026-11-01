@@ -1,3 +1,12 @@
+//! Primitive trait vocabulary: [`Observation`], [`Action`] and [`HostRow`],
+//! plus `TensorConvertible` under the `burn` feature.
+//!
+//! All other modules in this crate depend on the types defined here.
+//!
+//! [`Observation`]: crate::base::Observation
+//! [`Action`]: crate::base::Action
+//! [`HostRow`]: crate::base::HostRow
+//!
 //! Core traits for reinforcement learning abstractions.
 //!
 //! This module defines the foundational vocabulary used throughout `rlevo-core`:

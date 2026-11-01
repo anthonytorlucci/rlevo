@@ -1,3 +1,5 @@
+//! [`RecordError`] — non-fatal write failures retained for post-run query.
+//!
 //! Errors surfaced by the recording sink.
 //!
 //! Recording is best-effort *during* a run: the [`RecordWriter`] logs a

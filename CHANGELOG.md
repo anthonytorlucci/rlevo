@@ -9,6 +9,68 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.6.1] – 2026-11-01
+
+A documentation release. Every crate moves to 0.6.1 so the workspace keeps
+one version, and no code changes. `rlevo-core` and `rlevo-harness` fix the
+docs that docs.rs failed to build for 0.6.0 and the module docs that caused
+it, and `rlevo-evolution` and `rlevo-environments` fix three doc tables.
+
+### `rlevo-core` and `rlevo-harness`
+
+**Fixed**
+
+- **Their 0.6.0 documentation did not build on docs.rs.** docs.rs builds
+  with a current nightly rustdoc, which resolves a module's own `//!` docs
+  in that module's scope, where earlier releases resolved them in the
+  parent's when the `pub mod` line carries docs of its own. Six intra-doc
+  links in `rlevo-core` (in `action`, `bounds`, `config`, `probability` and
+  `rate`) and six in `rlevo-harness` (in `record::env_tap`,
+  `record::reporter` and `record::schema`) stopped resolving or became
+  redundant, and the crates' rustdoc lints made each an error. Each link now
+  resolves the same way under either rule, checked on the toolchain docs.rs
+  used (rustc 1.101.0-nightly, 2026-10-31) and on 1.99.0.
+- **A module's docs live in one place.** 26 modules, 16 in `rlevo-core`, 8
+  in `rlevo-harness`'s `record` and 2 in `rlevo-environments`, were
+  documented both at their `pub mod` line and in their own `//!` docs, the
+  pairing that made the two rustdocs resolve links in different scopes. The
+  `pub mod` line's docs now open the module's own, so every rustdoc
+  resolves them in the module's scope.
+
+### `rlevo-evolution` and `rlevo-environments`
+
+**Fixed**
+
+- **Three doc tables split a cell at a literal `|`.** The function tables
+  in `algorithms::gp_cgp` and on `FunctionSet`, and the table of the
+  locomotion environments, wrote an absolute value as `|x|` inside a cell,
+  which a Markdown table reads as a column boundary; the nightly rustdoc
+  warns of each. They now write `\lvert x \rvert` in math and `b.abs()` in
+  code.
+
+### Infrastructure
+
+**Added**
+
+- **`docs-rs.yml` documents each published library crate as docs.rs
+  does.** `tools/docs-rs.sh [toolchain] [crate...]` runs `cargo rustdoc
+  --lib` on a nightly (`nightly` by default) with the features each crate's
+  `[package.metadata.docs.rs]` names, `DOCS_RS=1` and `--cfg docsrs`,
+  refuses a key of that table it does not apply, and fails on a rustdoc
+  warning as well as an error. The workflow runs it as an advisory check,
+  never a required one, on pull requests and pushes that touch the crates,
+  weekly, and by hand; its header says when and why. `docs/rules.md` now
+  asks for a module to be documented in one place.
+
+**Changed**
+
+- **The workspace manifest drops three dependency entries no member
+  uses:** `anyhow`, `pprof` and `ringbuffer`, which nightly cargo
+  (1.101.0-nightly) reports as `cargo::unused_workspace_dependencies`. No crate's dependencies
+  change and `Cargo.lock` does not change; `xtask` reaches `anyhow`
+  through `tracel_xtask::prelude`, as before. The README's dependency
+  list drops them too.
+
 ## [0.6.0] – 2026-11-01
 
 ### Breaking changes
