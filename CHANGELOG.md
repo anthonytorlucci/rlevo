@@ -9,6 +9,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.6.0] – 2026-11-01
+
 ### Breaking changes
 
 - **The library crates no longer select a Burn backend** (ADR 0080).
@@ -85,7 +87,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     `SantaFeAntState`, is removed with it; the environment's documentation
     says its percept is not Markov.
   - `rlevo_reinforcement_learning::experience::HistoryRepresentation` and
-    `SufficientStatistic`. `ExperienceTuple` and `History` stay for now.
+    `SufficientStatistic`. `ExperienceTuple` and `History` go with the
+    `experience` module, below.
   - `rlevo_core::render::Landscape2DPayloadSource`, and with it
     `rlevo_benchmarks::record::RecordingTap::with_landscape_payload`, the
     constructor bounded on it. A landscape is not an environment, so no type
@@ -104,8 +107,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **The `experience` module is removed** from
   `rlevo-reinforcement-learning`, with `ExperienceTuple` and `History` (ADR
   0082). Nothing in the workspace used either: every off-policy agent stores
-  `replay::Transition`, and `ExperienceTuple` was a second definition of the
-  same five fields. Store transitions through the `replay` module.
+  one transition type, now `rlevo_core::agent::Transition` (ADR 0095), and
+  `ExperienceTuple` was a second definition of the same five fields. Use
+  `Transition`.
 - **`EpisodeGuard` moves to `rlevo-core`** (ADR 0083). It is
   `rlevo_core::episode::EpisodeGuard`, or `rlevo::core::episode::EpisodeGuard`
   through the umbrella, and the module `rlevo_environments::episode` is no
@@ -156,10 +160,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `rlevo_benchmarks::` paths and `rlevo-benchmarks/<feature>` feature
   entries go on working, except the paths through the modules `agent` and
   `seed`. Those two were aliases, kept since ADR 0004 moved their items to
-  `rlevo-core`, and they are removed with the old name: import
-  `BenchableAgent`, `FitnessEvaluable` and `Landscape` from
-  `rlevo_core::fitness`, and `SeedStream` from `rlevo_core::util::seed`
-  (`rlevo::core::...` through the umbrella). Strings the harness emits
+  `rlevo-core`, and they are removed with the old name: import `Landscape`
+  from `rlevo_core::fitness`, `Agent` from `rlevo_core::agent` (it replaces
+  `BenchableAgent`, below; `FitnessEvaluable` folds into `Landscape`), and
+  `SeedStream` from `rlevo_core::util::seed` (`rlevo::core::...` through the
+  umbrella). Strings the harness emits
   follow the name and change with no compile error. The `tracing` target
   of the harness's events is `rlevo_harness` (was `rlevo_benchmarks`), so
   a log filter on the old target matches nothing. In the static report,
@@ -327,8 +332,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     and call its inherent `forward`. `BatchPhenotypeEvaluator` is removed:
     `DensePaddedEvaluator::evaluate_population` is inherent, and
     `BatchGraphFitness<B, E>` is `BatchGraphFitness<B>`.
-  - `GraphFitnessFn::evaluate` loses its `builder` argument:
-    `evaluate(&self, population, device)`.
+  - `GraphFitnessFn` is removed later in this release (ADR 0098, below):
+    NEAT is scored through `BatchFitnessFn`.
   - `ReactivePolicy` is removed, and `StatefulPolicy<B, E>` is
     `StatefulPolicy<Obs, Act>` with `reset(&self) -> Hidden` and
     `act(&self, &mut Hidden, &Obs) -> Act`: neither takes a device. A
@@ -563,7 +568,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **`Metric` in the prelude** (ADR 0099), the type an agent's
   `emit_metrics` returns, so the agent needs no path into
   `rlevo::core::fitness`.
-- **`Rng` and `RngExt` in the prelude.** `BenchableAgent::act` and every
+- **`Rng` and `RngExt` in the prelude.** `Agent::act` and every
   strategy's `init`, `ask` and `tell` take a `&mut dyn Rng`, and the
   methods that draw, such as `random_range`, are on `RngExt`, which no
   signature names. A consumer added `rand` by hand, guessed its version,
@@ -639,9 +644,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
-- **`FitnessEvaluable`'s docs named a consumer that does not exist**,
-  `Evaluator::run_optimizer_trial`. The consumer is `rlevo-evolution`'s
-  `FromFitnessEvaluable` adapter.
 - **`GenerationProbe`'s docs did not say who calls it or who implements
   it.** An evaluator calls it; a user implements it only for a generation
   loop of their own. The docs now say so, point at the recipe in
@@ -870,11 +872,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   one dependency runs them.
 - **The crate README named modules that do not exist**
   (`algorithms::local_search` and `algorithms::coevolution`; they are
-  `local_search` and `coevolution`), listed NEAT among the `Strategy`
-  implementations, and
-  taught the roundabout on-ramp. NEAT and the bounded architecture search
-  are now listed as the standalone strategies they are, and the quick start
-  implements `Landscape` and reads the minimiser back with `best()`.
+  `local_search` and `coevolution`) and taught the roundabout on-ramp. The
+  quick start now implements `Landscape` and reads the minimiser back with
+  `best()`, and NEAT and the bounded architecture search are listed among
+  the `Strategy` implementations, which they are from this release (ADR
+  0098).
 - **`Strategy::tell`'s docs read as leave to skip sanitising.** They said a
   `tell` "may build leaders ... without a finite check" because the loop
   sanitises first, and two paragraphs later that an implementor owes a

@@ -106,7 +106,7 @@ The ERL research community has produced a rich ecosystem of Python implementatio
 
 ```toml
 [dependencies]
-rlevo = "0.5"
+rlevo = "0.6"
 ```
 
 ```rust
@@ -141,11 +141,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```toml
 [dependencies]
-rlevo = { version = "0.5", features = ["wgpu"] }
+rlevo = { version = "0.6", features = ["wgpu"] }
 ```
-
-The `flex` and `wgpu` features are on `main` and ship with the next release;
-the published 0.5.0 always compiles both backends and has neither feature.
 
 Burn is re-exported as `rlevo::burn`, so you need no `burn` entry of your
 own. You choose where a run happens by the device you build:
@@ -163,11 +160,9 @@ the metrics and the reporters. Three examples show it:
 `cargo run -p rlevo --example ga_rastrigin`, and
 `cargo run --release -p rlevo --example neuroevolution_vs_gradient`, which
 trains a gradient-free CMA-ES search over a policy network's weights beside
-PPO and DQN on CartPole, under one budget, and prints the comparison. Like
-the backend features, the
-re-export is on `main` and ships with the next release. The published
-0.5.0 does not carry the harness: add the crate yourself, under the name
-it has in that release, `rlevo-benchmarks`.
+PPO and DQN on CartPole, under one budget, and prints the comparison.
+Through 0.5.0 the harness was a separate crate, `rlevo-benchmarks`, which
+continues as `rlevo-harness`.
 
 ```bash
 # Build the workspace
@@ -189,16 +184,15 @@ that learns), `environment` (an `Environment`) and `strategy` (an
 evolutionary `Strategy`).
 
 ```bash
-cargo generate --git https://github.com/anthonytorlucci/rlevo --tag v0.5.0 templates/rlevo-algo
+cargo generate --git https://github.com/anthonytorlucci/rlevo --tag v0.6.0 templates/rlevo-algo
 ```
 
 `cargo generate` asks which template and what to name the crate. The
 generated crate depends on `rlevo` alone and works as it stands: `cargo run`
 trains and measures your implementation beside a random baseline and a
 shipped one (`DqnAgent`, or `CmaEs`) under one configuration and prints the
-rows as a Markdown table, and `cargo test` runs its tests. Like the harness
-re-export, the templates are on `main` and ship with the next release; the
-command's tag names the release the rest of this README does.
+rows as a Markdown table, and `cargo test` runs its tests. The command's
+tag names the release the rest of this README does.
 
 ## Development Status
 
