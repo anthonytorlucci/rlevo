@@ -22,7 +22,7 @@
 //! | 0 | add | 2 | `$a + b$` |
 //! | 1 | sub | 2 | `$a - b$` |
 //! | 2 | mul | 2 | `$a \cdot b$` |
-//! | 3 | `protected_div` | 2 | `$a / b$` (or `a` if `$|b| < \epsilon$`) |
+//! | 3 | `protected_div` | 2 | `$a / b$` (or `a` if `$\lvert b\rvert < \epsilon$`) |
 //! | 4 | sin | 1 | `sin(a)` |
 //! | 5 | cos | 1 | `cos(a)` |
 //! | 6 | tanh | 1 | `tanh(a)` |

@@ -132,6 +132,16 @@ breaks the rule: a file and line, a crate and its feature, the copy that
 differs, or, for a viz package, the `cargo tree -i` command that prints the
 path to it. The guards are in `xtask/src/commands/guards.rs`.
 
+Docs as **docs.rs** builds them are `tools/docs-rs.sh [toolchain]
+[crate...]`: each published library crate documented on a nightly
+(`nightly` by default) with its `[package.metadata.docs.rs]` features,
+`DOCS_RS=1` and `--cfg docsrs`. docs.rs runs a current nightly rustdoc, not
+the pin, and 0.6.0's `rlevo-core` and `rlevo-harness` failed to build there
+after passing every gate. `docs-rs.yml` runs the script on each push to
+`main` and to a `release/*` branch, weekly, and by hand. It is not a
+pull-request check, since a nightly can break for reasons no pull request
+caused; a release branch's run is the one to wait for before tagging.
+
 A change to a crate's public surface reports its **surface delta** (ADR 0081):
 `tools/public-surface.sh <crate>` lists the public items, one per line, and
 the delta is the diff of the listing at the base commit and on the branch. A

@@ -159,7 +159,7 @@ pub trait FunctionSet: Send + Sync + Debug {
 /// | 0 | add | 2 | `a + b` |
 /// | 1 | sub | 2 | `a - b` |
 /// | 2 | mul | 2 | `a * b` |
-/// | 3 | `protected_div` | 2 | `a / b`, or `a` if `|b| < 1e-6` |
+/// | 3 | `protected_div` | 2 | `a / b`, or `a` if `b.abs() < 1e-6` |
 /// | 4 | sin | 1 | `sin(a)` |
 /// | 5 | cos | 1 | `cos(a)` |
 /// | 6 | tanh | 1 | `tanh(a)` |

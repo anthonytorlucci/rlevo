@@ -1,0 +1,74 @@
+# Documents every published library crate the way docs.rs does, on nightly.
+#
+# docs.rs builds a release's docs with a current nightly rustdoc, and every
+# other workflow here runs the toolchain `rust-toolchain.toml` pins. Docs can
+# therefore pass every gate and fail on docs.rs, which is what happened to
+# 0.6.0's `rlevo-core` and `rlevo-harness`: the 1.101.0 nightly resolves a
+# module's own `//!` links in the module's scope, and the workspace's `deny`
+# rustdoc lints made each link that moved an error. `tools/docs-rs.sh` holds
+# the build and says how much of docs.rs's it reproduces; this file says only
+# when it runs.
+#
+# It is not a pull-request check, and must not become a required one. A
+# nightly breaks for reasons no pull request caused (the 1.101.0 nightly
+# cannot compile a dependency of `rlevo --all-features`), and a required check
+# on it would hold unrelated work until the nightly is fixed. It runs:
+#
+# - on each push to `main`, so a failure points at the merge that caused it,
+#   or at the nightly when the same commit passed on an earlier one;
+# - on each push to a `release/*` branch, so the commit about to be tagged is
+#   documented on the newest nightly before anything is published;
+# - weekly, for a nightly that changes in a week when nothing merges;
+# - by hand, on a named toolchain if given. docs.rs's build log names its
+#   rustc (`docs.rs/crate/<crate>/<version>/builds`); a nightly whose rustc
+#   is dated D is the toolchain `nightly-<D + 1 day>`, so rustc
+#   `1.101.0-nightly (f9ceb4a4d 2026-10-31)` is `nightly-2026-11-01`.
+name: docs-rs
+
+on:
+  push:
+    branches: [main, "release/*"]
+  schedule:
+    # 06:00 UTC every Sunday, after weekly-tests' 02:00 start
+    - cron: "0 6 * * 0"
+  workflow_dispatch:
+    inputs:
+      toolchain:
+        description: "Toolchain to document with, such as nightly-2026-11-01"
+        required: false
+        default: nightly
+
+env:
+  CARGO_TERM_COLOR: always
+  # Every cargo and rustc in the job is this toolchain's, `rust-cache`'s
+  # `rustc -vV` among them, so its cache key moves with the nightly: a new
+  # nightly starts a new cache rather than adding to one it cannot reuse.
+  RUSTUP_TOOLCHAIN: ${{ inputs.toolchain || 'nightly' }}
+
+concurrency:
+  group: docs-rs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-rs:
+    name: rustdoc as docs.rs builds it
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Installed before the cache step, which runs `rustc -vV` for its key.
+      - name: Install the toolchain
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+          rustc --version
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: docs-rs
+
+      # The script documents every crate before it fails, and writes a table
+      # of each crate's result and warning count to the job summary.
+      - name: Document each published library crate
+        run: tools/docs-rs.sh "$RUSTUP_TOOLCHAIN"
