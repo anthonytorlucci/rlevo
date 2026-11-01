@@ -184,7 +184,7 @@ that learns), `environment` (an `Environment`) and `strategy` (an
 evolutionary `Strategy`).
 
 ```bash
-cargo generate --git https://github.com/anthonytorlucci/rlevo --tag v0.6.0 templates/rlevo-algo
+cargo generate --git https://github.com/anthonytorlucci/rlevo --tag v0.6.1 templates/rlevo-algo
 ```
 
 `cargo generate` asks which template and what to name the crate. The

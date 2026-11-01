@@ -6,7 +6,7 @@
 //! # Design Philosophy
 //!
 //! The action traits follow a layered design:
-//! - [`Action`](crate::base::Action): Base trait providing validation and cloning semantics
+//! - [`Action` trait](crate::base::Action): Base trait providing validation and cloning semantics
 //! - [`DiscreteAction`], [`ContinuousAction`]: Type-specific extensions
 //! - [`BoundedAction`]: a [`ContinuousAction`] with per-component bounds
 //!

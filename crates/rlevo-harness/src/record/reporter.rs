@@ -2,14 +2,14 @@
 //! surface.
 //!
 //! The evaluation harness (`Suite` + `Evaluator`) drives the
-//! [`Reporter`](crate::reporter::Reporter) trait; [`RecordingReporter`] turns those lifecycle
+//! [`Reporter` trait](crate::reporter::Reporter); [`RecordingReporter`] turns those lifecycle
 //! events into [`RecordSink`] calls so that harness runs land
-//! per-episode files even when the env is not wrapped in
-//! [`RecordingTap`].
+//! per-episode files even when the env is not wrapped in a
+//! [`RecordingTap` wrapper](crate::record::RecordingTap).
 //!
-//! Producer-disambiguation: when a run wraps its env in
-//! [`RecordingTap`], the wrapper drives `on_episode_start` /
-//! `on_frame` / `on_episode_end`. This reporter only emits
+//! Producer-disambiguation: when a run wraps its env in a
+//! [`RecordingTap` wrapper](crate::record::RecordingTap), that wrapper drives
+//! `on_episode_start` / `on_frame` / `on_episode_end`. This reporter only emits
 //! `on_episode_start` / `on_episode_end` when the wrapper isn't
 //! present; the writer tolerates double-starts by silently rotating
 //! the file, but explicit disambiguation via [`RecordingReporter::without_lifecycle`]

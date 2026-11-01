@@ -9,7 +9,54 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.6.1] – 2026-11-01
+
+A documentation release. Every crate moves to 0.6.1 so the workspace keeps
+one version, and no code changes. `rlevo-core` and `rlevo-harness` fix the
+docs that docs.rs failed to build for 0.6.0, and `rlevo-evolution` and
+`rlevo-environments` fix three doc tables.
+
+### `rlevo-core` and `rlevo-harness`
+
+**Fixed**
+
+- **Their 0.6.0 documentation did not build on docs.rs.** docs.rs builds
+  with a current nightly rustdoc, which resolves a module's own `//!` docs
+  in that module's scope, where earlier releases resolved them in the
+  parent's when the `pub mod` line carries docs of its own. Six intra-doc
+  links in `rlevo-core` (in `action`, `bounds`, `config`, `probability` and
+  `rate`) and six in `rlevo-harness` (in `record::env_tap`,
+  `record::reporter` and `record::schema`) stopped resolving or became
+  redundant, and the crates' rustdoc lints made each an error. Each link now
+  resolves the same way under either rule, checked on the toolchain docs.rs
+  used (rustc 1.101.0-nightly, 2026-10-31) and on 1.99.0.
+
+### `rlevo-evolution` and `rlevo-environments`
+
+**Fixed**
+
+- **Three doc tables split a cell at a literal `|`.** The function tables
+  in `algorithms::gp_cgp` and on `FunctionSet`, and the table of the
+  locomotion environments, wrote an absolute value as `|x|` inside a cell,
+  which a Markdown table reads as a column boundary; the nightly rustdoc
+  warns of each. They now write `\lvert x \rvert` in math and `b.abs()` in
+  code.
+
 ### Infrastructure
+
+**Added**
+
+- **`docs-rs.yml` documents each published library crate as docs.rs
+  does.** `tools/docs-rs.sh [toolchain] [crate...]` runs `cargo rustdoc
+  --lib` on a nightly (`nightly` by default) with the features each crate's
+  `[package.metadata.docs.rs]` names, `DOCS_RS=1` and `--cfg docsrs`, and
+  refuses a key of that table it does not apply. The workflow runs it on
+  each push to `main` and to a `release/*` branch, weekly, and by hand. It
+  is not a pull-request check, since a nightly can break for reasons no
+  pull request caused; a release branch's run is the one to wait for before
+  tagging. `CLAUDE.md` and `docs/rules.md` describe it, and the rules'
+  advice on links in module docs now gives a shape that resolves under
+  either scope rule.
 
 **Changed**
 

@@ -1,10 +1,11 @@
-//! [`RecordingTap`] — an [`Environment`](rlevo_core::environment::Environment)
-//! wrapper that drives the
-//! [`RecordSink`] surface from a raw env trajectory.
+//! [`RecordingTap`] — an
+//! [`Environment` wrapper](rlevo_core::environment::Environment) that drives
+//! the [`RecordSink`] surface from a raw env trajectory.
 //!
 //! It pushes through an [`Arc<Mutex<dyn RecordSink>>`](RecordSink), which
-//! the [`RecordWriter`] drains to disk. The wrapper owns episode-return +
-//! length bookkeeping, since no harness is involved.
+//! the [`RecordWriter` sink](crate::record::writer::RecordWriter) drains to
+//! disk. The wrapper owns episode-return + length bookkeeping, since no
+//! harness is involved.
 
 use std::sync::Arc;
 

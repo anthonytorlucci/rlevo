@@ -10,7 +10,7 @@ templates, one for each thing an author implements against `rlevo`:
 | `strategy` | `Strategy`, an evolutionary method | yours and the shipped CMA-ES, on the sphere |
 
 ```bash
-cargo generate --git https://github.com/anthonytorlucci/rlevo --tag v0.6.0 templates/rlevo-algo
+cargo generate --git https://github.com/anthonytorlucci/rlevo --tag v0.6.1 templates/rlevo-algo
 ```
 
 `cargo generate` asks which template and what to name the crate. Name one
