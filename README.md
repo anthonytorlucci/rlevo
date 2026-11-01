@@ -212,16 +212,13 @@ tag names the release the rest of this README does.
 - **[Burn](https://burn.dev/) 0.22** — backend-agnostic tensor operations, re-exported as `rlevo::burn`. The library crates enable no backend; `rlevo`'s `flex` feature (default, CPU) or `wgpu` feature (GPU) selects one
 - **rand 0.10** — randomness and deterministic seeding
 - **rand_distr 0.6** — probability distributions (normal, uniform, etc.)
-- **ringbuffer 0.16** — fixed-capacity circular buffer for replay buffers
 - **serde 1.0** — serialization for checkpoints and configs
 - **tracing 0.1** — structured logging
 - **tracing-subscriber 0.3** — subscriber implementations
 - **thiserror 2.0** — typed error enums
-- **anyhow 1.0** — ergonomic error propagation for application-level code
 - **rapier2d / rapier3d 0.32** — physics simulation with enhanced determinism
 - **parking_lot 0.12** — high-performance Mutex/RwLock
 - **criterion 0.8** — statistical microbenchmarking
-- **pprof 0.15** — CPU profiling with flamegraph and criterion integration
 - **approx 0.5** — floating-point approximate equality for tests
 
 ## Prior Work and Acknowledgements

@@ -9,6 +9,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Infrastructure
+
+**Changed**
+
+- **The workspace manifest drops three dependency entries no member
+  uses:** `anyhow`, `pprof` and `ringbuffer`, which Cargo 1.101 reports
+  as `cargo::unused_workspace_dependencies`. No crate's dependencies
+  change and `Cargo.lock` does not change; `xtask` reaches `anyhow`
+  through `tracel_xtask::prelude`, as before. The README's dependency
+  list drops them too.
+
 ## [0.6.0] – 2026-11-01
 
 ### Breaking changes
