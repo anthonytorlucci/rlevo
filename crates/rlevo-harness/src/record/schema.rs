@@ -1,3 +1,5 @@
+//! On-disk type definitions and wire-format constants.
+//!
 //! On-disk record types written by the recording surface.
 //!
 //! Encoding: bincode 2.x with the explicit

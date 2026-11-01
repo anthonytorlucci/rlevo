@@ -1,3 +1,15 @@
+//! Optional rendering layer for debug output and report visualization.
+//!
+//! Contains [`AsciiRenderable`] (via the [`ascii`] sub-module),
+//! styled color primitives ([`styled`] / [`palette`]), and environment
+//! payload types ([`payload`]).
+//!
+//! [`AsciiRenderable`]: crate::render::AsciiRenderable
+//! [`ascii`]: crate::render::ascii
+//! [`styled`]: crate::render::styled
+//! [`palette`]: crate::render::palette
+//! [`payload`]: crate::render::payload
+//!
 //! Rendering abstractions for environment visualization.
 //!
 //! # Module layout

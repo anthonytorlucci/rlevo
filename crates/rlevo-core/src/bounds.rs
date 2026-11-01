@@ -1,3 +1,16 @@
+//! Validated closed-range primitive.
+//!
+//! Provides [`Bounds`], an inclusive `[lo, hi]` range over `f32` that is valid
+//! by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`, permits a
+//! one-sided infinite endpoint), plus its
+//! [`BoundsError`]. Makes the `f32::clamp` panic and `x.max(lo).min(hi)`
+//! silent-collapse hazards unrepresentable wherever a `Bounds` is held.
+//! Complements the [`config`](crate::config) convention rather than replacing
+//! it (ADR 0027).
+//!
+//! [`Bounds`]: crate::bounds::Bounds
+//! [`BoundsError`]: crate::bounds::BoundsError
+//!
 //! Validated closed range: the [`Bounds`] newtype and [`BoundsError`].
 //!
 //! A `(f32, f32)` bounds tuple is a standing hazard: [`f32::clamp`] panics when

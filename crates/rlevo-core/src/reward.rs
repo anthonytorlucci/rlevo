@@ -1,3 +1,10 @@
+//! Concrete reward types.
+//!
+//! Provides [`ScalarReward`], the standard single-`f32` reward used by most
+//! environments.
+//!
+//! [`ScalarReward`]: crate::reward::ScalarReward
+//!
 //! Concrete reward types for reinforcement learning environments.
 //!
 //! This module provides [`ScalarReward`], a lightweight wrapper around an

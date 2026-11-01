@@ -1,3 +1,5 @@
+//! [`PopulationReporter`] — EA population-snapshot sink adapter.
+//!
 //! EA-population producer: adapts a [`PopulationObserver`] to push
 //! [`PopulationSample`] chunks into a shared [`RecordSink`].
 //!

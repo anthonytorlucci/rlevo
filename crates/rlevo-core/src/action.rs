@@ -1,3 +1,10 @@
+//! Layered action-space traits: [`DiscreteAction`], [`ContinuousAction`] and
+//! [`BoundedAction`].
+//!
+//! [`DiscreteAction`]: crate::action::DiscreteAction
+//! [`ContinuousAction`]: crate::action::ContinuousAction
+//! [`BoundedAction`]: crate::action::BoundedAction
+//!
 //! Action space abstractions for reinforcement learning environments.
 //!
 //! This module provides a flexible type system for representing agent actions in RL environments.

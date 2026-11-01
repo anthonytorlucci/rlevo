@@ -1,3 +1,5 @@
+//! [`RecordingTap`] — env wrapper that captures every reset/step frame.
+//!
 //! [`RecordingTap`] — an
 //! [`Environment` wrapper](rlevo_core::environment::Environment) that drives
 //! the [`RecordSink`] surface from a raw env trajectory.

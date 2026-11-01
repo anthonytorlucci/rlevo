@@ -1,3 +1,12 @@
+//! The agent seam: [`Agent`] and the [`Transition`] it is shown.
+//!
+//! A frozen policy implements `act` alone; a learner also implements the
+//! hooks that show it each step and each episode's end. The RL agents of
+//! `rlevo-reinforcement-learning` implement it, and the harness drives it.
+//!
+//! [`Agent`]: crate::agent::Agent
+//! [`Transition`]: crate::agent::Transition
+//!
 //! The agent seam: [`Agent`], the one trait a driver steps anything that
 //! acts in an [`Environment`] through, and [`Transition`], what it is shown
 //! after every step.

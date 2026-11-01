@@ -1,3 +1,5 @@
+//! [`RecordSink`] trait, [`RecordWriter`], and [`InMemoryRecordSink`].
+//!
 //! Streaming writer for per-episode record files plus
 //! [`read_episode_record`], the decoder for one file. The report-tier
 //! loader, `report::replay` (feature `report`), is built on that decoder.

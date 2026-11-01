@@ -31,8 +31,11 @@
 # the checkout has it.
 #
 # Every crate is documented even after one fails, and the exit status is
-# non-zero if any did. A warning fails nothing, as on docs.rs; the closing
-# table counts them, and appends to `$GITHUB_STEP_SUMMARY` when it is set.
+# non-zero if any failed or warned. docs.rs fails on an error only, but a
+# rustdoc warning is a defect on the page it publishes: three of 0.6.0's
+# doc tables were split at a `|` in a cell, which rustdoc warns of and
+# docs.rs rendered anyway. The closing table gives each crate's result and
+# warning count, and appends to `$GITHUB_STEP_SUMMARY` when it is set.
 # Requires jq and the toolchain (`rustup toolchain install nightly --profile
 # minimal`).
 set -euo pipefail
@@ -54,9 +57,11 @@ cargo metadata --no-deps --format-version 1 > "$meta"
 # The keys of a docs.rs table this script applies.
 applied='["features", "all-features", "no-default-features", "rustdoc-args"]'
 
+# `publish` is null when unrestricted and a registry list otherwise, `[]`
+# for `publish = false`.
 crates=$(jq -r '
   .packages[]
-  | select(.publish == null)
+  | select(.publish == null or any(.publish[]; . == "crates-io"))
   | select([.targets[].kind[]] | any(. == "lib" or . == "rlib"))
   | .name' "$meta")
 if [ -z "$crates" ]; then
@@ -136,7 +141,12 @@ for name in $crates; do
   # cargo's own count for the library's doc build; colour codes stripped.
   warnings=$(sed -e "s/${esc}\[[0-9;]*m//g" "$log" \
     | sed -n 's/^warning: `[^`]*` (lib doc) generated \([0-9][0-9]*\) warning.*/\1/p')
-  rows="$rows| \`$name\` | ${features:-default} | $result | ${warnings:-0} |
+  warnings=${warnings:-0}
+  if [ "$result" = ok ] && [ "$warnings" -gt 0 ]; then
+    result="**warned**"
+    failed="$failed $name"
+  fi
+  rows="$rows| \`$name\` | ${features:-default} | $result | $warnings |
 "
 done
 
@@ -152,6 +162,6 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 fi
 
 if [ -n "$failed" ]; then
-  echo "error: rustdoc failed for$failed on $version, so docs.rs would fail to build them" >&2
+  echo "error: rustdoc failed or warned for$failed on $version; docs.rs would fail to build them or publish the defects warned of" >&2
   exit 1
 fi

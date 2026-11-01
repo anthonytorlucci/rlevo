@@ -1,3 +1,13 @@
+//! Drive seam for work that paces itself.
+//!
+//! [`GenerationProbe`] is what an evaluation harness drives when the work is
+//! not an episodic agent/environment interaction — an evolutionary generation
+//! loop, concretely. Episodic work is driven through [`Environment`] directly
+//! (ADR 0076).
+//!
+//! [`GenerationProbe`]: crate::evaluation::GenerationProbe
+//! [`Environment`]: crate::environment::Environment
+//!
 //! Drive seams consumed by external evaluators.
 //!
 //! [`GenerationProbe`] is the seam an evaluation harness uses to run work that

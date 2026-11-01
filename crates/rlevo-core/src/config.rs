@@ -1,3 +1,15 @@
+//! Shared configuration-validation convention.
+//!
+//! Provides [`Validate`], the trait every `*Config` implements to check its
+//! invariants at construction, plus the structured [`ConfigError`] /
+//! [`ConstraintKind`] it returns and ergonomic check helpers. Construction that
+//! consumes a caller-supplied config returns `Result<_, ConfigError>` rather
+//! than panicking (ADR 0026).
+//!
+//! [`Validate`]: crate::config::Validate
+//! [`ConfigError`]: crate::config::ConfigError
+//! [`ConstraintKind`]: crate::config::ConstraintKind
+//!
 //! Configuration validation: the [`Validate`] trait and [`ConfigError`].
 //!
 //! Across the workspace, dozens of `*Config` and hyperparameter-bearing structs

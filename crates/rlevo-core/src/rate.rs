@@ -1,3 +1,15 @@
+//! Validated non-negative rate primitive.
+//!
+//! Provides [`NonNegativeRate`], a finite non-negative `f32` valid by
+//! construction (invariant `is_finite() && r >= 0.0`), plus its
+//! [`NonNegativeRateError`]. The unbounded companion to [`Probability`] for
+//! magnitudes such as BLX-`$\alpha$`'s expansion factor or Gaussian mutation's `$\sigma$`, where
+//! a `NaN`/`Inf` would otherwise poison the offspring tensor (ADR 0031).
+//!
+//! [`NonNegativeRate`]: crate::rate::NonNegativeRate
+//! [`NonNegativeRateError`]: crate::rate::NonNegativeRateError
+//! [`Probability`]: crate::probability::Probability
+//!
 //! Validated non-negative rate: the [`NonNegativeRate`] newtype and
 //! [`NonNegativeRateError`].
 //!

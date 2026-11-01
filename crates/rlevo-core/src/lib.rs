@@ -92,165 +92,21 @@
 //! [`NonNegativeRate`]: crate::rate::NonNegativeRate
 //! [`AsciiRenderable`]: crate::render::AsciiRenderable
 
-/// Primitive trait vocabulary: [`Observation`], [`Action`] and [`HostRow`],
-/// plus `TensorConvertible` under the `burn` feature.
-///
-/// All other modules in this crate depend on the types defined here.
-///
-/// [`Observation`]: crate::base::Observation
-/// [`Action`]: crate::base::Action
-/// [`HostRow`]: crate::base::HostRow
-pub mod base;
-
-/// Layered action-space traits: [`DiscreteAction`], [`ContinuousAction`] and
-/// [`BoundedAction`].
-///
-/// [`DiscreteAction`]: crate::action::DiscreteAction
-/// [`ContinuousAction`]: crate::action::ContinuousAction
-/// [`BoundedAction`]: crate::action::BoundedAction
 pub mod action;
-
-/// The agent seam: [`Agent`] and the [`Transition`] it is shown.
-///
-/// A frozen policy implements `act` alone; a learner also implements the
-/// hooks that show it each step and each episode's end. The RL agents of
-/// `rlevo-reinforcement-learning` implement it, and the harness drives it.
-///
-/// [`Agent`]: crate::agent::Agent
-/// [`Transition`]: crate::agent::Transition
 pub mod agent;
-
-/// Validated closed-range primitive.
-///
-/// Provides [`Bounds`], an inclusive `[lo, hi]` range over `f32` that is valid
-/// by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`, permits a
-/// one-sided infinite endpoint), plus its
-/// [`BoundsError`]. Makes the `f32::clamp` panic and `x.max(lo).min(hi)`
-/// silent-collapse hazards unrepresentable wherever a `Bounds` is held.
-/// Complements the [`config`] convention rather than replacing it (ADR 0027).
-///
-/// [`Bounds`]: crate::bounds::Bounds
-/// [`BoundsError`]: crate::bounds::BoundsError
+pub mod base;
 pub mod bounds;
-
-/// Shared configuration-validation convention.
-///
-/// Provides [`Validate`], the trait every `*Config` implements to check its
-/// invariants at construction, plus the structured [`ConfigError`] /
-/// [`ConstraintKind`] it returns and ergonomic check helpers. Construction that
-/// consumes a caller-supplied config returns `Result<_, ConfigError>` rather
-/// than panicking (ADR 0026).
-///
-/// [`Validate`]: crate::config::Validate
-/// [`ConfigError`]: crate::config::ConfigError
-/// [`ConstraintKind`]: crate::config::ConstraintKind
 pub mod config;
-
-/// Agent/environment interaction protocol.
-///
-/// Defines [`Environment`], [`Snapshot`], [`EpisodeStatus`],
-/// and [`EnvironmentError`].
-///
-/// [`Environment`]: crate::environment::Environment
-/// [`Snapshot`]: crate::environment::Snapshot
-/// [`Snapshot`]: crate::environment::Snapshot
-/// [`EpisodeStatus`]: crate::environment::EpisodeStatus
-/// [`EnvironmentError`]: crate::environment::EnvironmentError
 pub mod environment;
-
-/// Episode-lifecycle guard.
-///
-/// Provides [`EpisodeGuard`], the state machine an [`Environment`] holds to
-/// meet the post-terminal contract on `step`: a step taken after the episode
-/// ended returns [`EnvironmentError::StepAfterEpisodeEnd`] and changes
-/// nothing (ADR 0044).
-///
-/// [`EpisodeGuard`]: crate::episode::EpisodeGuard
-/// [`Environment`]: crate::environment::Environment
-/// [`EnvironmentError::StepAfterEpisodeEnd`]: crate::environment::EnvironmentError::StepAfterEpisodeEnd
 pub mod episode;
-
-/// Drive seam for work that paces itself.
-///
-/// [`GenerationProbe`] is what an evaluation harness drives when the work is
-/// not an episodic agent/environment interaction — an evolutionary generation
-/// loop, concretely. Episodic work is driven through [`Environment`] directly
-/// (ADR 0076).
-///
-/// [`GenerationProbe`]: crate::evaluation::GenerationProbe
-/// [`Environment`]: crate::environment::Environment
 pub mod evaluation;
-
-/// Fitness evaluation and the metric data type.
-///
-/// Provides [`Landscape`] and [`Metric`].
-///
-/// [`Landscape`]: crate::fitness::Landscape
-/// [`Metric`]: crate::fitness::Metric
 pub mod fitness;
-
-/// Objective direction primitive.
-///
-/// Provides [`ObjectiveSense`], the typed maximise/minimise direction that
-/// reconciles the library's maximise-native engine with cost objectives at a
-/// single chokepoint.
-///
-/// [`ObjectiveSense`]: crate::objective::ObjectiveSense
 pub mod objective;
-
-/// Validated unit-interval probability primitive.
-///
-/// Provides [`Probability`], a value in the closed interval `[0, 1]` valid by
-/// construction (invariant `0.0 <= p <= 1.0`: rejects `NaN`, `Inf`, and
-/// out-of-range values), plus its [`ProbabilityError`]. Makes the silent
-/// all-false-mask degeneracy of a `NaN`/out-of-range Bernoulli rate
-/// unrepresentable wherever a `Probability` is held. Complements the [`config`]
-/// convention rather than replacing it (ADR 0031).
-///
-/// [`Probability`]: crate::probability::Probability
-/// [`ProbabilityError`]: crate::probability::ProbabilityError
 pub mod probability;
-
-/// Validated non-negative rate primitive.
-///
-/// Provides [`NonNegativeRate`], a finite non-negative `f32` valid by
-/// construction (invariant `is_finite() && r >= 0.0`), plus its
-/// [`NonNegativeRateError`]. The unbounded companion to [`Probability`] for
-/// magnitudes such as BLX-`$\alpha$`'s expansion factor or Gaussian mutation's `$\sigma$`, where
-/// a `NaN`/`Inf` would otherwise poison the offspring tensor (ADR 0031).
-///
-/// [`NonNegativeRate`]: crate::rate::NonNegativeRate
-/// [`NonNegativeRateError`]: crate::rate::NonNegativeRateError
-/// [`Probability`]: crate::probability::Probability
 pub mod rate;
-
-/// Optional rendering layer for debug output and report visualization.
-///
-/// Contains [`AsciiRenderable`] (via the [`ascii`] sub-module),
-/// styled color primitives ([`styled`] / [`palette`]), and environment
-/// payload types ([`payload`]).
-///
-/// [`AsciiRenderable`]: crate::render::AsciiRenderable
-/// [`ascii`]: crate::render::ascii
-/// [`styled`]: crate::render::styled
-/// [`palette`]: crate::render::palette
-/// [`payload`]: crate::render::payload
 pub mod render;
-
-/// Concrete reward types.
-///
-/// Provides [`ScalarReward`], the standard single-`f32` reward used by most
-/// environments.
-///
-/// [`ScalarReward`]: crate::reward::ScalarReward
 pub mod reward;
-
-/// [`StateError`]: why a value is not a legal state of an environment.
-///
-/// [`StateError`]: crate::state::StateError
 pub mod state;
-
-/// Shared utility helpers used across `rlevo-core` modules.
 pub mod util;
 
 /// The `rand` release this crate's signatures are written against,

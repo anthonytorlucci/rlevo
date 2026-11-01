@@ -1,3 +1,5 @@
+//! [`RecordingReporter`] — suite-lifecycle producer (episode start/end, manifest).
+//!
 //! [`RecordingReporter`] — harness-driven producer for the record
 //! surface.
 //!
