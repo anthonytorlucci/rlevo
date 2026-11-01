@@ -10,7 +10,7 @@ templates, one for each thing an author implements against `rlevo`:
 | `strategy` | `Strategy`, an evolutionary method | yours and the shipped CMA-ES, on the sphere |
 
 ```bash
-cargo generate --git https://github.com/anthonytorlucci/rlevo --tag v0.5.0 templates/rlevo-algo
+cargo generate --git https://github.com/anthonytorlucci/rlevo --tag v0.6.0 templates/rlevo-algo
 ```
 
 `cargo generate` asks which template and what to name the crate. Name one
@@ -26,5 +26,5 @@ calls and what it expects back.
 The tag is the release whose `rlevo` the templates are written against;
 generate from it, not from `main`, whose templates may use API that release
 does not have. The command names the current release, as every version in
-this repository's documentation does. The templates are on `main` and first
-ship with the next release.
+this repository's documentation does. The templates first shipped with
+0.6.0.

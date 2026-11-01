@@ -215,7 +215,6 @@ When `checkpoint_dir` is set and the `json` feature is enabled, `Evaluator` save
 The umbrella crate carries the harness and re-exports it as
 `rlevo::harness` (ADR 0084), so a project that depends on `rlevo` needs
 no entry for this crate and writes `rlevo::harness::evaluator::Evaluator`.
-The re-export is on `main` and ships with the next release.
 
 To use the harness without the rest of `rlevo`, add to your `Cargo.toml`:
 

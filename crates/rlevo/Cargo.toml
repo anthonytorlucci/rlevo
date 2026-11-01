@@ -14,14 +14,14 @@ categories.workspace = true
 [dependencies]
 # `burn` turns on `TensorConvertible`, which the prelude re-exports; named
 # here rather than reached through the RL crate's request for it.
-rlevo-core = { path = "../rlevo-core", version = "0.5.0", features = ["burn"] }
-rlevo-environments = { path = "../rlevo-environments", version = "0.5.0", default-features = false }
-rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.5.0" }
-rlevo-evolution = { path = "../rlevo-evolution", version = "0.5.0", default-features = false }
-rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.5.0" }
+rlevo-core = { path = "../rlevo-core", version = "0.6.0", features = ["burn"] }
+rlevo-environments = { path = "../rlevo-environments", version = "0.6.0", default-features = false }
+rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.6.0" }
+rlevo-evolution = { path = "../rlevo-evolution", version = "0.6.0", default-features = false }
+rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.6.0" }
 # The evaluation harness, re-exported as `rlevo::harness` (ADR 0084). At
 # its default features it links no visualization crate.
-rlevo-harness = { path = "../rlevo-harness", version = "0.5.0" }
+rlevo-harness = { path = "../rlevo-harness", version = "0.6.0" }
 # Re-exported as `rlevo::burn`, and the crate through which the `flex` and
 # `wgpu` features below select a backend for the whole tree (ADR 0080).
 burn = { workspace = true }
@@ -29,7 +29,7 @@ burn = { workspace = true }
 [dev-dependencies]
 # Default features on, so the test targets that drive the physics
 # environments build whatever features the umbrella itself is built with.
-rlevo-environments = { path = "../rlevo-environments", version = "0.5.0" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.6.0" }
 rlevo-test-support = { path = "../rlevo-test-support" }
 approx = { workspace = true }
 # Tests, benches and examples run on Flex whatever features the umbrella is

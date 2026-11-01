@@ -25,9 +25,9 @@ README is a change to the probe.
 
 Before anything is packaged, `xtask` also reads every `rlevo` dependency
 line in `README.md` and in the crate docs of `crates/rlevo/src/lib.rs`, the
-two places a learner copies one from: `rlevo = "0.5"`, or
-`rlevo = { version = "0.5", .. }`. Each must name the release this checkout
-builds, by its leading components (`0.5` names 0.5.0). A line that does not
+two places a learner copies one from: `rlevo = "0.6"`, or
+`rlevo = { version = "0.6", .. }`. Each must name the release this checkout
+builds, by its leading components (`0.6` names 0.6.0). A line that does not
 aborts the run, and the verdict names the file and the version. The version
 bump of a release therefore turns this probe red until both files follow it.
 

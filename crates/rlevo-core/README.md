@@ -165,7 +165,7 @@ Add to your `Cargo.toml`:
 rlevo-core = "0.5"
 ```
 
-The example below is the contract on `main`, which ships with the next release: the published 0.5.0 has no `episode` module, and its `Environment` has three ranks and five associated types (ADR 0090). On `main` the crate also depends on Burn only under its `burn` feature; the published 0.5.0 always depends on it.
+The example below is the contract from 0.6.0: an `Environment` has two ranks and two associated types (ADR 0090), and the crate depends on Burn only under its `burn` feature (ADR 0089). In 0.5.0 it had three ranks and five associated types, no `episode` module, and an unconditional Burn dependency.
 
 ### Minimal Environment
 
