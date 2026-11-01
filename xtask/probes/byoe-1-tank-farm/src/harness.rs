@@ -3,7 +3,7 @@
 
 use rlevo::envs::wrappers::TimeLimit;
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig};
-use rlevo::harness::metrics::core::RETURN_MEAN;
+use rlevo::harness::metrics::RETURN_MEAN;
 use rlevo::harness::reporter::logging::LoggingReporter;
 use rlevo::harness::suite::Suite;
 

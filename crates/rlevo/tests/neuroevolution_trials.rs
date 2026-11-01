@@ -15,12 +15,12 @@ use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::neuroevolution::phenotype::InterpretedPhenotype;
 use rlevo_evolution::neuroevolution::topology::TopologyGenome;
-use rlevo_evolution::strategy::EvolutionaryLoop;
+use rlevo_evolution::strategy::{EvolutionaryLoop, StrategyMetrics};
 use rlevo_evolution::{
     ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, NasBuilderConfig, NeatParams, NeatStrategy,
 };
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
-use rlevo_harness::metrics::core::WALL_CLOCK_SECONDS;
+use rlevo_harness::metrics::{GENERATIONS, WALL_CLOCK_SECONDS};
 use rlevo_harness::report::BenchmarkReport;
 use rlevo_harness::reporter::logging::LoggingReporter;
 
@@ -33,12 +33,13 @@ fn cfg() -> EvaluatorConfig {
         num_episodes: 1,
         train_steps: 0,
         num_trials_per_env: 2,
-        max_steps: GENS,
+        max_generations: GENS,
         base_seed: 2026,
         num_threads: Some(1),
         checkpoint_dir: None,
         fail_fast: false,
         success_threshold: None,
+        ..EvaluatorConfig::default()
     }
 }
 
@@ -168,7 +169,7 @@ fn scalars(report: &BenchmarkReport) -> Vec<BTreeMap<String, u64>> {
             );
             #[allow(clippy::cast_precision_loss)]
             let generations = GENS as f64;
-            assert_eq!(t.scalars.get("generations").copied(), Some(generations));
+            assert_eq!(t.scalars.get(GENERATIONS).copied(), Some(generations));
             t.scalars
                 .iter()
                 .filter(|(name, _)| name.as_str() != WALL_CLOCK_SECONDS)
@@ -192,7 +193,7 @@ fn neat_runs_through_run_trials_and_repeats() {
     };
     let first = suite();
     assert_eq!(first.trials.len(), 2);
-    let best = first.trials[0].scalars["ea/best_fitness_ever"];
+    let best = first.trials[0].scalars[StrategyMetrics::BEST_FITNESS_EVER];
     assert!(
         (0.0..=4.0).contains(&best),
         "a 4 - SSE score lies in [0, 4], got {best}"
@@ -219,8 +220,8 @@ fn arch_nas_runs_through_run_trials_as_a_cost_and_repeats() {
     let first = suite();
     assert_eq!(first.trials.len(), 2);
     for trial in &first.trials {
-        let best = trial.scalars["ea/best_fitness_ever"];
-        let mean = trial.scalars["ea/mean_fitness"];
+        let best = trial.scalars[StrategyMetrics::BEST_FITNESS_EVER];
+        let mean = trial.scalars[StrategyMetrics::MEAN_FITNESS];
         assert!(
             best >= 0.0,
             "the report gives the MSE back as a cost, got {best}"

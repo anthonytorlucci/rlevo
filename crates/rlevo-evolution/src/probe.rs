@@ -49,8 +49,8 @@
 //! # What the harness adds, and one thing to set
 //!
 //! A `GenerationTrial` stops when `advance` returns `None` or after
-//! `EvaluatorConfig::max_steps` generations, whichever comes first.
-//! `max_steps` defaults to 1000. Set it at least as large as the loop's
+//! `EvaluatorConfig::max_generations` generations, whichever comes first.
+//! `max_generations` defaults to 1000. Set it at least as large as the loop's
 //! budget. A trial that the cap ends with budget left logs one warning, and
 //! the `generations` scalar in its report is the cap, not the budget.
 //!
@@ -98,19 +98,23 @@ fn scalar(name: &str, value: f64) -> Metric {
 
 /// The single-population generation summary as harness metrics.
 ///
-/// Names are prefixed `ea/` so a generation trial's scalars never collide with
-/// the episodic `core_metrics` names (`return/mean`, `episode/length_mean`, …)
-/// in the same `TrialReport` metric maps.
+/// Each name is the [`StrategyMetrics`] constant beside the value's accessor.
+/// The `ea/` prefix keeps a generation trial's scalars apart from the episodic
+/// names (`return/mean`, `episode_length/mean`, …) in the same `TrialReport`
+/// metric maps.
 #[allow(clippy::cast_precision_loss)]
 fn strategy_metrics(m: &StrategyMetrics) -> Vec<Metric> {
     vec![
-        scalar("ea/generation", m.generation() as f64),
-        scalar("ea/population_size", m.population_size() as f64),
-        scalar("ea/best_fitness", f64::from(m.best_fitness())),
-        scalar("ea/best_fitness_ever", f64::from(m.best_fitness_ever())),
-        scalar("ea/mean_fitness", f64::from(m.mean_fitness())),
-        scalar("ea/worst_fitness", f64::from(m.worst_fitness())),
-        scalar("ea/broken_count", m.broken_count() as f64),
+        scalar(StrategyMetrics::GENERATION, m.generation() as f64),
+        scalar(StrategyMetrics::POPULATION_SIZE, m.population_size() as f64),
+        scalar(StrategyMetrics::BEST_FITNESS, f64::from(m.best_fitness())),
+        scalar(
+            StrategyMetrics::BEST_FITNESS_EVER,
+            f64::from(m.best_fitness_ever()),
+        ),
+        scalar(StrategyMetrics::MEAN_FITNESS, f64::from(m.mean_fitness())),
+        scalar(StrategyMetrics::WORST_FITNESS, f64::from(m.worst_fitness())),
+        scalar(StrategyMetrics::BROKEN_COUNT, m.broken_count() as f64),
     ]
 }
 
@@ -123,14 +127,14 @@ fn strategy_metrics(m: &StrategyMetrics) -> Vec<Metric> {
 #[allow(clippy::cast_precision_loss)]
 fn coea_metrics(m: &CoEAMetrics) -> Vec<Metric> {
     vec![
-        scalar("coea/generation", m.generation as f64),
-        scalar("coea/binding_fitness", f64::from(m.binding_fitness)),
-        scalar("coea/best_fitness_a", f64::from(m.best_fitness_a)),
-        scalar("coea/best_fitness_b", f64::from(m.best_fitness_b)),
-        scalar("coea/mean_fitness_a", f64::from(m.mean_fitness_a)),
-        scalar("coea/mean_fitness_b", f64::from(m.mean_fitness_b)),
-        scalar("coea/hof_size_a", m.hof_size_a as f64),
-        scalar("coea/hof_size_b", m.hof_size_b as f64),
+        scalar(CoEAMetrics::GENERATION, m.generation as f64),
+        scalar(CoEAMetrics::BINDING_FITNESS, f64::from(m.binding_fitness)),
+        scalar(CoEAMetrics::BEST_FITNESS_A, f64::from(m.best_fitness_a)),
+        scalar(CoEAMetrics::BEST_FITNESS_B, f64::from(m.best_fitness_b)),
+        scalar(CoEAMetrics::MEAN_FITNESS_A, f64::from(m.mean_fitness_a)),
+        scalar(CoEAMetrics::MEAN_FITNESS_B, f64::from(m.mean_fitness_b)),
+        scalar(CoEAMetrics::HOF_SIZE_A, m.hof_size_a as f64),
+        scalar(CoEAMetrics::HOF_SIZE_B, m.hof_size_b as f64),
     ]
 }
 
@@ -345,13 +349,13 @@ mod tests {
         assert_eq!(drain(&mut p, 2).len(), 2, "two generations run");
         let read = p.emit_metrics();
         assert_eq!(
-            scalar_named(&read, "ea/generation"),
+            scalar_named(&read, super::StrategyMetrics::GENERATION),
             Some(2.0),
             "the second generation's metrics; got {read:?}"
         );
         let latest = p.latest_metrics().expect("metrics after a generation");
         assert_eq!(
-            scalar_named(&read, "ea/best_fitness_ever"),
+            scalar_named(&read, super::StrategyMetrics::BEST_FITNESS_EVER),
             Some(f64::from(latest.best_fitness_ever())),
             "the running best is the loop's own"
         );
@@ -430,14 +434,69 @@ mod tests {
         assert_eq!(drain(&mut p, 2 + 4).len(), 2, "budget is 2 generations");
         let read = p.emit_metrics();
         assert_eq!(
-            scalar_named(&read, "coea/generation"),
+            scalar_named(&read, super::CoEAMetrics::GENERATION),
             Some(2.0),
             "the last generation's metrics; got {read:?}"
         );
         assert_eq!(
-            scalar_named(&read, "coea/binding_fitness"),
+            scalar_named(&read, super::CoEAMetrics::BINDING_FITNESS),
             Some(3.0),
             "the ramp's best row binds both populations; got {read:?}"
+        );
+    }
+
+    /// The metric names are wire format, pinned here as strings: a report or
+    /// recording an earlier binary wrote carries them, so changing one of the
+    /// constants is a breaking change, not a rename. Each summary emits every
+    /// name of its type, in this order, and nothing else.
+    #[test]
+    fn metric_names_are_pinned_wire_format() {
+        let names = |metrics: Vec<Metric>| -> Vec<String> {
+            metrics
+                .into_iter()
+                .map(|m| match m {
+                    Metric::Scalar { name, .. } => name,
+                    other => panic!("a summary emits scalars only; got {other:?}"),
+                })
+                .collect()
+        };
+
+        let strategy = super::StrategyMetrics::from_host_fitness(1, &[1.0, 2.0], 2.0);
+        assert_eq!(
+            names(super::strategy_metrics(&strategy)),
+            [
+                "ea/generation",
+                "ea/population_size",
+                "ea/best_fitness",
+                "ea/best_fitness_ever",
+                "ea/mean_fitness",
+                "ea/worst_fitness",
+                "ea/broken_count",
+            ]
+        );
+
+        let coea = super::CoEAMetrics {
+            generation: 1,
+            best_fitness_a: 0.0,
+            best_fitness_b: 0.0,
+            mean_fitness_a: 0.0,
+            mean_fitness_b: 0.0,
+            binding_fitness: 0.0,
+            hof_size_a: 0,
+            hof_size_b: 0,
+        };
+        assert_eq!(
+            names(super::coea_metrics(&coea)),
+            [
+                "coea/generation",
+                "coea/binding_fitness",
+                "coea/best_fitness_a",
+                "coea/best_fitness_b",
+                "coea/mean_fitness_a",
+                "coea/mean_fitness_b",
+                "coea/hof_size_a",
+                "coea/hof_size_b",
+            ]
         );
     }
 }

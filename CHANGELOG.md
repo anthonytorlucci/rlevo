@@ -519,6 +519,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - `NeatParams` now implements `Validate`, which `EvolutionaryLoop::new`
     calls: a probability outside `[0, 1]` or a negative or non-finite
     coefficient or standard deviation is refused there.
+- **A metric's name is declared where it is emitted: `metrics::ea` is
+  removed, and `metrics::core` is `metrics`** (ADR 0099).
+  `rlevo_harness::metrics::ea` declared four `ea/` names, three of which
+  nothing emits (`population_diversity`, `generations_to_converge`,
+  `fitness_variance`), and three functions to compute them, while the
+  loop's seven names had one constant between them, so every reader typed
+  `"ea/best_fitness_ever"`. The names a loop reports are now associated
+  constants on the type that holds each value: `StrategyMetrics` has seven
+  (`StrategyMetrics::BEST_FITNESS_EVER` is `"ea/best_fitness_ever"`) and
+  `CoEAMetrics` eight. The strings do not change. The harness's own names
+  and reductions move up a level. To migrate:
+  - `rlevo::harness::metrics::core::RETURN_MEAN` is
+    `rlevo::harness::metrics::RETURN_MEAN`, and so for every item of
+    `metrics::core`;
+  - a name from `metrics::ea` is read from `StrategyMetrics` or
+    `CoEAMetrics`; `population_diversity`, `fitness_variance` and
+    `ea_metrics` have no replacement.
+- **A generation trial's cap is `EvaluatorConfig::max_generations`** (ADR
+  0099). `max_steps` was steps per episode to an `EpisodicTrial` and
+  generations to a `GenerationTrial`. It is now steps per episode only, and
+  a generation trial ignores it; `max_generations`, 1000 by default, caps a
+  generation trial, with the warning described under `rlevo-harness`. A
+  config that set `max_steps` for a generation trial sets `max_generations`,
+  and one written as a struct literal names the new field or ends in
+  `..EvaluatorConfig::default()`. **A config that is not changed still
+  compiles**: one that raised `max_steps` above 1000 for a generation trial
+  now stops that trial at 1000, and only the warning, which names
+  `max_steps` as the field a generation trial ignores, says so.
 
 ### `rlevo`
 
@@ -532,6 +560,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   of its own.
 - **`Agent` and `Transition` in the prelude** (ADR 0095), so an agent
   that `run_suite` drives is written from `use rlevo::prelude::*`.
+- **`Metric` in the prelude** (ADR 0099), the type an agent's
+  `emit_metrics` returns, so the agent needs no path into
+  `rlevo::core::fitness`.
 - **`Rng` and `RngExt` in the prelude.** `BenchableAgent::act` and every
   strategy's `init`, `ask` and `tell` take a `&mut dyn Rng`, and the
   methods that draw, such as `random_range`, are on `RngExt`, which no
@@ -714,6 +745,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **`StrategyMetrics` and `CoEAMetrics` name what the loops report** (ADR
+  0099): one associated constant per value, beside its accessor or field,
+  which `EvolutionaryLoop` and `CoEvolutionaryLoop` emit through. A test
+  pins the strings, since a report or recording an earlier binary wrote
+  carries them.
 - **`EvolutionaryLoop::is_done` and `CoEvolutionaryLoop::is_done`**: whether
   the generation budget is spent. They replace the `done` field of the
   removed `GenerationStep`, and `GenerationProbe::advance` is now this
@@ -924,8 +960,8 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Changed**
 
-- **A `GenerationTrial` warns when `EvaluatorConfig::max_steps` cuts it
-  short** (ADR 0085, Decision 9). The cap is a backstop, 1000 by default,
+- **A `GenerationTrial` warns when `EvaluatorConfig::max_generations` cuts
+  it short** (ADR 0085, Decision 9; the field is ADR 0099's). The cap is a backstop, 1000 by default,
   and it used to end a trial without a word: a loop with a budget of 1500
   under the default config reported 1000 generations and nothing else. Now
   the trial logs one `tracing::warn!` with the unit's name, the trial
@@ -935,8 +971,8 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
   silent. An unfinished one runs one more generation, which is dropped: it
   is in neither the `generations` scalar, the reported metrics nor the
   wall clock, and a fitness function that counts its own calls sees it.
-  Set `max_steps` at least as large as the probe's budget and nothing
-  changes.
+  Set `max_generations` at least as large as the probe's budget and
+  nothing changes.
 
 - **`report::OpenError::ManifestParse` carries `toml` 1.1's `de::Error`**
   (was `toml` 0.8). The harness moved to `toml` 1.1 and `base64` 0.23. A
@@ -948,13 +984,13 @@ Named `rlevo-benchmarks` through 0.5.0; see Breaking changes.
 
 **Fixed**
 
-- **`GenerationTrial`'s docs did not say that `max_steps` caps it.** A
+- **`GenerationTrial`'s docs did not say that the evaluator caps it.** A
   generation trial stops when its probe returns `None` or after
-  `EvaluatorConfig::max_steps` generations, whichever comes first, and
-  `max_steps` defaults to 1000. The cap is now documented on
-  `GenerationTrial`, on `EvaluatorConfig::max_steps`, on `GenerationProbe`,
-  in `rlevo_evolution::probe` and in the ask/tell guide, with the warning
-  described under Changed above.
+  `EvaluatorConfig::max_generations` generations, whichever comes first,
+  and the cap defaults to 1000. The cap is now documented on
+  `GenerationTrial`, on `EvaluatorConfig::max_generations`, on
+  `GenerationProbe`, in `rlevo_evolution::probe` and in the ask/tell guide,
+  with the warning described under Changed above.
 - **`EvaluatorConfig::base_seed`'s docs did not say what it seeds.** It is
   the suite's seed, from which a seed for every trial is derived, not the
   seed of any one run. The README's table of the config's fields also

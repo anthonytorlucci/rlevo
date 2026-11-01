@@ -13,12 +13,12 @@ use rlevo::core::config::Validate;
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::cma_es::{CmaEs, CmaEsConfig};
 use rlevo::evo::fitness::FromLandscape;
-use rlevo::evo::strategy::{EvolutionaryLoop, Strategy};
+use rlevo::evo::strategy::{EvolutionaryLoop, Strategy, StrategyMetrics};
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo::harness::report::BenchmarkReport;
 use rlevo::harness::reporter::logging::LoggingReporter;
 
-use strategy::{MyParams, MyStrategy};
+use strategy::{MyConfig, MyStrategy};
 
 /// Coordinates in a point on the sphere.
 const DIM: usize = 10;
@@ -27,8 +27,6 @@ const GENERATIONS: usize = 100;
 /// Points each generation proposes: CMA-ES's default for ten coordinates,
 /// so both rows score the same number of points.
 const POPULATION: usize = 10;
-/// The name a loop reports the best cost it has found under.
-const BEST_EVER: &str = "ea/best_fitness_ever";
 
 /// The configuration every row runs under.
 fn config() -> EvaluatorConfig {
@@ -37,7 +35,7 @@ fn config() -> EvaluatorConfig {
         num_trials_per_env: 3,
         // The harness's cap on generations: at the loops' own budget, so it
         // never cuts one short.
-        max_steps: GENERATIONS,
+        max_generations: GENERATIONS,
         base_seed: 2026,
         num_threads: Some(1),
         ..EvaluatorConfig::default()
@@ -82,7 +80,7 @@ fn row(name: &str, report: &BenchmarkReport) -> Result<String, String> {
             let why = trial.error_message.as_deref().unwrap_or("no message");
             return Err(format!("{name}: a trial errored: {why}"));
         }
-        best += trial.scalars[BEST_EVER];
+        best += trial.scalars[StrategyMetrics::BEST_FITNESS_EVER];
     }
     #[allow(clippy::cast_precision_loss)]
     let trials = report.trials.len() as f64;
@@ -96,7 +94,7 @@ fn row(name: &str, report: &BenchmarkReport) -> Result<String, String> {
 fn main() -> Result<(), String> {
     let (low, high) = sphere().bounds();
     #[allow(clippy::cast_possible_truncation)]
-    let params = MyParams {
+    let params = MyConfig {
         dim: DIM,
         low: low as f32,
         high: high as f32,

@@ -38,9 +38,9 @@
 //!
 //! ```text
 //! === rastrigin-ga ===
-//! trial=0 seed=13309476754707697221 best_fitness≈45.1843  ea_metrics=1
-//! trial=1 seed= 2736163190148115329 best_fitness≈42.1853  ea_metrics=1
-//! trial=2 seed= 2942004327743061676 best_fitness≈34.5305  ea_metrics=1
+//! trial=0 seed=13309476754707697221 best_fitness≈45.1843
+//! trial=1 seed= 2736163190148115329 best_fitness≈42.1853
+//! trial=2 seed= 2942004327743061676 best_fitness≈34.5305
 //! ```
 //!
 //! `best_fitness` is the best (lowest) Rastrigin value reached after
@@ -57,7 +57,6 @@ use rlevo::core::fitness::Landscape;
 use rlevo::envs::landscapes::rastrigin::Rastrigin;
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
 use rlevo::harness::metrics::Metric;
-use rlevo::harness::metrics::ea;
 use rlevo::harness::reporter::logging::LoggingReporter;
 
 // --- GA state driven as a GenerationProbe ------------------------------
@@ -220,12 +219,13 @@ fn main() {
         num_episodes: 1,
         train_steps: 0,
         num_trials_per_env: 3,
-        max_steps: MAX_GENS,
+        max_generations: MAX_GENS,
         base_seed: 7,
         num_threads: None,
         checkpoint_dir: None,
         fail_fast: false,
         success_threshold: None,
+        ..EvaluatorConfig::default()
     };
 
     let evaluator = Evaluator::new(cfg);
@@ -249,13 +249,9 @@ fn main() {
             .get("ga/best_so_far")
             .copied()
             .unwrap_or(f64::NAN);
-        let ea_metrics = ea::ea_metrics(Some(best), None, None);
         println!(
-            "trial={} seed={:>20} best_fitness≈{:.4}  ea_metrics={}",
-            trial.key.trial_idx,
-            trial.trial_seed,
-            best,
-            ea_metrics.len()
+            "trial={} seed={:>20} best_fitness≈{:.4}",
+            trial.key.trial_idx, trial.trial_seed, best
         );
     }
 }

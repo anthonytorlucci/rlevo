@@ -379,16 +379,17 @@ use rlevo::burn::tensor::Device;
 use rlevo::envs::landscapes::sphere::Sphere;
 use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo::evo::fitness::FromLandscape;
-use rlevo::evo::strategy::EvolutionaryLoop;
+use rlevo::evo::strategy::{EvolutionaryLoop, StrategyMetrics};
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig, GenerationTrial};
+use rlevo::harness::metrics;
 use rlevo::harness::reporter::logging::LoggingReporter;
 
 const GENERATIONS: usize = 300;
 
 let config = EvaluatorConfig {
-    base_seed: 2026,         // the suite's seed; each trial's is derived from it
-    num_trials_per_env: 10,  // ten trials, so ten different loop seeds
-    max_steps: GENERATIONS,  // must be at least the loop's budget; see below
+    base_seed: 2026,              // the suite's seed; trial seeds come from it
+    num_trials_per_env: 10,       // ten trials, so ten different loop seeds
+    max_generations: GENERATIONS, // at least the loop's budget; see below
     ..EvaluatorConfig::default()
 };
 let mut reporter = LoggingReporter::new();
@@ -416,8 +417,8 @@ for trial in &report.trials {
     println!(
         "trial {:>2}: best cost {:.3e} after {} generations",
         trial.key.trial_idx,
-        trial.scalars["ea/best_fitness_ever"],
-        trial.scalars["generations"],
+        trial.scalars[StrategyMetrics::BEST_FITNESS_EVER],
+        trial.scalars[metrics::GENERATIONS],
     );
 }
 ```
@@ -432,15 +433,16 @@ Three things decide whether such a run is the one you meant:
   runs; give the suite the same `base_seed` again and it repeats all ten. A
   loop's seed is fixed when it is built, so the closure builds a new loop each
   time. Resetting one loop ten times would replay the same run ten times.
-- **`max_steps` caps a generation trial.** The harness stops a trial at the
-  loop's `max_generations` or at `EvaluatorConfig::max_steps`, whichever comes
-  first, and `max_steps` defaults to 1000. Set `max_steps` at least as large as
-  the loop's budget. If the cap ends a trial that had budget left, the harness
-  logs a warning that names the trial and the cap, and the `generations` scalar
-  in that trial's report is the cap, not the budget. The warning is a `tracing`
-  event, as `LoggingReporter`'s own lines are: a program that installs no
-  `tracing` subscriber sees neither, and has only the `generations` scalar to
-  go by.
+- **`max_generations` caps a generation trial.** The harness stops a trial at
+  the loop's own `max_generations` or at `EvaluatorConfig::max_generations`,
+  whichever comes first, and the evaluator's defaults to 1000. Set it at least
+  as large as the loop's budget. `EvaluatorConfig::max_steps` is steps per
+  episode, and a generation trial ignores it. If the cap ends a trial that had
+  budget left, the harness logs a warning that names the trial and the cap, and
+  the `generations` scalar in that trial's report is the cap, not the budget.
+  The warning is a `tracing` event, as `LoggingReporter`'s own lines are: a
+  program that installs no `tracing` subscriber sees neither, and has only the
+  `generations` scalar to go by.
 - **Threads.** Trials run concurrently on a thread pool
   (`EvaluatorConfig::num_threads`). On Flex the results do not depend on the
   thread count; see the determinism note above for the two exceptions.

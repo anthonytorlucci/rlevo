@@ -96,6 +96,7 @@ fn basic_cfg() -> EvaluatorConfig {
         checkpoint_dir: None,
         fail_fast: false,
         success_threshold: Some(5.0),
+        ..EvaluatorConfig::default()
     }
 }
 

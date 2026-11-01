@@ -10,7 +10,7 @@ mod env;
 use rlevo::burn::tensor::Device;
 use rlevo::envs::wrappers::TimeLimit;
 use rlevo::harness::evaluator::{Evaluator, EvaluatorConfig};
-use rlevo::harness::metrics::core::{EPISODE_LENGTH_MEAN, RETURN_MEAN};
+use rlevo::harness::metrics::{EPISODE_LENGTH_MEAN, RETURN_MEAN};
 use rlevo::harness::report::BenchmarkReport;
 use rlevo::harness::reporter::logging::LoggingReporter;
 use rlevo::harness::suite::Suite;

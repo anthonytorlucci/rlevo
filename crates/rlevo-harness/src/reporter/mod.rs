@@ -3,7 +3,7 @@
 //! The central abstraction is the [`Reporter`] trait. Implementations receive
 //! lifecycle callbacks as a suite progresses and are free to emit, display, or
 //! buffer events however they choose. Metric *computation* is not their
-//! responsibility — that belongs to `metrics::core`.
+//! responsibility — that belongs to `metrics`.
 //!
 //! Built-in implementations live in the sub-modules:
 //!

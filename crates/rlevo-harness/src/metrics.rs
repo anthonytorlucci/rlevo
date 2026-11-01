@@ -1,16 +1,31 @@
-//! Tier-1 core metrics: return statistics, episode length, throughput, and success rate.
+//! The metrics the harness measures itself, and the reductions behind them.
 //!
-//! Provides metric name constants, statistical primitives ([`mean`], [`median`],
-//! [`std_dev`], [`min`], [`max`]), and the [`core_metrics`] convenience function that
-//! assembles a standard [`Metric`] set from per-episode return and length data.
+//! These are the names of what a trial reports about itself: an episodic
+//! trial's return statistics, episode length, throughput and success rate, a
+//! generation trial's generation count, and either trial's wall clock.
+//! [`is_harness_reserved`] reserves them, so an agent or a probe cannot
+//! overwrite one. The module also holds the statistical primitives ([`mean`],
+//! [`median`], [`std_dev`], [`min`], [`max`]) and [`core_metrics`], which
+//! assembles the episodic set from per-episode returns and lengths.
+//!
+//! A metric's name is declared where it is emitted. The names an agent or a
+//! strategy reports live beside the code that emits them, not here: an
+//! `EvolutionaryLoop` reports its running best as
+//! `rlevo_evolution::strategy::StrategyMetrics::BEST_FITNESS_EVER`, and
+//! `rlevo_evolution`'s `CoEAMetrics` holds the co-evolutionary loop's names.
+//!
+//! [`Metric`] lives in `rlevo_core::fitness`, so an
+//! [`Agent`](rlevo_core::agent::Agent) or a
+//! [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe) reports
+//! through its `emit_metrics` without depending on this crate. It is
+//! re-exported here.
 //!
 //! All metric names are flat slash-separated keys compatible with the [`Metric`] wire format.
 //!
 //! # Examples
 //!
 //! ```no_run
-//! use rlevo_harness::metrics::core::{core_metrics, RETURN_MEAN};
-//! use rlevo_harness::metrics::Metric;
+//! use rlevo_harness::metrics::{core_metrics, Metric, RETURN_MEAN};
 //!
 //! let returns = [10.0_f64, 20.0, 30.0];
 //! let lengths  = [5_usize, 5, 5];
@@ -20,7 +35,7 @@
 //! )));
 //! ```
 
-use super::Metric;
+pub use rlevo_core::fitness::Metric;
 
 /// Metric key for mean episode return — emitted by [`core_metrics`].
 pub const RETURN_MEAN: &str = "return/mean";
@@ -102,9 +117,10 @@ const RESERVED_PREFIXES: &[&str] = &["return/", "episode_length/", "throughput/"
 ///
 /// # What is *not* reserved
 ///
-/// `rl/*` and `ea/*` (and `coea/*`) are **agent-owned** namespaces — see the
-/// module docs of [`crate::metrics::ea`] for the `ea/*` keys. The harness
-/// does not compute them; agents populate them. Reserving them would
+/// `rl/*` and `ea/*` (and `coea/*`) are **agent-owned** namespaces: the RL
+/// agents emit `rl/*`, and `rlevo_evolution`'s `StrategyMetrics` and
+/// `CoEAMetrics` declare the `ea/*` and `coea/*` names its loops emit. The
+/// harness does not compute them; agents and probes populate them. Reserving them would
 /// re-home every legitimate agent metric in the workspace under `agent/`.
 ///
 /// # Widening is easy, narrowing is not
@@ -119,7 +135,7 @@ const RESERVED_PREFIXES: &[&str] = &["return/", "episode_length/", "throughput/"
 /// # Examples
 ///
 /// ```
-/// use rlevo_harness::metrics::core::{is_harness_reserved, RETURN_MEAN};
+/// use rlevo_harness::metrics::{is_harness_reserved, RETURN_MEAN};
 ///
 /// assert!(is_harness_reserved(RETURN_MEAN));
 /// assert!(is_harness_reserved("wall_clock_seconds"));
@@ -146,7 +162,7 @@ pub fn is_harness_reserved(name: &str) -> bool {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_harness::metrics::core::mean;
+/// # use rlevo_harness::metrics::mean;
 /// assert_eq!(mean(&[1.0, 2.0, 3.0, 4.0, 5.0]), 3.0);
 /// assert_eq!(mean(&[]), 0.0);
 /// ```
@@ -168,7 +184,7 @@ pub fn mean(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_harness::metrics::core::median;
+/// # use rlevo_harness::metrics::median;
 /// assert_eq!(median(&[3.0, 1.0, 2.0]), 2.0);       // odd length
 /// assert_eq!(median(&[1.0, 2.0, 3.0, 4.0]), 2.5);  // even length — average of midpoints
 /// assert_eq!(median(&[]), 0.0);
@@ -197,7 +213,7 @@ pub fn median(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_harness::metrics::core::std_dev;
+/// # use rlevo_harness::metrics::std_dev;
 /// use approx::assert_relative_eq;
 /// // [1, 2, 3]: mean=2, sum-of-sq-dev=2, sample var=2/(3-1)=1, std_dev=1
 /// assert_relative_eq!(std_dev(&[1.0, 2.0, 3.0]), 1.0);
@@ -223,7 +239,7 @@ pub fn std_dev(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_harness::metrics::core::min;
+/// # use rlevo_harness::metrics::min;
 /// assert_eq!(min(&[3.0, 1.0, 4.0, 1.0, 5.0]), 1.0);
 /// assert_eq!(min(&[]), f64::INFINITY);
 /// ```
@@ -241,7 +257,7 @@ pub fn min(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use rlevo_harness::metrics::core::max;
+/// # use rlevo_harness::metrics::max;
 /// assert_eq!(max(&[3.0, 1.0, 4.0, 1.0, 5.0]), 5.0);
 /// assert_eq!(max(&[]), f64::NEG_INFINITY);
 /// ```
@@ -292,7 +308,7 @@ pub fn max(xs: &[f64]) -> f64 {
 /// # Examples
 ///
 /// ```
-/// use rlevo_harness::metrics::core::{core_metrics, RETURN_MEAN, SUCCESS_RATE};
+/// use rlevo_harness::metrics::{core_metrics, RETURN_MEAN, SUCCESS_RATE};
 /// use rlevo_harness::metrics::Metric;
 ///
 /// let returns = [8.0_f64, 12.0, 20.0];
@@ -438,19 +454,20 @@ mod tests {
     /// not an error.
     #[test]
     fn agent_owned_namespaces_are_not_reserved() {
-        use crate::metrics::ea;
-
         for name in ["rl/policy_loss", "rl/epsilon"] {
             assert!(
                 !is_harness_reserved(name),
                 "`{name}` is agent-owned; reserving it displaces every RL agent's metric"
             );
         }
+        // The `ea/` and `coea/` namespaces, not a list of today's names: the
+        // loops declare their names in `rlevo_evolution`, which this crate
+        // depends on only under `record`.
         for name in [
-            ea::POPULATION_DIVERSITY,
-            ea::BEST_FITNESS,
-            ea::GENERATIONS_TO_CONVERGE,
-            ea::FITNESS_VARIANCE,
+            "ea/best_fitness_ever",
+            "ea/a_name_no_loop_emits_yet",
+            "coea/binding_fitness",
+            "coea/a_name_no_loop_emits_yet",
         ] {
             assert!(
                 !is_harness_reserved(name),

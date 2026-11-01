@@ -80,13 +80,6 @@ of a strategy written outside the crate, and builds its metrics with
 `src/null.rs` takes the hill-climber's parameters, state and `init`, and
 proposes its starting point every generation.
 
-## Findings in the source
-
-One `FINDING:` comment, in `src/harness.rs`, records friction that
-compiles. `rlevo::harness::metrics::ea` names a constant for
-`ea/best_fitness` and none for `ea/best_fitness_ever`, the key the loop
-reports. The probe spells the key as `docs/ask-tell-contract.md` does.
-
 ## Files
 
 | File | What it is |

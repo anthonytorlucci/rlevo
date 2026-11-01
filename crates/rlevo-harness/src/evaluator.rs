@@ -30,9 +30,7 @@ use rlevo_core::fitness::Metric;
 use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
-use crate::metrics::core::{
-    GENERATIONS, RETURN_NON_FINITE_STEPS, WALL_CLOCK_SECONDS, core_metrics,
-};
+use crate::metrics::{GENERATIONS, RETURN_NON_FINITE_STEPS, WALL_CLOCK_SECONDS, core_metrics};
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
@@ -58,16 +56,20 @@ pub struct EvaluatorConfig {
     pub train_steps: usize,
     /// Number of independent seeds to evaluate per environment.
     pub num_trials_per_env: usize,
-    /// Hard ceiling on the units of work in one run of a trial.
+    /// Steps per episode, a hard ceiling for an [`EpisodicTrial`].
     ///
-    /// For an [`EpisodicTrial`] it is steps per episode: an episode that has
-    /// not ended by `max_steps` is cut there with whatever return accumulated
-    /// so far, and its agent is told it ended
-    /// [`Truncated`](EpisodeStatus::Truncated). For a [`GenerationTrial`] it is generations: the
-    /// probe owns the real budget, and this is a backstop that should never
-    /// be the one to end the trial. When it is, the trial says so with a
-    /// warning. Set it at least as large as the probe's budget.
+    /// An episode that has not ended by `max_steps` is cut there with whatever
+    /// return accumulated so far, and its agent is told it ended
+    /// [`Truncated`](EpisodeStatus::Truncated). A [`GenerationTrial`] ignores
+    /// this field; its ceiling is [`max_generations`](Self::max_generations).
     pub max_steps: usize,
+    /// Generations per trial, a backstop for a [`GenerationTrial`].
+    ///
+    /// The probe owns the real budget, and this should never be the one to end
+    /// the trial. When it is, the trial says so with a warning. Set it at
+    /// least as large as the probe's budget. An [`EpisodicTrial`] ignores this
+    /// field.
+    pub max_generations: usize,
     /// The suite's seed: the one number every seed in the suite is derived
     /// from, through [`SeedStream`].
     ///
@@ -104,6 +106,7 @@ impl Default for EvaluatorConfig {
             train_steps: 0,
             num_trials_per_env: 1,
             max_steps: 1_000,
+            max_generations: 1_000,
             base_seed: 0,
             num_threads: None,
             checkpoint_dir: None,
@@ -693,10 +696,10 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// # The cap
 ///
 /// The trial stops when the probe returns `None` or after
-/// [`EvaluatorConfig::max_steps`] generations, whichever comes first. The cap
-/// is a backstop against a probe that never returns `None`. `max_steps`
+/// [`EvaluatorConfig::max_generations`] generations, whichever comes first. The cap
+/// is a backstop against a probe that never returns `None`. `max_generations`
 /// defaults to 1000, so a probe with a larger budget is cut short unless
-/// `max_steps` is raised to at least that budget. The `generations` scalar
+/// `max_generations` is raised to at least that budget. The `generations` scalar
 /// in the report is the number of generations the report covers: the
 /// probe's budget, or the cap when the cap ended the trial.
 ///
@@ -756,10 +759,10 @@ where
         self.probe.begin();
 
         let mut units = 0usize;
-        // `max_steps` is a backstop only: the probe owns its own budget and
+        // `max_generations` is a backstop only: the probe owns its own budget and
         // ends the loop by returning `None`. The cap exists so a probe with a
         // broken exhaustion check cannot hang the suite.
-        while units < cfg.max_steps && self.probe.advance().is_some() {
+        while units < cfg.max_generations && self.probe.advance().is_some() {
             units += 1;
         }
 
@@ -768,7 +771,7 @@ where
         // that this report must not describe.
         let probe_metrics = self.probe.emit_metrics();
 
-        // The loop above ends at the cap exactly when `units == cfg.max_steps`:
+        // The loop above ends at the cap exactly when `units == cfg.max_generations`:
         // a probe that returns `None` breaks out before the count reaches it.
         // Whether the probe had more to give is something only the probe
         // knows, and `advance` is the one way to ask, so it is called once
@@ -777,14 +780,15 @@ where
         // budget equal to the cap silent. It comes after the wall clock and the
         // probe's metrics are read, so the dropped generation is in no number
         // this trial reports.
-        if units == cfg.max_steps && self.probe.advance().is_some() {
+        if units == cfg.max_generations && self.probe.advance().is_some() {
             tracing::warn!(
                 target: "rlevo_harness",
                 env = %info.env_name,
                 trial = info.key.trial_idx,
-                max_steps = cfg.max_steps,
-                "generation trial stopped at max_steps before its probe was exhausted; \
-                 set EvaluatorConfig::max_steps to at least the probe's budget"
+                max_generations = cfg.max_generations,
+                "generation trial stopped at max_generations before its probe was exhausted; \
+                 set EvaluatorConfig::max_generations to at least the probe's budget \
+                 (a generation trial ignores max_steps)"
             );
         }
 
@@ -831,7 +835,7 @@ mod tests {
     use rlevo_core::reward::ScalarReward;
 
     use super::{EpisodicTrial, Evaluator, EvaluatorConfig, Trial};
-    use crate::metrics::core::{RETURN_MEAN, RETURN_NON_FINITE_STEPS};
+    use crate::metrics::{RETURN_MEAN, RETURN_NON_FINITE_STEPS};
     use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
     use crate::reporter::Reporter;
     use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
@@ -991,7 +995,7 @@ mod tests {
     ///
     /// `env` and `non_finite_steps` are the two fields the trial-summary
     /// `warn!` carries; `key` is the colliding metric name carried by the
-    /// displacement `warn!` in `TrialReport::absorb_metrics`; `max_steps` is
+    /// displacement `warn!` in `TrialReport::absorb_metrics`; `max_generations` is
     /// the cap carried by the `warn!` a cut-short `GenerationTrial` emits,
     /// beside `env`. All four are `Option` because no event carries all of
     /// them.
@@ -1001,7 +1005,7 @@ mod tests {
         env: Option<String>,
         non_finite_steps: Option<u64>,
         key: Option<String>,
-        max_steps: Option<u64>,
+        max_generations: Option<u64>,
     }
 
     thread_local! {
@@ -1027,7 +1031,7 @@ mod tests {
                     env: None,
                     non_finite_steps: None,
                     key: None,
-                    max_steps: None,
+                    max_generations: None,
                 };
                 event.record(&mut visitor);
                 events.push(CapturedEvent {
@@ -1035,7 +1039,7 @@ mod tests {
                     env: visitor.env,
                     non_finite_steps: visitor.non_finite_steps,
                     key: visitor.key,
-                    max_steps: visitor.max_steps,
+                    max_generations: visitor.max_generations,
                 });
             });
         }
@@ -1085,7 +1089,7 @@ mod tests {
 
     /// Extracts the named fields these tests assert on from one event.
     ///
-    /// `non_finite_steps` is a `u64` and `max_steps` a `usize`, which
+    /// `non_finite_steps` is a `u64` and `max_generations` a `usize`, which
     /// `tracing` widens to one; both arrive through `record_u64`. `env`
     /// and `key` are recorded with `%` (`tracing::field::display`), which routes
     /// through `record_debug` with a `format_args!` payload — whose `Debug` is
@@ -1094,14 +1098,14 @@ mod tests {
         env: Option<String>,
         non_finite_steps: Option<u64>,
         key: Option<String>,
-        max_steps: Option<u64>,
+        max_generations: Option<u64>,
     }
 
     impl Visit for EventVisitor {
         fn record_u64(&mut self, field: &Field, value: u64) {
             match field.name() {
                 "non_finite_steps" => self.non_finite_steps = Some(value),
-                "max_steps" => self.max_steps = Some(value),
+                "max_generations" => self.max_generations = Some(value),
                 _ => {}
             }
         }
@@ -1173,11 +1177,21 @@ mod tests {
             train_steps: 0,
             num_trials_per_env: 1,
             max_steps,
+            max_generations: 1_000,
             base_seed: 42,
             num_threads: Some(1),
             checkpoint_dir: None,
             fail_fast: false,
             success_threshold: None,
+        }
+    }
+
+    /// A single-threaded configuration for one generation trial capped at
+    /// `max_generations`.
+    fn generation_cfg(max_generations: usize) -> EvaluatorConfig {
+        EvaluatorConfig {
+            max_generations,
+            ..single_thread_cfg(1, 1_000)
         }
     }
 
@@ -1526,7 +1540,7 @@ mod tests {
         use rlevo_core::evaluation::GenerationProbe;
 
         use super::GenerationTrial;
-        use crate::metrics::core::{GENERATIONS, WALL_CLOCK_SECONDS};
+        use crate::metrics::{GENERATIONS, WALL_CLOCK_SECONDS};
 
         /// Units the probe advances before reporting exhaustion. Distinct from
         /// the bogus `777.0` / `888.0` below so no assertion passes by
@@ -1585,9 +1599,9 @@ mod tests {
         let (mut reporter, _) = SpyReporter::new();
         let dyn_reporter: &mut dyn Reporter = &mut reporter;
         let lock = Mutex::new(dyn_reporter);
-        // `max_steps` bounds the loop, so a broken exhaustion check fails the
+        // `max_generations` bounds the loop, so a broken exhaustion check fails the
         // count assertion instead of hanging.
-        let cfg = single_thread_cfg(1, 50);
+        let cfg = generation_cfg(50);
 
         let report = GenerationTrial {
             probe: ColludingProbe { remaining: 0 },
@@ -1642,7 +1656,7 @@ mod tests {
         use rlevo_core::evaluation::GenerationProbe;
 
         use super::GenerationTrial;
-        use crate::metrics::core::{GENERATIONS, WALL_CLOCK_SECONDS, is_harness_reserved};
+        use crate::metrics::{GENERATIONS, WALL_CLOCK_SECONDS, is_harness_reserved};
 
         /// Takes `emit_metrics`' default and emits nothing, so the report
         /// contains harness keys and only those.
@@ -1677,9 +1691,9 @@ mod tests {
         let (mut reporter, _) = SpyReporter::new();
         let dyn_reporter: &mut dyn Reporter = &mut reporter;
         let lock = Mutex::new(dyn_reporter);
-        // `max_steps` bounds the loop, so a broken exhaustion check fails the
+        // `max_generations` bounds the loop, so a broken exhaustion check fails the
         // assertions instead of hanging.
-        let cfg = single_thread_cfg(1, 50);
+        let cfg = generation_cfg(50);
 
         let report = GenerationTrial {
             probe: SilentProbe { remaining: 0 },
@@ -1715,7 +1729,7 @@ mod tests {
     }
 
     /// Runs a [`GenerationTrial`](super::GenerationTrial) over a probe with
-    /// `budget` generations under a cap of `max_steps`.
+    /// `budget` generations under a cap of `max_generations`.
     ///
     /// Returns the report, every `tracing` event the trial emitted, and the
     /// number of times the trial called `advance`. The probe's metric is the
@@ -1723,7 +1737,7 @@ mod tests {
     /// which generation it was read after.
     fn run_generation_trial_capturing_events(
         budget: usize,
-        max_steps: usize,
+        max_generations: usize,
         env_name: &str,
     ) -> (TrialReport, Vec<CapturedEvent>, usize) {
         use std::cell::Cell;
@@ -1775,7 +1789,7 @@ mod tests {
         let (mut reporter, _) = SpyReporter::new();
         let dyn_reporter: &mut dyn Reporter = &mut reporter;
         let lock = Mutex::new(dyn_reporter);
-        let cfg = single_thread_cfg(1, max_steps);
+        let cfg = generation_cfg(max_generations);
         let advances = Rc::new(Cell::new(0));
         let trial = GenerationTrial {
             probe: CountingProbe {
@@ -1797,7 +1811,7 @@ mod tests {
     /// call count and nowhere else.
     #[test]
     fn generation_trial_warns_once_when_the_cap_cuts_its_probe_short() {
-        use crate::metrics::core::GENERATIONS;
+        use crate::metrics::GENERATIONS;
 
         let (report, events, advances) = run_generation_trial_capturing_events(7, 4, "capped");
 
@@ -1814,7 +1828,7 @@ mod tests {
             "the warning must name the unit whose trial was cut short"
         );
         assert_eq!(
-            warnings[0].max_steps,
+            warnings[0].max_generations,
             Some(4),
             "the warning must carry the cap that ended the trial"
         );
@@ -1841,7 +1855,7 @@ mod tests {
     /// gets wrong.
     #[test]
     fn generation_trial_is_silent_when_its_probe_ends_within_the_cap() {
-        use crate::metrics::core::GENERATIONS;
+        use crate::metrics::GENERATIONS;
 
         for budget in [0usize, 3, 4] {
             let (report, events, advances) = run_generation_trial_capturing_events(budget, 4, "ok");
@@ -1954,7 +1968,7 @@ mod tests {
     /// Only the correct implementation gives 2, with these keys in this order.
     #[test]
     fn displaced_agent_metrics_warn_once_each_carrying_the_key() {
-        use crate::metrics::core::WALL_CLOCK_SECONDS;
+        use crate::metrics::WALL_CLOCK_SECONDS;
 
         let cfg = single_thread_cfg(1, 10);
         let agent = EmittingAgent {
@@ -2037,6 +2051,7 @@ mod tests {
             num_episodes: 1,
             train_steps: 0,
             max_steps: 4,
+            max_generations: 1_000,
             num_trials_per_env: 1,
             base_seed: 0,
             num_threads: Some(1),
@@ -2126,6 +2141,7 @@ mod tests {
             train_steps: 0,
             num_trials_per_env: 2,
             max_steps: 5,
+            max_generations: 1_000,
             base_seed: 0,
             num_threads: Some(1),
             checkpoint_dir: None,
@@ -2156,6 +2172,7 @@ mod tests {
             train_steps: 0,
             num_trials_per_env: 1,
             max_steps: 10,
+            max_generations: 1_000,
             base_seed: 0,
             num_threads: Some(1),
             checkpoint_dir: None,

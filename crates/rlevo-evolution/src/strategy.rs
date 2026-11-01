@@ -231,6 +231,16 @@ pub trait Strategy: Send + Sync {
 /// individuals found a good basin while the rest of the population is still
 /// scattered. A small gap suggests the whole population has settled near the
 /// same optimum.
+///
+/// # Metric names
+///
+/// [`EvolutionaryLoop`]'s
+/// [`GenerationProbe`](rlevo_core::evaluation::GenerationProbe) impl reports
+/// each value as a scalar under the name in the associated constant beside its
+/// accessor: [`best_fitness_ever`](Self::best_fitness_ever) as
+/// [`BEST_FITNESS_EVER`](Self::BEST_FITNESS_EVER), `"ea/best_fitness_ever"`.
+/// Read a trial's report through the constants. The strings are wire format: a
+/// report or recording an earlier binary wrote carries them.
 #[derive(Debug, Clone)]
 pub struct StrategyMetrics {
     /// Number of generations completed, this one included: 1 after the
@@ -269,6 +279,21 @@ pub struct StrategyMetrics {
 }
 
 impl StrategyMetrics {
+    /// The name the loop reports [`generation`](Self::generation) under.
+    pub const GENERATION: &str = "ea/generation";
+    /// The name the loop reports [`population_size`](Self::population_size) under.
+    pub const POPULATION_SIZE: &str = "ea/population_size";
+    /// The name the loop reports [`best_fitness`](Self::best_fitness) under.
+    pub const BEST_FITNESS: &str = "ea/best_fitness";
+    /// The name the loop reports [`best_fitness_ever`](Self::best_fitness_ever) under.
+    pub const BEST_FITNESS_EVER: &str = "ea/best_fitness_ever";
+    /// The name the loop reports [`mean_fitness`](Self::mean_fitness) under.
+    pub const MEAN_FITNESS: &str = "ea/mean_fitness";
+    /// The name the loop reports [`worst_fitness`](Self::worst_fitness) under.
+    pub const WORST_FITNESS: &str = "ea/worst_fitness";
+    /// The name the loop reports [`broken_count`](Self::broken_count) under.
+    pub const BROKEN_COUNT: &str = "ea/broken_count";
+
     /// Computes population statistics from a host-side fitness slice.
     ///
     /// Each value is passed through the crate's fitness-hygiene primitive

@@ -46,10 +46,9 @@ use crate::fitness::Metric;
 ///
 /// The budget lives in the probe, which already owns it. A separate `done`
 /// boolean invites a second, unenforced copy of the same number in the
-/// driver's configuration — which is exactly what `rlevo-harness`'
-/// `EvaluatorConfig::max_steps` is today, hand-synced against the loop's
-/// own `max_generations` at every call site. `Option` makes the exhausted
-/// state unrepresentable as anything else.
+/// driver's configuration, hand-synced against the loop's own
+/// `max_generations` at every call site. `Option` makes the exhausted state
+/// unrepresentable as anything else.
 ///
 /// An implementor may still answer the question itself. The evolutionary
 /// loops in `rlevo-evolution` have an inherent `is_done()` beside their
@@ -58,7 +57,8 @@ use crate::fitness::Metric;
 /// must keep in step with the probe: the consumer needs no copy of the
 /// budget to know when to stop.
 ///
-/// The evaluator still holds `max_steps`, as a backstop against a probe that
+/// The evaluator still holds a cap, `rlevo-harness`'
+/// `EvaluatorConfig::max_generations`, as a backstop against a probe that
 /// never returns `None`. Set it at least as large as the probe's budget. When
 /// the backstop is reached, the evaluator calls `advance` once more to learn
 /// whether the probe was finished, and warns if it was not. The contract
