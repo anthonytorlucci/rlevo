@@ -71,10 +71,10 @@ const NUM_QUANTILES: usize = 200;
 
 type Env = TimeLimit<CartPole>;
 
-type DqnCartPoleAgent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2>;
-type C51CartPoleAgent = C51Agent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
-type QrDqnCartPoleAgent = QrDqnAgent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
-type PpgCartPoleAgent = PpgAgent<PpgCategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2>;
+type DqnCartPoleAgent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 2>;
+type C51CartPoleAgent = C51Agent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 2>;
+type QrDqnCartPoleAgent = QrDqnAgent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 2>;
+type PpgCartPoleAgent = PpgAgent<PpgCategoricalPolicyHead, MlpValue, CartPoleObservation, 2>;
 
 // ---------------------------------------------------------------------------
 // Environment factory

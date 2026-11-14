@@ -209,17 +209,13 @@ impl PendulumAction {
     }
 }
 
-impl Action<1> for PendulumAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
+impl Action for PendulumAction {
     fn is_valid(&self) -> bool {
         self.0.is_finite() && self.0.abs() <= 2.0
     }
 }
 
-impl ContinuousAction<1> for PendulumAction {
+impl ContinuousAction for PendulumAction {
     const COMPONENTS: usize = 1;
 
     fn as_slice(&self) -> &[f32] {
@@ -237,7 +233,7 @@ impl ContinuousAction<1> for PendulumAction {
     }
 }
 
-impl BoundedAction<1> for PendulumAction {
+impl BoundedAction for PendulumAction {
     fn low() -> &'static [f32] {
         &[-2.0]
     }
@@ -283,10 +279,8 @@ impl PendulumObservation {
     }
 }
 
-impl Observation<1> for PendulumObservation {
-    fn shape() -> [usize; 1] {
-        [3]
-    }
+impl Observation for PendulumObservation {
+    const SHAPE: &'static [usize] = &[3];
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +436,7 @@ fn pendulum_observation(state: PendulumState) -> PendulumObservation {
     }
 }
 
-impl Environment<1, 1> for Pendulum {
+impl Environment for Pendulum {
     type ObservationType = PendulumObservation;
     type ActionType = PendulumAction;
 
@@ -550,7 +544,7 @@ fn style_pendulum_line(line: &str) -> crate::render::StyledLine {
 // Host rows
 // ---------------------------------------------------------------------------
 
-impl HostRow<1> for PendulumObservation {
+impl HostRow for PendulumObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
     }
@@ -622,7 +616,7 @@ mod tests {
 
     #[test]
     fn observation_shape() {
-        assert_eq!(PendulumObservation::shape(), [3]);
+        assert_eq!(PendulumObservation::SHAPE, &[3]);
     }
 
     #[test]

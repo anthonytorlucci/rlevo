@@ -26,17 +26,13 @@ impl ReacherAction {
     }
 }
 
-impl Action<1> for ReacherAction {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
+impl Action for ReacherAction {
     fn is_valid(&self) -> bool {
         self.0.iter().all(|v| v.is_finite() && v.abs() <= 1.0)
     }
 }
 
-impl ContinuousAction<1> for ReacherAction {
+impl ContinuousAction for ReacherAction {
     const COMPONENTS: usize = 2;
 
     /// Returns the raw `[shoulder, elbow]` slice.
@@ -80,7 +76,7 @@ impl ContinuousAction<1> for ReacherAction {
 /// per-instance bounds are a separate seam that would need its own ADR.
 ///
 /// [`ReacherConfig::action_clip`]: super::config::ReacherConfig::action_clip
-impl BoundedAction<1> for ReacherAction {
+impl BoundedAction for ReacherAction {
     fn low() -> &'static [f32] {
         &[-1.0, -1.0]
     }

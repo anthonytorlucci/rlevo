@@ -37,7 +37,7 @@ const _: () = {
     assert!(GridAction::Drop as usize == 4);
     assert!(GridAction::Toggle as usize == 5);
     assert!(GridAction::Done as usize == 6);
-    assert!(GridAction::Done as usize + 1 == <GridAction as DiscreteAction<1>>::ACTION_COUNT);
+    assert!(GridAction::Done as usize + 1 == <GridAction as DiscreteAction>::ACTION_COUNT);
 };
 
 impl GridAction {
@@ -85,17 +85,13 @@ impl TryFrom<usize> for GridAction {
     }
 }
 
-impl Action<1> for GridAction {
-    fn shape() -> [usize; 1] {
-        [Self::ACTION_COUNT]
-    }
-
+impl Action for GridAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for GridAction {
+impl DiscreteAction for GridAction {
     const ACTION_COUNT: usize = 7;
 
     /// Constructs an action from its zero-based index.
@@ -217,13 +213,5 @@ mod tests {
             GridAction::try_from_index(usize::MAX)
         );
         assert!(GridAction::try_from(7usize).is_err());
-    }
-
-    #[test]
-    fn shape_matches_action_count() {
-        assert_eq!(
-            <GridAction as Action<1>>::shape(),
-            [GridAction::ACTION_COUNT]
-        );
     }
 }

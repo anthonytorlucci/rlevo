@@ -93,19 +93,19 @@ impl Critic {
     }
 }
 
-impl ContinuousQ<4, 2> for Critic {
+impl ContinuousQ<4> for Critic {
     fn forward(&self, obs: Tensor<4>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
     }
 }
 
-type CarAgent = Td3Agent<MlpActor, Critic, CarRacingObservation, CarRacingAction, 3, 4, 1, 2>;
+type CarAgent = Td3Agent<MlpActor, Critic, CarRacingObservation, CarRacingAction, 4>;
 
 /// Builds a TD3 agent over `CarRacing` with `learning_starts` warm-up steps.
 ///
 /// Construction alone exercises ADR 0053 §4's contract assert and §6's
-/// `[1, 3]` bound-tensor build: a `CarRacingAction::low()` of the wrong length,
-/// or a `shape()` disagreeing with `COMPONENTS`, panics here.
+/// `[1, 3]` bound-tensor build: a `CarRacingAction::low()` of the wrong length
+/// panics here.
 fn build_agent(learning_starts: usize) -> CarAgent {
     let device = seeded_device(0xCA5);
     let config = Td3TrainingConfig {
@@ -174,12 +174,6 @@ fn car_racing_bounds_match_the_gymnasium_box() {
     assert_eq!(CarRacingAction::high(), &[1.0, 1.0, 1.0]);
     assert_eq!(CarRacingAction::low().len(), CarRacingAction::COMPONENTS);
     assert_eq!(CarRacingAction::high().len(), CarRacingAction::COMPONENTS);
-    assert_eq!(CarRacingAction::shape().len(), 1);
-    assert_ne!(
-        CarRacingAction::shape().len(),
-        CarRacingAction::COMPONENTS,
-        "the witness is only a witness while rank and component count disagree"
-    );
     assert!(
         CarRacingAction::low()[1] > CarRacingAction::low()[0],
         "gas must not share steering's lower bound, or this env witnesses nothing"

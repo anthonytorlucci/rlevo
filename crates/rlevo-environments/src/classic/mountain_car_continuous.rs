@@ -229,17 +229,13 @@ impl MountainCarContinuousAction {
     }
 }
 
-impl Action<1> for MountainCarContinuousAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
+impl Action for MountainCarContinuousAction {
     fn is_valid(&self) -> bool {
         self.0.is_finite() && self.0.abs() <= 1.0
     }
 }
 
-impl ContinuousAction<1> for MountainCarContinuousAction {
+impl ContinuousAction for MountainCarContinuousAction {
     const COMPONENTS: usize = 1;
 
     fn as_slice(&self) -> &[f32] {
@@ -261,7 +257,7 @@ impl ContinuousAction<1> for MountainCarContinuousAction {
     }
 }
 
-impl BoundedAction<1> for MountainCarContinuousAction {
+impl BoundedAction for MountainCarContinuousAction {
     fn low() -> &'static [f32] {
         &[-1.0]
     }
@@ -299,10 +295,8 @@ impl MountainCarContinuousObservation {
     }
 }
 
-impl Observation<1> for MountainCarContinuousObservation {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
+impl Observation for MountainCarContinuousObservation {
+    const SHAPE: &'static [usize] = &[2];
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +433,7 @@ fn mountain_car_continuous_observation(
     }
 }
 
-impl Environment<1, 1> for MountainCarContinuous {
+impl Environment for MountainCarContinuous {
     type ObservationType = MountainCarContinuousObservation;
     type ActionType = MountainCarContinuousAction;
 
@@ -508,7 +502,7 @@ impl Environment<1, 1> for MountainCarContinuous {
 // Host rows
 // ---------------------------------------------------------------------------
 
-impl HostRow<1> for MountainCarContinuousObservation {
+impl HostRow for MountainCarContinuousObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
     }
@@ -704,7 +698,7 @@ mod tests {
 
     #[test]
     fn observation_shape() {
-        assert_eq!(MountainCarContinuousObservation::shape(), [2]);
+        assert_eq!(MountainCarContinuousObservation::SHAPE, &[2]);
     }
 
     #[test]

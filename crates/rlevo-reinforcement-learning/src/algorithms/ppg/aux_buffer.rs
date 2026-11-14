@@ -32,7 +32,8 @@
 use burn::tensor::TensorData;
 use burn::tensor::{Device, Tensor};
 
-use rlevo_core::base::{Observation, TensorConvertible};
+use crate::algorithms::shared::{row_len, upload_rows};
+use rlevo_core::base::HostRow;
 
 /// One rollout's worth of auxiliary training data.
 #[derive(Debug)]
@@ -125,19 +126,18 @@ impl<O: Clone> AuxRolloutBuffer<O> {
 
     /// Materialises a minibatch of `indices` into device tensors.
     ///
-    /// Returns `(obs_tensor: [k, ..obs_shape], returns_tensor: [k])`.
+    /// Returns `(obs_tensor: [k, ..O::SHAPE], returns_tensor: [k])`.
     #[must_use]
-    pub fn gather_minibatch<const R: usize, const BR: usize>(
+    pub fn gather_minibatch<const BR: usize>(
         &self,
         indices: &[usize],
         device: &Device,
     ) -> (Tensor<BR>, Tensor<1>)
     where
-        O: Observation<R> + TensorConvertible<R>,
+        O: HostRow,
     {
         let n = indices.len();
-        let obs_shape = O::shape();
-        let numel_per_obs: usize = obs_shape.iter().product();
+        let numel_per_obs: usize = row_len::<O>();
 
         let mut obs_flat: Vec<f32> = Vec::with_capacity(n * numel_per_obs);
         let mut returns: Vec<f32> = Vec::with_capacity(n);
@@ -149,11 +149,7 @@ impl<O: Clone> AuxRolloutBuffer<O> {
             returns.push(slice.returns[ii]);
         }
 
-        let mut batched_shape: Vec<usize> = Vec::with_capacity(BR);
-        batched_shape.push(n);
-        batched_shape.extend_from_slice(&obs_shape);
-        let obs_tensor: Tensor<BR> =
-            Tensor::from_data(TensorData::new(obs_flat, batched_shape), device);
+        let obs_tensor: Tensor<BR> = upload_rows::<O, BR>(obs_flat, n, device);
         let returns_tensor: Tensor<1> =
             Tensor::from_data(TensorData::new(returns, vec![n]), device);
         (obs_tensor, returns_tensor)
@@ -181,18 +177,16 @@ mod tests {
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
     use super::*;
-    use rlevo_core::base::HostRow;
+    use rlevo_core::base::Observation;
 
     #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
     struct TestObs([f32; 2]);
 
-    impl Observation<1> for TestObs {
-        fn shape() -> [usize; 1] {
-            [2]
-        }
+    impl Observation for TestObs {
+        const SHAPE: &'static [usize] = &[2];
     }
 
-    impl HostRow<1> for TestObs {
+    impl HostRow for TestObs {
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }
@@ -231,7 +225,7 @@ mod tests {
         let mut buf: AuxRolloutBuffer<TestObs> = AuxRolloutBuffer::new();
         push(&mut buf, 3);
         push(&mut buf, 3);
-        let (o, r) = buf.gather_minibatch::<1, 2>(&[0, 2, 3, 5], &device);
+        let (o, r) = buf.gather_minibatch::<2>(&[0, 2, 3, 5], &device);
         assert_eq!(o.dims(), [4, 2]);
         assert_eq!(r.dims(), [4]);
     }
@@ -241,7 +235,7 @@ mod tests {
         let device: Device = Device::flex();
         let mut buf: AuxRolloutBuffer<TestObs> = AuxRolloutBuffer::new();
         push(&mut buf, 3);
-        let (_, r) = buf.gather_minibatch::<1, 2>(&[0, 1, 2], &device);
+        let (_, r) = buf.gather_minibatch::<2>(&[0, 1, 2], &device);
         let d = r.into_data().convert::<f32>();
         let slice = d.as_slice::<f32>().unwrap().to_vec();
         assert_eq!(slice, vec![0.0, 1.0, 2.0]);

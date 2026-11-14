@@ -84,13 +84,12 @@ const V_MAX: f32 = 0.0;
 
 type Env = TimeLimit<MountainCar>;
 
-type DqnMountainCarAgent = DqnAgent<MlpQNetwork, MountainCarObservation, MountainCarAction, 1, 2>;
+type DqnMountainCarAgent = DqnAgent<MlpQNetwork, MountainCarObservation, MountainCarAction, 2>;
 type C51MountainCarAgent =
-    C51Agent<MlpDistributionalQ, MountainCarObservation, MountainCarAction, 1, 2>;
+    C51Agent<MlpDistributionalQ, MountainCarObservation, MountainCarAction, 2>;
 type QrDqnMountainCarAgent =
-    QrDqnAgent<MlpDistributionalQ, MountainCarObservation, MountainCarAction, 1, 2>;
-type PpgMountainCarAgent =
-    PpgAgent<PpgCategoricalPolicyHead, MlpValue, MountainCarObservation, 1, 2>;
+    QrDqnAgent<MlpDistributionalQ, MountainCarObservation, MountainCarAction, 2>;
+type PpgMountainCarAgent = PpgAgent<PpgCategoricalPolicyHead, MlpValue, MountainCarObservation, 2>;
 
 // ---------------------------------------------------------------------------
 // Environment factory

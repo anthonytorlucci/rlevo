@@ -17,9 +17,10 @@ use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
+use crate::algorithms::shared::{assert_batch_rank, row_len, upload_one, upload_rows};
 use crate::replay::{ContinuousTransition, ReplayStrategy, UniformReplay, UniformReplayConfig};
 use rlevo_core::action::BoundedAction;
-use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::base::HostRow;
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 
@@ -75,27 +76,19 @@ pub struct LearnOutcome {
 ///
 /// # Const generics
 ///
-/// - `OR` — rank of a single observation tensor (`1` for vector observations
-///   of shape `[features]`).
-/// - `BOR` — rank of a batched observation tensor (= `OR + 1`). Rust cannot
-///   express `OR + 1` in generic position on stable, so both are supplied.
-/// - `AR` — rank of a single action tensor (`1` for vector actions of shape
-///   `[action_dim]`).
-/// - `BAR` — rank of a batched action tensor (= `AR + 1`).
-pub struct DdpgAgent<
-    Actor,
-    Critic,
-    O,
-    A,
-    const OR: usize,
-    const BOR: usize,
-    const AR: usize,
-    const BAR: usize,
-> where
-    Actor: DeterministicPolicy<BOR, BAR>,
-    Critic: ContinuousQ<BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: BoundedAction<AR>,
+/// - `BOR` — the rank of the batch of observations the model takes: the
+///   observation's rank, `O::SHAPE.len()`, plus the batch axis. The
+///   constructor asserts the relation when the crate is built (ADR 0101), so a
+///   mismatch fails `cargo build` and `cargo test`; `cargo check` does not
+///   report it.
+///
+/// A batch of actions is always `[batch, A::COMPONENTS]` (ADR 0100).
+pub struct DdpgAgent<Actor, Critic, O, A, const BOR: usize>
+where
+    Actor: DeterministicPolicy<BOR>,
+    Critic: ContinuousQ<BOR>,
+    O: HostRow,
+    A: BoundedAction,
 {
     actor: Slot<Actor>,
     target_actor: Actor,
@@ -107,11 +100,11 @@ pub struct DdpgAgent<
     exploration: GaussianNoise,
     low: &'static [f32],
     high: &'static [f32],
-    /// `[1, ..action_shape]` per-component bounds for the target-action clip,
+    /// `[1, COMPONENTS]` per-component bounds for the target-action clip,
     /// built once at construction on the plain device — see
     /// [`action_bound_tensors`].
-    low_t: Tensor<BAR>,
-    high_t: Tensor<BAR>,
+    low_t: Tensor<2>,
+    high_t: Tensor<2>,
     config: DdpgTrainingConfig,
     /// The training device: the caller's device with autodiff on.
     device: Device,
@@ -159,13 +152,12 @@ pub struct DdpgAgent<
     training: bool,
 }
 
-impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    std::fmt::Debug for DdpgAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const BOR: usize> std::fmt::Debug for DdpgAgent<Actor, Critic, O, A, BOR>
 where
-    Actor: DeterministicPolicy<BOR, BAR>,
-    Critic: ContinuousQ<BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: BoundedAction<AR>,
+    Actor: DeterministicPolicy<BOR>,
+    Critic: ContinuousQ<BOR>,
+    O: HostRow,
+    A: BoundedAction,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DdpgAgent")
@@ -180,13 +172,12 @@ where
     }
 }
 
-impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    DdpgAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const BOR: usize> DdpgAgent<Actor, Critic, O, A, BOR>
 where
-    Actor: DeterministicPolicy<BOR, BAR>,
-    Critic: ContinuousQ<BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: BoundedAction<AR>,
+    Actor: DeterministicPolicy<BOR>,
+    Critic: ContinuousQ<BOR>,
+    O: HostRow,
+    A: BoundedAction,
 {
     /// Constructs a new agent from pre-built actor and critic networks.
     ///
@@ -217,7 +208,8 @@ where
         device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
-        assert_bounds_match_components::<AR, A>();
+        assert_batch_rank::<O, BOR>();
+        assert_bounds_match_components::<A>();
         let device = device.autodiff();
         let plain_device = device.clone().without_autodiff();
         let actor = actor.train();
@@ -233,7 +225,7 @@ where
             None => (adam.clone().init(), adam.clone().init()),
         };
         let exploration = GaussianNoise::new(config.exploration_noise);
-        let (low_t, high_t) = action_bound_tensors::<A, AR, BAR>(&plain_device);
+        let (low_t, high_t) = action_bound_tensors::<A>(&plain_device);
         // The capacity is a runtime config field, not a literal, so it takes
         // the fallible path: an out-of-range value is a `ConfigError` naming
         // `capacity`, never an allocation abort inside `VecDeque`.
@@ -459,9 +451,8 @@ where
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
-        let raw: Tensor<BAR> = self.actor.get().forward(batched);
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
+        let raw: Tensor<2> = self.actor.get().forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
         let mean: Vec<f32> = slice.iter().take(A::COMPONENTS).copied().collect();
@@ -518,9 +509,8 @@ where
         let mut scratch: Vec<f32> = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
 
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
-        let raw: Tensor<BAR> = net.forward(batched);
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.plain_device);
+        let raw: Tensor<2> = net.forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
         let out: Vec<f32> = (0..A::COMPONENTS)
@@ -791,10 +781,8 @@ where
             return Ok(None);
         };
 
-        let obs_shape = O::shape();
-        let obs_numel: usize = obs_shape.iter().product();
-        let action_shape = A::shape();
-        let action_numel: usize = action_shape.iter().product();
+        let obs_numel: usize = row_len::<O>();
+        let action_numel: usize = A::COMPONENTS;
 
         let mut obs_flat: Vec<f32> = Vec::with_capacity(batch_size * obs_numel);
         let mut next_flat: Vec<f32> = Vec::with_capacity(batch_size * obs_numel);
@@ -813,21 +801,12 @@ where
             terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
-        let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(BOR);
-        batched_obs_shape.push(batch_size);
-        batched_obs_shape.extend_from_slice(&obs_shape);
-        let mut batched_action_shape: Vec<usize> = Vec::with_capacity(BAR);
-        batched_action_shape.push(batch_size);
-        batched_action_shape.extend_from_slice(&action_shape);
-
-        let obs_t: Tensor<BOR> = Tensor::from_data(
-            TensorData::new(obs_flat, batched_obs_shape.clone()),
+        let obs_t: Tensor<BOR> = upload_rows::<O, BOR>(obs_flat, batch_size, &device);
+        let next_t_inner: Tensor<BOR> = upload_rows::<O, BOR>(next_flat, batch_size, &plain);
+        let action_t: Tensor<2> = Tensor::from_data(
+            TensorData::new(action_flat, [batch_size, A::COMPONENTS]),
             &device,
         );
-        let next_t_inner: Tensor<BOR> =
-            Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &plain);
-        let action_t: Tensor<BAR> =
-            Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
 
         let rewards_inner: Tensor<1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &plain);
@@ -843,8 +822,8 @@ where
         // admit negative gas and brake into the target — precisely the "values
         // of impossible actions" the clip exists to suppress. Burn's `clamp` is
         // scalar-only, so this goes through `max_pair`/`min_pair` against the
-        // `[1, ..action_shape]` bound tensors, broadcast over the batch.
-        let next_actions: Tensor<BAR> = clip_to_action_bounds(
+        // `[1, COMPONENTS]` bound tensors, broadcast over the batch.
+        let next_actions: Tensor<2> = clip_to_action_bounds(
             self.target_actor.forward(next_t_inner.clone()),
             self.low_t.clone(),
             self.high_t.clone(),
@@ -885,7 +864,7 @@ where
             .critic_updates
             .is_multiple_of(self.config.policy_frequency)
         {
-            let predicted_actions: Tensor<BAR> = self.actor.get().forward(obs_t.clone());
+            let predicted_actions: Tensor<2> = self.actor.get().forward(obs_t.clone());
             let q_actor: Tensor<1> = self.critic.get().forward(obs_t, predicted_actions);
             let actor_loss_tensor = q_actor.mean().neg();
             let actor_loss_value = actor_loss_tensor.clone().into_scalar::<f32>();
@@ -968,13 +947,12 @@ where
 /// `rl/skipped_updates`, `rl/dropped_transitions`,
 /// `rl/dropped_observations` and `rl/degenerate_action_selections`, each
 /// what the accessor of that name returns.
-impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    Agent<O, A> for DdpgAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const BOR: usize> Agent<O, A> for DdpgAgent<Actor, Critic, O, A, BOR>
 where
-    Actor: DeterministicPolicy<BOR, BAR>,
-    Critic: ContinuousQ<BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: BoundedAction<AR>,
+    Actor: DeterministicPolicy<BOR>,
+    Critic: ContinuousQ<BOR>,
+    O: HostRow,
+    A: BoundedAction,
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         self.select(obs, self.training, rng)
@@ -1039,8 +1017,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rlevo_core::action::ContinuousAction;
 
-    type GuardAgent =
-        DdpgAgent<MlpActor, MlpCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
+    type GuardAgent = DdpgAgent<MlpActor, MlpCritic, MaskObservation, MaskContinuousAction, 2>;
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// critic that has diverged to non-finite weights — the realistic source of
@@ -1836,17 +1813,11 @@ mod driven_tests {
         };
         let actor = tiny_actor(&device);
         let critic = tiny_critic(&device);
-        let mut agent = DdpgAgent::<
-            MlpActor,
-            MlpCritic,
-            MaskObservation,
-            MaskContinuousAction,
-            1,
-            2,
-            1,
-            2,
-        >::new(actor, critic, config, device)
-        .expect("default config is valid");
+        let mut agent =
+            DdpgAgent::<MlpActor, MlpCritic, MaskObservation, MaskContinuousAction, 2>::new(
+                actor, critic, config, device,
+            )
+            .expect("default config is valid");
         let mut env = ContinuousMaskEnv::new(PERIOD, end_status);
         let mut rng = StdRng::seed_from_u64(7);
         drive(&mut env, &mut agent, STEPS, &mut rng);
@@ -1905,17 +1876,14 @@ mod driven_tests {
             replay_buffer_capacity: 64,
             ..DdpgTrainingConfig::default()
         };
-        let mut agent = DdpgAgent::<
-            MlpActor,
-            MlpCritic,
-            MaskObservation,
-            MaskContinuousAction,
-            1,
-            2,
-            1,
-            2,
-        >::new(tiny_actor(&device), tiny_critic(&device), config, device)
-        .expect("valid config");
+        let mut agent =
+            DdpgAgent::<MlpActor, MlpCritic, MaskObservation, MaskContinuousAction, 2>::new(
+                tiny_actor(&device),
+                tiny_critic(&device),
+                config,
+                device,
+            )
+            .expect("valid config");
         let mut rng = StdRng::seed_from_u64(7);
         exercise_counters(
             &mut agent,

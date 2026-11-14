@@ -67,10 +67,10 @@ pub struct MyAgent<O, A> {
     types: PhantomData<fn(&O) -> A>,
 }
 
-impl<O: HostRow<1>, A: DiscreteAction<1>> MyAgent<O, A> {
+impl<O: HostRow, A: DiscreteAction> MyAgent<O, A> {
     /// An agent with every weight zero, set to train.
     pub fn new() -> Self {
-        let width = 1 + O::shape()[0];
+        let width = 1 + O::SHAPE.iter().product::<usize>();
         Self {
             weights: vec![vec![0.0; width]; A::ACTION_COUNT],
             training: true,
@@ -96,14 +96,14 @@ impl<O: HostRow<1>, A: DiscreteAction<1>> MyAgent<O, A> {
     }
 }
 
-impl<O: HostRow<1>, A: DiscreteAction<1>> Default for MyAgent<O, A> {
+impl<O: HostRow, A: DiscreteAction> Default for MyAgent<O, A> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 /// `[1, x]`: a bias, then the numbers `obs` writes as its host row.
-fn features<O: HostRow<1>>(obs: &O) -> Vec<f32> {
+fn features<O: HostRow>(obs: &O) -> Vec<f32> {
     let mut x = vec![1.0];
     obs.write_host_row(&mut x);
     x
@@ -124,7 +124,7 @@ fn best(values: &[f32]) -> usize {
     best
 }
 
-impl<O: HostRow<1>, A: DiscreteAction<1>> Agent<O, A> for MyAgent<O, A> {
+impl<O: HostRow, A: DiscreteAction> Agent<O, A> for MyAgent<O, A> {
     /// The best action, or while training, with probability ε, a random one.
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         if rng.random_bool(self.epsilon()) {

@@ -35,7 +35,7 @@ fn main() {
     println!("Environment spec:");
     println!(
         "  observation   = [cart_pos, cart_vel, pole_angle, pole_ang_vel]  shape={:?}",
-        <CartPoleObservation as Observation<1>>::shape()
+        <CartPoleObservation as Observation>::SHAPE
     );
     println!(
         "  actions       = Left | Right  count={}",

@@ -380,10 +380,8 @@ pub struct FrozenLakeObservation {
     pub state_id: u16,
 }
 
-impl Observation<1> for FrozenLakeObservation {
-    fn shape() -> [usize; 1] {
-        [64]
-    }
+impl Observation for FrozenLakeObservation {
+    const SHAPE: &'static [usize] = &[64];
 }
 
 /// Four-direction action space matching Gymnasium's `FrozenLake` ordering.
@@ -401,16 +399,13 @@ pub enum FrozenLakeAction {
     Up = 3,
 }
 
-impl Action<1> for FrozenLakeAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Action for FrozenLakeAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for FrozenLakeAction {
+impl DiscreteAction for FrozenLakeAction {
     const ACTION_COUNT: usize = 4;
 
     /// Constructs an action from its zero-based index.
@@ -615,7 +610,7 @@ impl FrozenLake {
     }
 }
 
-impl Environment<1, 1> for FrozenLake {
+impl Environment for FrozenLake {
     type ObservationType = FrozenLakeObservation;
     type ActionType = FrozenLakeAction;
 
@@ -991,7 +986,7 @@ mod tests {
     #[test]
     /// Verifies the observation shape is fixed at 64 (`$8 \times 8$` max).
     fn obs_shape() {
-        assert_eq!(FrozenLakeObservation::shape(), [64]);
+        assert_eq!(FrozenLakeObservation::SHAPE, [64]);
     }
 
     #[test]

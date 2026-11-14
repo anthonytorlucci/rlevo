@@ -82,10 +82,10 @@ const V_MAX: f32 = 0.0;
 
 type Env = TimeLimit<Acrobot<BookDynamics>>;
 
-type DqnAcrobotAgent = DqnAgent<MlpQNetwork, AcrobotObservation, AcrobotAction, 1, 2>;
-type C51AcrobotAgent = C51Agent<MlpDistributionalQ, AcrobotObservation, AcrobotAction, 1, 2>;
-type QrDqnAcrobotAgent = QrDqnAgent<MlpDistributionalQ, AcrobotObservation, AcrobotAction, 1, 2>;
-type PpgAcrobotAgent = PpgAgent<PpgCategoricalPolicyHead, MlpValue, AcrobotObservation, 1, 2>;
+type DqnAcrobotAgent = DqnAgent<MlpQNetwork, AcrobotObservation, AcrobotAction, 2>;
+type C51AcrobotAgent = C51Agent<MlpDistributionalQ, AcrobotObservation, AcrobotAction, 2>;
+type QrDqnAcrobotAgent = QrDqnAgent<MlpDistributionalQ, AcrobotObservation, AcrobotAction, 2>;
+type PpgAcrobotAgent = PpgAgent<PpgCategoricalPolicyHead, MlpValue, AcrobotObservation, 2>;
 
 // ---------------------------------------------------------------------------
 // Environment factory

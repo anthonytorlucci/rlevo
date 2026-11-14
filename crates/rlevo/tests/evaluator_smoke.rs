@@ -33,24 +33,19 @@ impl ToyEnv {
 
 #[derive(Debug, Clone)]
 struct ToyObs;
-impl Observation<1> for ToyObs {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Observation for ToyObs {
+    const SHAPE: &'static [usize] = &[1];
 }
 
 #[derive(Debug, Clone)]
 struct ToyAction(f64);
-impl Action<1> for ToyAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Action for ToyAction {
     fn is_valid(&self) -> bool {
         self.0.is_finite()
     }
 }
 
-impl Environment<1, 1> for ToyEnv {
+impl Environment for ToyEnv {
     type ObservationType = ToyObs;
     type ActionType = ToyAction;
 

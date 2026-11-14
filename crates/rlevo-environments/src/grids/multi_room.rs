@@ -284,7 +284,7 @@ impl FromStr for MultiRoomConfig {
 /// in the last room. Rollout length scales with [`MultiRoomConfig::num_rooms`],
 /// making this suitable for testing long-horizon planning and credit assignment.
 ///
-/// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
+/// Implements [`Environment`] with [`GridObservation`] / [`GridAction`] /
 /// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// Reaching the goal (or exhausting `max_steps`) ends the episode; a
@@ -506,7 +506,7 @@ impl MultiRoomEnv {
     }
 }
 
-impl Environment<3, 1> for MultiRoomEnv {
+impl Environment for MultiRoomEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
 

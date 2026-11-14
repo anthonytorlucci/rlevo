@@ -738,10 +738,7 @@ impl PpoPolicy<2> for TanhGaussianPolicyHead {
 /// `PpoAgent`'s [`Agent`](rlevo_core::agent::Agent) impl for this head
 /// decodes its rows with it.
 #[must_use]
-pub(crate) fn continuous_action_from_row<
-    const AR: usize,
-    A: rlevo_core::action::ContinuousAction<AR>,
->(
+pub(crate) fn continuous_action_from_row<A: rlevo_core::action::ContinuousAction>(
     row: &[f32],
 ) -> A {
     A::from_slice(row)

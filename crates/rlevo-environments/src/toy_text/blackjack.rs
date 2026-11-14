@@ -187,10 +187,8 @@ pub struct BlackjackObservation {
     pub usable_ace: u8,
 }
 
-impl Observation<1> for BlackjackObservation {
-    fn shape() -> [usize; 1] {
-        [3]
-    }
+impl Observation for BlackjackObservation {
+    const SHAPE: &'static [usize] = &[3];
 }
 
 // ── action ────────────────────────────────────────────────────────────────────
@@ -244,16 +242,13 @@ impl TryFrom<usize> for BlackjackAction {
     }
 }
 
-impl Action<1> for BlackjackAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Action for BlackjackAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for BlackjackAction {
+impl DiscreteAction for BlackjackAction {
     const ACTION_COUNT: usize = 2;
 
     /// Constructs an action from its zero-based index.
@@ -385,7 +380,7 @@ fn blackjack_observation(state: &BlackjackState) -> BlackjackObservation {
     }
 }
 
-impl Environment<1, 1> for Blackjack {
+impl Environment for Blackjack {
     type ObservationType = BlackjackObservation;
     type ActionType = BlackjackAction;
 
@@ -651,7 +646,7 @@ mod tests {
     #[test]
     /// Verifies the observation shape matches the 3-element tuple specification.
     fn obs_shape() {
-        assert_eq!(BlackjackObservation::shape(), [3]);
+        assert_eq!(BlackjackObservation::SHAPE, [3]);
     }
 
     #[test]

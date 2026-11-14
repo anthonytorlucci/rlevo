@@ -11,7 +11,7 @@
 //!
 //! # What the source actually does (verified, not assumed)
 //!
-//! The original speculation was that `Observation`/`HostRow<R>` might let the
+//! The original speculation was that `Observation`/`HostRow` might let the
 //! check ride the existing `write_host_row` traversal at near-zero marginal
 //! cost -- the row is already being walked. That is **true at one seam and
 //! false at the other**, and the split is the whole reason this bench has
@@ -156,7 +156,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::{ContinuousAction, DiscreteAction};
-use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, Observation};
 use rlevo_core::environment::{Environment, EpisodeStatus};
 use rlevo_environments::box2d::car_racing::{
     CarRacing, CarRacingAction, CarRacingConfig, CarRacingObservation,
@@ -229,13 +229,11 @@ impl std::fmt::Debug for F32Image {
     }
 }
 
-impl Observation<3> for F32Image {
-    fn shape() -> [usize; 3] {
-        [FRAME, FRAME, 3]
-    }
+impl Observation for F32Image {
+    const SHAPE: &'static [usize] = &[FRAME, FRAME, 3];
 }
 
-impl HostRow<3> for F32Image {
+impl HostRow for F32Image {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.px);
     }
@@ -252,16 +250,13 @@ impl HostRow<3> for F32Image {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BenchAction(u8);
 
-impl Action<1> for BenchAction {
-    fn shape() -> [usize; 1] {
-        [ACTIONS]
-    }
+impl Action for BenchAction {
     fn is_valid(&self) -> bool {
         (self.0 as usize) < ACTIONS
     }
 }
 
-impl DiscreteAction<1> for BenchAction {
+impl DiscreteAction for BenchAction {
     const ACTION_COUNT: usize = ACTIONS;
 
     /// # Panics
@@ -333,7 +328,7 @@ fn car_obs(rng: &mut StdRng, _poison: bool) -> CarRacingObservation {
 /// **Arm 1.** The staging loop exactly as `dqn_agent.rs::learn_step` runs it
 /// today (lines 530-539), reduced to the observation half: for each sampled
 /// row, `write_host_row` into a shared flat buffer.
-fn stage_baseline<const R: usize, T: HostRow<R>>(rows: &[T], buf: &mut Vec<f32>) {
+fn stage_baseline<T: HostRow>(rows: &[T], buf: &mut Vec<f32>) {
     buf.clear();
     for row in rows {
         row.write_host_row(buf);
@@ -347,7 +342,7 @@ fn stage_baseline<const R: usize, T: HostRow<R>>(rows: &[T], buf: &mut Vec<f32>)
 /// The per-row verdicts are combined with a non-short-circuiting `&=` so a
 /// poisoned row does not abandon the rest of the batch; the intra-row `all`
 /// does short-circuit, which is why the poison sits in the last element.
-fn stage_fused_scan<const R: usize, T: HostRow<R>>(rows: &[T], buf: &mut Vec<f32>) -> bool {
+fn stage_fused_scan<T: HostRow>(rows: &[T], buf: &mut Vec<f32>) -> bool {
     buf.clear();
     let mut all_finite = true;
     for row in rows {
@@ -385,10 +380,7 @@ fn scan_finite_branchless(slice: &[f32]) -> bool {
 
 /// **Arm 2b.** Arm 2 with [`scan_finite_branchless`] in place of
 /// `all(is_finite)`. Same verdict, same fusion point, no early exit.
-fn stage_fused_scan_branchless<const R: usize, T: HostRow<R>>(
-    rows: &[T],
-    buf: &mut Vec<f32>,
-) -> bool {
+fn stage_fused_scan_branchless<T: HostRow>(rows: &[T], buf: &mut Vec<f32>) -> bool {
     buf.clear();
     let mut all_finite = true;
     for row in rows {
@@ -451,11 +443,7 @@ impl Ingest {
 /// and it is exactly the asymmetry [`check_finite_reused_branchless`] does not
 /// have (its clean and poisoned cells agree to within noise, which is what makes
 /// it the honest branch-prediction control).
-fn check_finite_reused<const R: usize, T: HostRow<R>>(
-    obs: &T,
-    next_obs: &T,
-    scratch: &mut Vec<f32>,
-) -> bool {
+fn check_finite_reused<T: HostRow>(obs: &T, next_obs: &T, scratch: &mut Vec<f32>) -> bool {
     scratch.clear();
     obs.write_host_row(scratch);
     next_obs.write_host_row(scratch);
@@ -464,8 +452,8 @@ fn check_finite_reused<const R: usize, T: HostRow<R>>(
 
 /// The prototype guard, fresh-allocation form -- identical work plus one
 /// `Vec` allocation and one deallocation per call.
-fn check_finite_fresh<const R: usize, T: HostRow<R>>(obs: &T, next_obs: &T) -> bool {
-    let row_len: usize = T::shape().iter().product();
+fn check_finite_fresh<T: HostRow>(obs: &T, next_obs: &T) -> bool {
+    let row_len: usize = T::SHAPE.iter().product();
     let mut scratch: Vec<f32> = Vec::with_capacity(2 * row_len);
     obs.write_host_row(&mut scratch);
     next_obs.write_host_row(&mut scratch);
@@ -473,7 +461,7 @@ fn check_finite_fresh<const R: usize, T: HostRow<R>>(obs: &T, next_obs: &T) -> b
 }
 
 /// [`check_finite_reused`] with the branchless scan.
-fn check_finite_reused_branchless<const R: usize, T: HostRow<R>>(
+fn check_finite_reused_branchless<T: HostRow>(
     obs: &T,
     next_obs: &T,
     scratch: &mut Vec<f32>,
@@ -560,16 +548,16 @@ impl DqnModel<4> for ImgConvNet {
 /// Builds a `DqnAgent` whose replay buffer is prefilled to [`INGEST_CAPACITY`]
 /// (so the ingestion arms measure steady-state push+evict) and whose
 /// `learning_starts` is 0 (so `learn_step` runs immediately).
-fn build_agent<M, O, const DO: usize, const DB: usize>(
+fn build_agent<M, O, const DB: usize>(
     device: &Device,
     model: M,
     batch_size: usize,
     capacity: usize,
     fixture: &[O],
-) -> DqnAgent<M, O, BenchAction, DO, DB>
+) -> DqnAgent<M, O, BenchAction, DB>
 where
     M: DqnModel<DB>,
-    O: Observation<DO> + TensorConvertible<DO> + Clone,
+    O: HostRow + Clone,
 {
     let config = DqnTrainingConfig {
         batch_size,
@@ -578,7 +566,7 @@ where
         train_frequency: 1,
         ..Default::default()
     };
-    let mut agent: DqnAgent<M, O, BenchAction, DO, DB> =
+    let mut agent: DqnAgent<M, O, BenchAction, DB> =
         DqnAgent::new(model, config, device.clone()).expect("valid config");
     for i in 0..capacity {
         let obs = fixture[i % fixture.len()].clone();
@@ -600,17 +588,17 @@ where
 
 /// Runs `baseline` vs. `fused_scan` (clean and, where the payload permits,
 /// poisoned) over the given batch sizes. Pure host code -- no device.
-fn bench_stage<const R: usize, T>(
+fn bench_stage<T>(
     c: &mut Criterion,
     group_name: &str,
     batches: &[usize],
     poisonable: bool,
     make: impl Fn(&mut StdRng, bool) -> T,
 ) where
-    T: HostRow<R>,
+    T: HostRow,
 {
     let mut rng = StdRng::seed_from_u64(1043);
-    let row_len: usize = T::shape().iter().product();
+    let row_len: usize = T::SHAPE.iter().product();
     let mut group = c.benchmark_group(group_name);
 
     for &batch in batches {
@@ -624,19 +612,19 @@ fn bench_stage<const R: usize, T>(
         {
             let mut gate: Vec<f32> = Vec::with_capacity(batch * row_len);
             assert_eq!(
-                stage_fused_scan::<R, T>(&clean, &mut gate),
-                stage_fused_scan_branchless::<R, T>(&clean, &mut gate),
+                stage_fused_scan::<T>(&clean, &mut gate),
+                stage_fused_scan_branchless::<T>(&clean, &mut gate),
                 "branchless scan disagreed with all(is_finite) on a clean batch"
             );
             if poisonable {
                 let mut dirty: Vec<T> = (0..batch).map(|_| make(&mut rng, false)).collect();
                 dirty[batch / 2] = make(&mut rng, true);
                 assert!(
-                    !stage_fused_scan::<R, T>(&dirty, &mut gate),
+                    !stage_fused_scan::<T>(&dirty, &mut gate),
                     "all(is_finite) failed to detect the poisoned row"
                 );
                 assert!(
-                    !stage_fused_scan_branchless::<R, T>(&dirty, &mut gate),
+                    !stage_fused_scan_branchless::<T>(&dirty, &mut gate),
                     "branchless scan failed to detect the poisoned row"
                 );
             }
@@ -644,7 +632,7 @@ fn bench_stage<const R: usize, T>(
 
         group.bench_with_input(BenchmarkId::new("baseline", batch), &clean, |b, rows| {
             b.iter(|| {
-                stage_baseline::<R, T>(black_box(rows), &mut buf);
+                stage_baseline::<T>(black_box(rows), &mut buf);
                 black_box(buf.len());
             });
         });
@@ -653,7 +641,7 @@ fn bench_stage<const R: usize, T>(
             &clean,
             |b, rows| {
                 b.iter(|| {
-                    let ok = stage_fused_scan::<R, T>(black_box(rows), &mut buf);
+                    let ok = stage_fused_scan::<T>(black_box(rows), &mut buf);
                     black_box((ok, buf.len()));
                 });
             },
@@ -663,7 +651,7 @@ fn bench_stage<const R: usize, T>(
             &clean,
             |b, rows| {
                 b.iter(|| {
-                    let ok = stage_fused_scan_branchless::<R, T>(black_box(rows), &mut buf);
+                    let ok = stage_fused_scan_branchless::<T>(black_box(rows), &mut buf);
                     black_box((ok, buf.len()));
                 });
             },
@@ -680,7 +668,7 @@ fn bench_stage<const R: usize, T>(
                 &poisoned,
                 |b, rows| {
                     b.iter(|| {
-                        let ok = stage_fused_scan::<R, T>(black_box(rows), &mut buf);
+                        let ok = stage_fused_scan::<T>(black_box(rows), &mut buf);
                         black_box((ok, buf.len()));
                     });
                 },
@@ -690,7 +678,7 @@ fn bench_stage<const R: usize, T>(
                 &poisoned,
                 |b, rows| {
                     b.iter(|| {
-                        let ok = stage_fused_scan_branchless::<R, T>(black_box(rows), &mut buf);
+                        let ok = stage_fused_scan_branchless::<T>(black_box(rows), &mut buf);
                         black_box((ok, buf.len()));
                     });
                 },
@@ -718,7 +706,7 @@ fn bench_stage<const R: usize, T>(
 /// dropping the transition. Dropping would make the poisoned cell measure a
 /// *shorter* code path (no buffer push) than the clean one, confounding the
 /// branch-prediction control this arm exists to provide.
-fn bench_ingest<M, O, const DO: usize, const DB: usize>(
+fn bench_ingest<M, O, const DB: usize>(
     c: &mut Criterion,
     group_name: &str,
     device: &Device,
@@ -727,10 +715,10 @@ fn bench_ingest<M, O, const DO: usize, const DB: usize>(
     make: impl Fn(&mut StdRng, bool) -> O,
 ) where
     M: DqnModel<DB>,
-    O: Observation<DO> + TensorConvertible<DO> + Clone,
+    O: HostRow + Clone,
 {
     let mut rng = StdRng::seed_from_u64(1043);
-    let row_len: usize = <O as Observation<DO>>::shape().iter().product();
+    let row_len: usize = O::SHAPE.iter().product();
 
     let clean: Vec<O> = (0..POOL).map(|_| make(&mut rng, false)).collect();
     let poisoned: Vec<O> = if poisonable {
@@ -762,7 +750,7 @@ fn bench_ingest<M, O, const DO: usize, const DB: usize>(
         // `learn_step` is never called here, so `batch_size` is inert; it only
         // has to validate.
         let mut agent =
-            build_agent::<M, O, DO, DB>(device, make_model(device), 64, INGEST_CAPACITY, &clean);
+            build_agent::<M, O, DB>(device, make_model(device), 64, INGEST_CAPACITY, &clean);
         let mut scratch: Vec<f32> = Vec::with_capacity(2 * row_len);
         let mut i: usize = 0;
         group.bench_function(BenchmarkId::new(id_name, row_len), |b| {
@@ -774,13 +762,13 @@ fn bench_ingest<M, O, const DO: usize, const DB: usize>(
                 match variant {
                     Ingest::Baseline => {}
                     Ingest::ScanReused => {
-                        black_box(check_finite_reused::<DO, O>(&obs, &next, &mut scratch));
+                        black_box(check_finite_reused::<O>(&obs, &next, &mut scratch));
                     }
                     Ingest::ScanFreshAlloc => {
-                        black_box(check_finite_fresh::<DO, O>(&obs, &next));
+                        black_box(check_finite_fresh::<O>(&obs, &next));
                     }
                     Ingest::ScanReusedBranchless => {
-                        black_box(check_finite_reused_branchless::<DO, O>(
+                        black_box(check_finite_reused_branchless::<O>(
                             &obs,
                             &next,
                             &mut scratch,
@@ -806,7 +794,7 @@ fn bench_ingest<M, O, const DO: usize, const DB: usize>(
 
 /// Times `DqnAgent::learn_step` on a prefilled agent -- the denominator for
 /// `(arm2 - arm1)`. Calls the production method, not a mirror.
-fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
+fn bench_learn_step<M, O, const DB: usize>(
     c: &mut Criterion,
     group_name: &str,
     device: &Device,
@@ -816,7 +804,7 @@ fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
     make: impl Fn(&mut StdRng, bool) -> O,
 ) where
     M: DqnModel<DB>,
-    O: Observation<DO> + TensorConvertible<DO> + Clone,
+    O: HostRow + Clone,
 {
     let mut rng = StdRng::seed_from_u64(1043);
     let fixture: Vec<O> = (0..POOL).map(|_| make(&mut rng, false)).collect();
@@ -828,7 +816,7 @@ fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
         // that prefill stays quick at the image shape.
         let capacity = batch * 4;
         let mut agent =
-            build_agent::<M, O, DO, DB>(device, make_model(device), batch, capacity, &fixture);
+            build_agent::<M, O, DB>(device, make_model(device), batch, capacity, &fixture);
         group.bench_function(BenchmarkId::new("learn_step", batch), |b| {
             b.iter(|| {
                 let out = agent.learn_step(&mut rng).expect("learn_step");
@@ -857,7 +845,7 @@ fn bench_env_cycle_lunar(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(1043);
     let fixture: Vec<LunarLanderObservation> =
         (0..POOL).map(|_| lunar_obs(&mut rng, false)).collect();
-    let mut agent = build_agent::<MlpQNetwork, LunarLanderObservation, 1, 2>(
+    let mut agent = build_agent::<MlpQNetwork, LunarLanderObservation, 2>(
         &device,
         vec_mlp(&device),
         64,
@@ -905,7 +893,7 @@ fn bench_env_cycle_car(c: &mut Criterion) {
     let device = BenchDevice::Flex.device();
     let mut rng = StdRng::seed_from_u64(1043);
     let fixture: Vec<CarRacingObservation> = (0..POOL).map(|_| car_obs(&mut rng, false)).collect();
-    let mut agent = build_agent::<ImgConvNet, CarRacingObservation, 3, 4>(
+    let mut agent = build_agent::<ImgConvNet, CarRacingObservation, 4>(
         &device,
         ImgConvNet::new(&device),
         32,
@@ -954,21 +942,15 @@ fn bench_env_cycle_car(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 
 fn bench_staging_arms(c: &mut Criterion) {
-    bench_stage::<1, LunarLanderObservation>(
+    bench_stage::<LunarLanderObservation>(
         c,
         "obsguard_stage_lunar_host",
         &VEC_BATCHES,
         true,
         lunar_obs,
     );
-    bench_stage::<3, CarRacingObservation>(
-        c,
-        "obsguard_stage_car_host",
-        &IMG_BATCHES,
-        false,
-        car_obs,
-    );
-    bench_stage::<3, F32Image>(
+    bench_stage::<CarRacingObservation>(c, "obsguard_stage_car_host", &IMG_BATCHES, false, car_obs);
+    bench_stage::<F32Image>(
         c,
         "obsguard_stage_imagef32_host",
         &IMG_BATCHES,
@@ -979,7 +961,7 @@ fn bench_staging_arms(c: &mut Criterion) {
 
 fn bench_ingest_arms(c: &mut Criterion) {
     let device = BenchDevice::Flex.device();
-    bench_ingest::<MlpQNetwork, LunarLanderObservation, 1, 2>(
+    bench_ingest::<MlpQNetwork, LunarLanderObservation, 2>(
         c,
         "obsguard_ingest_lunar_host",
         &device,
@@ -987,7 +969,7 @@ fn bench_ingest_arms(c: &mut Criterion) {
         true,
         lunar_obs,
     );
-    bench_ingest::<ImgConvNet, CarRacingObservation, 3, 4>(
+    bench_ingest::<ImgConvNet, CarRacingObservation, 4>(
         c,
         "obsguard_ingest_car_host",
         &device,
@@ -995,7 +977,7 @@ fn bench_ingest_arms(c: &mut Criterion) {
         false,
         car_obs,
     );
-    bench_ingest::<ImgConvNet, F32Image, 3, 4>(
+    bench_ingest::<ImgConvNet, F32Image, 4>(
         c,
         "obsguard_ingest_imagef32_host",
         &device,
@@ -1007,7 +989,7 @@ fn bench_ingest_arms(c: &mut Criterion) {
 
 fn bench_learn_step_denominators(c: &mut Criterion) {
     let flex = BenchDevice::Flex.device();
-    bench_learn_step::<MlpQNetwork, LunarLanderObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, LunarLanderObservation, 2>(
         c,
         "obsguard_learn_step_lunar_flex",
         &flex,
@@ -1017,7 +999,7 @@ fn bench_learn_step_denominators(c: &mut Criterion) {
         lunar_obs,
     );
     let wgpu = BenchDevice::Wgpu.device();
-    bench_learn_step::<MlpQNetwork, LunarLanderObservation, 1, 2>(
+    bench_learn_step::<MlpQNetwork, LunarLanderObservation, 2>(
         c,
         "obsguard_learn_step_lunar_wgpu",
         &wgpu,
@@ -1026,7 +1008,7 @@ fn bench_learn_step_denominators(c: &mut Criterion) {
         vec_mlp,
         lunar_obs,
     );
-    bench_learn_step::<ImgConvNet, CarRacingObservation, 3, 4>(
+    bench_learn_step::<ImgConvNet, CarRacingObservation, 4>(
         c,
         "obsguard_learn_step_car_flex",
         &flex,
@@ -1035,7 +1017,7 @@ fn bench_learn_step_denominators(c: &mut Criterion) {
         ImgConvNet::new,
         car_obs,
     );
-    bench_learn_step::<ImgConvNet, CarRacingObservation, 3, 4>(
+    bench_learn_step::<ImgConvNet, CarRacingObservation, 4>(
         c,
         "obsguard_learn_step_car_wgpu",
         &wgpu,

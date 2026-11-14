@@ -1,8 +1,9 @@
 # Tensor Rank vs. Matrix Rank vs. Dimensionality
 
 The word **rank** is overloaded. In `rlevo` it appears as the const generic on
-`Observation<OR>` and `Action<AR>` — and it means something very
-specific there. But the same word means something *different* in linear algebra,
+`BOR`, the rank of the batched observation tensor a model takes, and as
+`Observation::SHAPE.len()`, the order of an observation. It means something
+very specific there. But the same word means something *different* in linear algebra,
 and something different again in everyday "how big is this space?" talk. Three of
 those senses collide precisely in the discussion of partially-observable
 environments, where it is easy to conclude that an observation space has a "lower 
@@ -17,16 +18,22 @@ three senses apart.
   is a tensor of shape $[\lambda, d]$.
 - Observations are shaped $[B, \ldots]$ where $B$ is batch size during
   training and $1$ during inference.
-- The const generic rank parameter $R$ in `Observation<R>` and `Action<R>` is
-  the *number of dimensions*, not the size — so a flat vector is $R = 1$, a
-  matrix is $R = 2$.
+- An observation states its shape as the constant `Observation::SHAPE`, and its
+  rank is `SHAPE.len()`: the *number of dimensions*, not the size. A flat vector
+  has `SHAPE.len() == 1`, a matrix has `SHAPE.len() == 2`. `Observation` and
+  `Action` carry no const rank parameter, and an action has no shape: its size
+  is `ACTION_COUNT` (discrete) or `COMPONENTS` (continuous).
+- The only rank parameter left is `BOR` on an agent and its model, the rank of
+  the batched tensor `[batch, ..SHAPE]`. It is the observation's rank plus one,
+  and the agent asserts that when it is built (ADR 0101).
 
 
 ## Three senses of "rank"
 
 ### 1. Tensor order (ndim) — the one `rlevo` tracks
 
-The `const R` in `Observation<R>` / `Action<R>` is the **number of axes** a tensor
+`Observation::SHAPE.len()`, and the `BOR` that a model takes (one more, for the
+batch axis), is the **number of axes** a tensor
 has — what NumPy calls `ndim` and Burn writes as the `D` in `Tensor<D>`. It is
 the count of indices you need to address a single element, *not* the size of any
 axis:
@@ -38,10 +45,11 @@ axis:
 - an RGB image is order $3$ — $\text{img}[c][i][j]$.
 
 Crucially, the *size* of each axis is irrelevant to the order. A length-$1000$
-vector and a length-$2$ vector are **both order 1**. This is the only "rank" the
-type system reasons about: it stops you from feeding a rank-2 observation where a
-rank-1 one is expected, but it says nothing about how many values live along each
-axis. 
+vector and a length-$2$ vector are **both order 1**. This is the only "rank"
+`rlevo` tracks: an agent checks, when it is built, that its model's input rank
+fits the observation's order, so a rank-2 observation fed to a model written for
+rank-1 input fails `cargo build` or `cargo test` (not `cargo check`). It says
+nothing about how many values live along each axis.
 
 ### 2. Matrix rank — a property of the *values*, invisible to the types
 
@@ -62,17 +70,17 @@ whatever its column space looks like.
 
 The third sense is the everyday one: "how big is the space?" — the number of values
 an axis (or the whole space) can take. In `rlevo` this is the content of
-`shape()`: a rank-1 observation with `shape() == [16]` has $16$ slots along its
-single axis. Critically, **`Observation::shape()` is independent of the
+`SHAPE`: a rank-1 observation with `SHAPE == &[16]` has $16$ slots along its
+single axis. Critically, **`Observation::SHAPE` is independent of the
 environment's state**, whose shape the contract does not declare at all.
 
 ### Side by side
 
 | Sense | Means | A property of… | Where it lives in `rlevo` |
 | --- | --- | --- | --- |
-| **Tensor order (ndim)** | number of axes / indices | the container's shape | the `const OR`/`AR` on `Observation`/`Action` — the **only** "rank" the types track |
+| **Tensor order (ndim)** | number of axes / indices | the container's shape | `SHAPE.len()` of an `Observation`, and `BOR` on an agent's model (one more) — the **only** "rank" `rlevo` tracks |
 | **Matrix rank** | dimension of a linear map's column space | the *values* of a matrix | nowhere in the types; a numerical fact about a `Tensor<2>` |
-| **Cardinality / dimensionality** | size of an axis (count of values) | the container's shape | `shape()` entries — the observation's own, whatever the state holds |
+| **Cardinality / dimensionality** | size of an axis (count of values) | the container's shape | `SHAPE` entries — the observation's own, whatever the state holds |
 
 A clean way to keep them straight: **tensor order** counts the axes,
 **dimensionality** counts the values *along* an axis, and **matrix rank** counts
@@ -86,7 +94,7 @@ the state. Newcomers often translate "the observation carries less information" 
 "the observation has lower rank" — but which rank? Almost always the reduction is in
 **dimensionality** (a smaller axis) or in **matrix rank** (a lossy linear/stochastic
 projection), both at **constant tensor order**. Genuinely changing the *tensor
-order* — the `const OR` — is a much rarer thing, and it has a different name:
+order* — the length of `SHAPE` — is a much rarer thing, and it has a different name:
 a **modality change**.
 
 The canonical POMDP benchmarks make the distinction concrete. Reading the "rank"
@@ -111,8 +119,9 @@ dimensionality-reducing regime. Nothing about LQG changes `ndim`.
 
 Only the last row — **Atari**, a compact emulator-RAM state (order 1) observed as a
 pixel image (order 2 or 3) — actually changes the tensor order. In `rlevo` that
-needs nothing special: the contract carries the observation's order `OR` and no
-order for the state, so the two cannot be made to agree.
+needs nothing special: the contract carries the observation's shape, whose
+length is its order, and no order for the state, so the two cannot be made to
+agree.
 
 ## How `rlevo` handles each case
 
@@ -126,15 +135,16 @@ it is a plain method rather than a trait. The state is the environment's own
 type, with no rank in the contract.
 
 - **Dimensionality / stochastic reduction** (Tiger, grid worlds, RockSample, LQG,
-  contact manipulation) is an emission model that returns a smaller-`shape`
+  contact manipulation) is an emission model that returns a smaller-`SHAPE`
   observation; a stochastic one draws from the environment's own generator. This
   is the flavour of partial observability `rlevo` models directly.
 - **Matrix-rank reduction** is just a *kind* of dimensionality/information loss; it
   too is expressed in the emission model (or inside a learned encoder). It never
   forces a tensor-order change.
 - **Modality change** (Atari) is the one case that alters the tensor order, and
-  it needs nothing extra: `OR` is the observation's order and the only one the
+  it needs nothing extra: the observation's `SHAPE.len()` is the only order the
   contract has, so an emission model can return an observation of any order.
+  The agent's `BOR` then names the model's input rank for that observation.
   Where the projection is a pure function of the state, it reads well as a
   method of the state type: `rlevo`'s `pixel_grid` environment is the reference,
   with `PixelGridState::project` rendering the image and `PixelGridEnv` calling
@@ -144,5 +154,5 @@ type, with no rank in the contract.
 
 The one-line takeaway: **partial observability is almost always a dimensionality
 or matrix-rank reduction at constant tensor order — handled in the environment's
-emission model. A modality change needs nothing more: `OR` is the observation's
-order, and the state has none in the contract.**
+emission model. A modality change needs nothing more: the observation's order is
+`SHAPE.len()`, and the state has none in the contract.**

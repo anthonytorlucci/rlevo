@@ -16,9 +16,10 @@ use burn::tensor::activation;
 use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
+use crate::algorithms::shared::{assert_batch_rank, row_len, upload_one, upload_rows};
 use crate::replay::{DiscreteTransition, ReplayKind, ReplayStrategy, UniformReplayConfig};
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::base::HostRow;
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 
@@ -50,9 +51,11 @@ pub struct LearnOutcome {
 ///
 /// # Const generics
 ///
-/// - `OR` — rank of a single observation tensor (e.g. `1` for vector
-///   observations of shape `[features]`).
-/// - `BS` — size of a batched observation tensor (= `R + 1`).
+/// - `BS` — the rank of the batch of observations the model takes: the
+///   observation's rank, `O::SHAPE.len()`, plus the batch axis. The
+///   constructor asserts the relation when the crate is built (ADR 0101), so a
+///   mismatch fails `cargo build` and `cargo test`; `cargo check` does not
+///   report it.
 ///
 /// # Field notes
 ///
@@ -67,11 +70,11 @@ pub struct LearnOutcome {
 /// - `target_net` is a [`valid`](burn::module::Module::valid) snapshot of the policy, on the
 ///   plain device, so computing bootstrap distributions never builds an
 ///   autodiff graph.
-pub struct C51Agent<M, O, A, const OR: usize, const BS: usize>
+pub struct C51Agent<M, O, A, const BS: usize>
 where
     M: DqnModel<BS, 3>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     policy_net: Slot<M>,
     target_net: M,
@@ -122,11 +125,11 @@ where
     training: bool,
 }
 
-impl<M, O, A, const OR: usize, const BS: usize> std::fmt::Debug for C51Agent<M, O, A, OR, BS>
+impl<M, O, A, const BS: usize> std::fmt::Debug for C51Agent<M, O, A, BS>
 where
     M: DqnModel<BS, 3>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("C51Agent")
@@ -139,11 +142,11 @@ where
     }
 }
 
-impl<M, O, A, const OR: usize, const BS: usize> C51Agent<M, O, A, OR, BS>
+impl<M, O, A, const BS: usize> C51Agent<M, O, A, BS>
 where
     M: DqnModel<BS, 3>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     /// Constructs a new agent from a pre-built policy network and config.
     ///
@@ -163,6 +166,7 @@ where
         device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        assert_batch_rank::<O, BS>();
         let device = device.autodiff();
         let plain_device = device.clone().without_autodiff();
         let policy_net = policy_net.train();
@@ -405,8 +409,7 @@ where
         // (ADR 0067 §Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<BS> = obs_t.unsqueeze::<BS>();
+        let batched: Tensor<BS> = upload_one::<O, BS>(obs, &self.device);
         let logits: Tensor<3> = self.policy().forward(batched); // (1, A, N)
         let probs: Tensor<3> = activation::softmax(logits, 2);
         let support: Tensor<1> = self.build_support(&self.device);
@@ -464,8 +467,7 @@ where
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
-        let batched: Tensor<BS> = obs_t.unsqueeze::<BS>();
+        let batched: Tensor<BS> = upload_one::<O, BS>(obs, &self.plain_device);
         let logits: Tensor<3> = net.forward(batched); // (1, A, N)
         let probs: Tensor<3> = activation::softmax(logits, 2);
         let support_3d: Tensor<3> = support.clone().unsqueeze::<3>(); // (1, 1, N)
@@ -749,8 +751,7 @@ where
             return Ok(None);
         };
 
-        let obs_shape = O::shape();
-        let numel_per_obs: usize = obs_shape.iter().product();
+        let numel_per_obs: usize = row_len::<O>();
 
         let mut obs_flat: Vec<f32> = Vec::with_capacity(batch_size * numel_per_obs);
         let mut next_flat: Vec<f32> = Vec::with_capacity(batch_size * numel_per_obs);
@@ -769,16 +770,10 @@ where
             terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
-        let mut batched_shape: Vec<usize> = Vec::with_capacity(BS);
-        batched_shape.push(batch_size);
-        batched_shape.extend_from_slice(&obs_shape);
-
         let device = self.device.clone();
         let plain = self.plain_device.clone();
-        let obs_tensor: Tensor<BS> =
-            Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
-        let next_tensor_inner: Tensor<BS> =
-            Tensor::from_data(TensorData::new(next_flat, batched_shape), &plain);
+        let obs_tensor: Tensor<BS> = upload_rows::<O, BS>(obs_flat, batch_size, &device);
+        let next_tensor_inner: Tensor<BS> = upload_rows::<O, BS>(next_flat, batch_size, &plain);
 
         let action_tensor_1: Tensor<1, Int> =
             Tensor::from_data(TensorData::new(action_idxs, vec![batch_size]), &device);
@@ -941,11 +936,11 @@ where
 /// `rl/skipped_updates`, `rl/dropped_transitions`,
 /// `rl/dropped_observations` and `rl/degenerate_action_selections`, each
 /// what the accessor of that name returns.
-impl<M, O, A, const OR: usize, const BS: usize> Agent<O, A> for C51Agent<M, O, A, OR, BS>
+impl<M, O, A, const BS: usize> Agent<O, A> for C51Agent<M, O, A, BS>
 where
     M: DqnModel<BS, 3>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         if self.training {
@@ -1013,7 +1008,7 @@ mod tests {
 
     use crate::replay::PrioritizedReplaySettings;
     use crate::target::TargetUpdate;
-    use rlevo_core::base::{Action as ActionTrait, HostRow};
+    use rlevo_core::base::{Action as ActionTrait, Observation};
 
     const TEST_ACTIONS: usize = 2;
     const TEST_ATOMS: usize = 5;
@@ -1022,13 +1017,11 @@ mod tests {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestObs([f32; 2]);
 
-    impl Observation<1> for TestObs {
-        fn shape() -> [usize; 1] {
-            [2]
-        }
+    impl Observation for TestObs {
+        const SHAPE: &'static [usize] = &[2];
     }
 
-    impl HostRow<1> for TestObs {
+    impl HostRow for TestObs {
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }
@@ -1038,16 +1031,13 @@ mod tests {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct TestAction(usize);
 
-    impl ActionTrait<1> for TestAction {
-        fn shape() -> [usize; 1] {
-            [TEST_ACTIONS]
-        }
+    impl ActionTrait for TestAction {
         fn is_valid(&self) -> bool {
             self.0 < TEST_ACTIONS
         }
     }
 
-    impl DiscreteAction<1> for TestAction {
+    impl DiscreteAction for TestAction {
         const ACTION_COUNT: usize = TEST_ACTIONS;
         fn from_index(index: usize) -> Self {
             assert!(index < TEST_ACTIONS, "action index out of bounds");
@@ -1085,7 +1075,7 @@ mod tests {
         }
     }
 
-    type TestAgent = C51Agent<TestNet, TestObs, TestAction, 1, 2>;
+    type TestAgent = C51Agent<TestNet, TestObs, TestAction, 2>;
 
     /// Reads the linear layer's weights back to the host, element-wise.
     ///
@@ -1853,7 +1843,7 @@ mod driven_tests {
         };
         let net = atom_net(config.num_atoms, &device);
         let mut agent =
-            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 2>::new(
                 net, config, device,
             )
             .expect("default config is valid");
@@ -1915,7 +1905,7 @@ mod driven_tests {
         let config = C51TrainingConfig::default();
         let net = atom_net(config.num_atoms, &device);
         let mut agent =
-            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 2>::new(
                 net, config, device,
             )
             .expect("default config is valid");
@@ -1954,7 +1944,7 @@ mod driven_tests {
         };
         let net = atom_net(config.num_atoms, &device);
         let mut agent =
-            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+            C51Agent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 2>::new(
                 net, config, device,
             )
             .expect("valid config");

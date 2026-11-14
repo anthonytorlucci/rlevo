@@ -15,9 +15,10 @@ use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
+use crate::algorithms::shared::{assert_batch_rank, row_len, upload_one, upload_rows};
 use crate::replay::{DiscreteTransition, ReplayKind, ReplayStrategy, UniformReplayConfig};
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::base::HostRow;
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 
@@ -47,9 +48,11 @@ pub struct LearnOutcome {
 ///
 /// # Const generics
 ///
-/// - `OR` — rank of a single observation tensor (e.g. `1` for vector
-///   observations of shape `[features]`).
-/// - `BOR` — rank of a batched observation tensor (= `OR + 1`).
+/// - `BOR` — the rank of the batch of observations the model takes: the
+///   observation's rank, `O::SHAPE.len()`, plus the batch axis. The
+///   constructor asserts the relation when the crate is built (ADR 0101), so a
+///   mismatch fails `cargo build` and `cargo test`; `cargo check` does not
+///   report it.
 ///
 /// # Field notes
 ///
@@ -64,11 +67,11 @@ pub struct LearnOutcome {
 /// - `target_net` is a [`valid`](burn::module::Module::valid) snapshot of the policy, on the
 ///   plain device, so computing bootstrap quantiles never builds an autodiff
 ///   graph.
-pub struct QrDqnAgent<M, O, A, const OR: usize, const BOR: usize>
+pub struct QrDqnAgent<M, O, A, const BOR: usize>
 where
     M: DqnModel<BOR, 3>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     policy_net: Slot<M>,
     target_net: M,
@@ -119,11 +122,11 @@ where
     training: bool,
 }
 
-impl<M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug for QrDqnAgent<M, O, A, OR, BOR>
+impl<M, O, A, const BOR: usize> std::fmt::Debug for QrDqnAgent<M, O, A, BOR>
 where
     M: DqnModel<BOR, 3>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QrDqnAgent")
@@ -136,11 +139,11 @@ where
     }
 }
 
-impl<M, O, A, const OR: usize, const BOR: usize> QrDqnAgent<M, O, A, OR, BOR>
+impl<M, O, A, const BOR: usize> QrDqnAgent<M, O, A, BOR>
 where
     M: DqnModel<BOR, 3>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     /// Constructs a new agent from a pre-built policy network and config.
     ///
@@ -159,6 +162,7 @@ where
         device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        assert_batch_rank::<O, BOR>();
         let device = device.autodiff();
         let plain_device = device.clone().without_autodiff();
         let policy_net = policy_net.train();
@@ -378,8 +382,7 @@ where
         // (ADR 0067, Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
         let quantiles: Tensor<3> = self.policy().forward(batched); // (1, A, N)
         let q: Tensor<2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
         let idx = q.argmax(1).into_scalar::<i64>();
@@ -425,8 +428,7 @@ where
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.plain_device);
         let quantiles: Tensor<3> = net.forward(batched); // (1, A, N)
         let q: Tensor<2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
         let idx = q.argmax(1).into_scalar::<i64>();
@@ -697,8 +699,7 @@ where
             return Ok(None);
         };
 
-        let obs_shape = O::shape();
-        let numel_per_obs: usize = obs_shape.iter().product();
+        let numel_per_obs: usize = row_len::<O>();
 
         let mut obs_flat: Vec<f32> = Vec::with_capacity(batch_size * numel_per_obs);
         let mut next_flat: Vec<f32> = Vec::with_capacity(batch_size * numel_per_obs);
@@ -717,16 +718,10 @@ where
             terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
-        let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
-        batched_shape.push(batch_size);
-        batched_shape.extend_from_slice(&obs_shape);
-
         let device = self.device.clone();
         let plain = self.plain_device.clone();
-        let obs_tensor: Tensor<BOR> =
-            Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
-        let next_tensor_inner: Tensor<BOR> =
-            Tensor::from_data(TensorData::new(next_flat, batched_shape), &plain);
+        let obs_tensor: Tensor<BOR> = upload_rows::<O, BOR>(obs_flat, batch_size, &device);
+        let next_tensor_inner: Tensor<BOR> = upload_rows::<O, BOR>(next_flat, batch_size, &plain);
 
         let action_tensor_1: Tensor<1, Int> =
             Tensor::from_data(TensorData::new(action_idxs, vec![batch_size]), &device);
@@ -881,11 +876,11 @@ where
 /// `rl/skipped_updates`, `rl/dropped_transitions`,
 /// `rl/dropped_observations` and `rl/degenerate_action_selections`, each
 /// what the accessor of that name returns.
-impl<M, O, A, const OR: usize, const BOR: usize> Agent<O, A> for QrDqnAgent<M, O, A, OR, BOR>
+impl<M, O, A, const BOR: usize> Agent<O, A> for QrDqnAgent<M, O, A, BOR>
 where
     M: DqnModel<BOR, 3>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         if self.training {
@@ -994,7 +989,7 @@ mod tests {
         }
     }
 
-    type TestAgent = QrDqnAgent<TestQrDqnNet, CartPoleObservation, CartPoleAction, 1, 2>;
+    type TestAgent = QrDqnAgent<TestQrDqnNet, CartPoleObservation, CartPoleAction, 2>;
 
     /// Reads a network's single parameter matrix back to the host.
     fn weights_of(net: &TestQrDqnNet) -> Vec<f32> {
@@ -1535,7 +1530,7 @@ mod tests {
         );
         let action = agent.explore(&obs(0.2), &mut rng);
         assert!(
-            action.to_index() < <CartPoleAction as DiscreteAction<1>>::ACTION_COUNT,
+            action.to_index() < <CartPoleAction as DiscreteAction>::ACTION_COUNT,
             "act must still return a valid action after a skipped step"
         );
     }
@@ -1761,7 +1756,7 @@ mod tests {
     fn test_qrdqn_agent_act_reports_a_nonfinite_obs_and_still_returns_an_action() {
         let agent = obs_guard_agent();
         let mut rng = StdRng::seed_from_u64(7);
-        let count = <CartPoleAction as DiscreteAction<1>>::ACTION_COUNT;
+        let count = <CartPoleAction as DiscreteAction>::ACTION_COUNT;
 
         let action = agent.explore(&nan_obs(), &mut rng);
         assert!(
@@ -1907,7 +1902,7 @@ mod driven_tests {
         };
         let net = atom_net(config.num_quantiles, &device);
         let mut agent =
-            QrDqnAgent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+            QrDqnAgent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 2>::new(
                 net, config, device,
             )
             .expect("default config is valid");
@@ -1969,7 +1964,7 @@ mod driven_tests {
         let config = QrDqnTrainingConfig::default();
         let net = atom_net(config.num_quantiles, &device);
         let mut agent =
-            QrDqnAgent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+            QrDqnAgent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 2>::new(
                 net, config, device,
             )
             .expect("default config is valid");
@@ -2008,7 +2003,7 @@ mod driven_tests {
         };
         let net = atom_net(config.num_quantiles, &device);
         let mut agent =
-            QrDqnAgent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+            QrDqnAgent::<MlpDistributionalQ, MaskObservation, MaskDiscreteAction, 2>::new(
                 net, config, device,
             )
             .expect("valid config");

@@ -42,18 +42,9 @@ use std::fmt::Debug;
 /// `Deserialize` (`docs/rules.md` §8) — this removes a universal *obligation*,
 /// not the capability. `Action` is likewise deliberately serde-free.
 /// (ADR 0064.)
-pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
-    /// Returns the size of each axis in this observation space.
-    ///
-    /// The returned array has length `R` (the rank), where each element is the
-    /// size of that axis — the number of elements along it. All values must be
-    /// greater than zero.
-    ///
-    /// For a type that also implements [`HostRow`], this is the shape of its
-    /// row: [`HostRow::write_host_row`] pushes exactly
-    /// `shape().iter().product()` values, and a tensor built from the row has
-    /// this shape.
-    fn shape() -> [usize; R];
+pub trait Observation: Debug + Clone + Send + Sync {
+    /// The size of each axis. Every entry is greater than zero.
+    const SHAPE: &'static [usize];
 }
 
 /// Base trait for all action types in reinforcement learning environments.
@@ -77,25 +68,7 @@ pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
 /// - Finiteness for floating-point values
 /// - Structural invariants (e.g., array dimensions)
 /// - Environment-specific rules (e.g., available moves in a game state)
-pub trait Action<const R: usize>: Debug + Clone + Sized {
-    /// Returns the size of each axis in this action space.
-    ///
-    /// The returned array has length `R` (the rank), where each element is the
-    /// cardinality of that axis — the number of possible values along it. All
-    /// values must be greater than zero.
-    ///
-    /// # Not a component count
-    ///
-    /// `shape()` describes **axis cardinality only**. It is *never* a source of
-    /// the flattened scalar component count of a continuous action: neither
-    /// `shape().iter().product()` nor `R` is universally correct, because the
-    /// workspace permits both a rank-1 action with `shape() == [C]` and a
-    /// rank-`C` action with `shape() == [1; C]`. Use
-    /// [`ContinuousAction::COMPONENTS`](crate::action::ContinuousAction::COMPONENTS),
-    /// which is the single authority for that quantity. See ADR 0038 and
-    /// ADR 0053 §8.
-    fn shape() -> [usize; R];
-
+pub trait Action: Debug + Clone + Sized {
     /// Validates whether this action satisfies all constraints.
     ///
     /// This method checks if the action is legal according to its type's invariants.
@@ -112,7 +85,7 @@ pub trait Action<const R: usize>: Debug + Clone + Sized {
 ///
 /// This is the layout half of tensor conversion: how an observation flattens
 /// into a row-major `f32` row. The row's shape is the observation's own
-/// [`Observation::shape`], so it is stated once. Neither depends on which
+/// [`Observation::SHAPE`], so it is stated once. Neither depends on which
 /// device the row is eventually uploaded to, so this trait names nothing from
 /// Burn.
 ///
@@ -127,20 +100,12 @@ pub trait Action<const R: usize>: Debug + Clone + Sized {
 /// is staged by calling [`write_host_row`] once per item into one buffer,
 /// because staging never touches a device.
 ///
-/// # Type Parameters
-///
-/// - `R`: Rank of a single row.
-///
 /// # Invariants
 ///
-/// - A type implements `HostRow` at exactly **one** rank `R`, the rank of its
-///   `Observation`. Implementing it at two ranks makes every unqualified
-///   `write_host_row` or `shape` call on a concrete value of that type
-///   ambiguous (E0283).
-/// - `write_host_row` pushes exactly `shape().iter().product()` values.
+/// - `write_host_row` pushes exactly `SHAPE.iter().product()` values.
 ///
 /// [`write_host_row`]: HostRow::write_host_row
-pub trait HostRow<const R: usize>: Observation<R> {
+pub trait HostRow: Observation {
     /// Appends the row-major `f32` payload of `self` to `buf`.
     ///
     /// This is the primitive from which both single-item conversion
@@ -150,15 +115,15 @@ pub trait HostRow<const R: usize>: Observation<R> {
     ///
     /// # Contract
     ///
-    /// - Push **exactly** `shape().iter().product()` values, in **row-major**
-    ///   order matching [`shape`].
+    /// - Push **exactly** `SHAPE.iter().product()` values, in **row-major**
+    ///   order matching [`SHAPE`].
     /// - Push **plain `f32`** — do *not* pre-convert to a backend element type.
     ///   Burn's `TensorData::new` performs the element-type conversion at upload
     ///   time.
     /// - **Append**; never clear or truncate `buf`. Batch staging relies on
     ///   successive rows being concatenated into one contiguous buffer.
     ///
-    /// [`shape`]: Observation::shape
+    /// [`SHAPE`]: Observation::SHAPE
     fn write_host_row(&self, buf: &mut Vec<f32>);
 
     /// Returns `true` if every value this type writes into a row is finite —
@@ -261,22 +226,27 @@ fn row_slice_is_finite(buf: &[f32]) -> bool {
 /// a domain value. The decoders in use read a host value directly
 /// (`DiscreteAction::from_index`, `ContinuousAction::from_slice`).
 ///
-/// # Type Parameters
-///
-/// - `R`: Rank of the tensor produced.
 #[cfg(feature = "burn")]
-pub trait TensorConvertible<const R: usize>: HostRow<R> {
+pub trait TensorConvertible: HostRow {
     /// Converts `self` into a tensor on `device`.
     ///
     /// Stages one row into a host `Vec<f32>` with [`write_host_row`] and uploads
-    /// it with a single [`Tensor::from_data`], in the shape [`shape`] reports.
+    /// it with a single [`Tensor::from_data`], in the shape [`SHAPE`] states.
     /// A batch staged with the same row writer therefore has the same element
     /// order.
     ///
-    /// [`shape`]: Observation::shape
+    /// # Rank
+    ///
+    /// `R` is the rank of the tensor returned and must equal `SHAPE.len()`.
+    /// The relation is asserted when the call is instantiated, so a mismatch
+    /// fails `cargo build` and `cargo test`; `cargo check` does not report it
+    /// (ADR 0101).
+    ///
+    /// [`SHAPE`]: Observation::SHAPE
     /// [`write_host_row`]: HostRow::write_host_row
-    fn to_tensor(&self, device: &Device) -> Tensor<R> {
-        let row: [usize; R] = Self::shape();
+    fn to_tensor<const R: usize>(&self, device: &Device) -> Tensor<R> {
+        const { assert!(Self::SHAPE.len() == R) };
+        let row: &[usize] = Self::SHAPE;
         let mut buf: Vec<f32> = Vec::with_capacity(row.iter().product());
         self.write_host_row(&mut buf);
         debug_assert_eq!(buf.len(), row.iter().product::<usize>());
@@ -285,7 +255,7 @@ pub trait TensorConvertible<const R: usize>: HostRow<R> {
 }
 
 #[cfg(feature = "burn")]
-impl<const R: usize, T: HostRow<R>> TensorConvertible<R> for T {}
+impl<T: HostRow> TensorConvertible for T {}
 
 #[cfg(test)]
 mod tests {
@@ -304,7 +274,7 @@ mod tests {
     /// supertrait (ADR 0064): its supertrait list is exactly
     /// `Debug + Clone + Send + Sync`, and if anyone re-adds
     /// `Serialize + for<'de> Deserialize<'de>` to it, `rlevo-core`'s own test
-    /// build stops compiling on the `impl Observation<2>` below. Do not
+    /// build stops compiling on the `impl Observation` below. Do not
     /// "helpfully" derive serde for this type — a consumer that needs to persist
     /// an observation declares the bound at its own seam.
     #[derive(Debug, Clone, PartialEq)]
@@ -312,10 +282,8 @@ mod tests {
         pixels: [[u8; 2]; 2],
     }
 
-    impl Observation<2> for SerdeFreeObservation {
-        fn shape() -> [usize; 2] {
-            [2, 2]
-        }
+    impl Observation for SerdeFreeObservation {
+        const SHAPE: &'static [usize] = &[2, 2];
     }
 
     #[test]
@@ -323,7 +291,6 @@ mod tests {
         let obs = SerdeFreeObservation {
             pixels: [[1, 0], [0, 1]],
         };
-        assert_eq!(SerdeFreeObservation::shape(), [2, 2]);
         assert_eq!(obs.clone(), obs);
     }
 
@@ -339,13 +306,11 @@ mod tests {
         #[derive(Clone, Debug)]
         struct Vec3(f32, f32, f32);
 
-        impl Observation<1> for Vec3 {
-            fn shape() -> [usize; 1] {
-                [3]
-            }
+        impl Observation for Vec3 {
+            const SHAPE: &'static [usize] = &[3];
         }
 
-        impl HostRow<1> for Vec3 {
+        impl HostRow for Vec3 {
             fn write_host_row(&self, buf: &mut Vec<f32>) {
                 buf.extend_from_slice(&[self.0, self.1, self.2]);
             }
@@ -355,13 +320,11 @@ mod tests {
         #[derive(Clone, Debug)]
         struct Img([f32; 4]);
 
-        impl Observation<3> for Img {
-            fn shape() -> [usize; 3] {
-                [2, 2, 1]
-            }
+        impl Observation for Img {
+            const SHAPE: &'static [usize] = &[2, 2, 1];
         }
 
-        impl HostRow<3> for Img {
+        impl HostRow for Img {
             fn write_host_row(&self, buf: &mut Vec<f32>) {
                 buf.extend_from_slice(&self.0);
             }
@@ -374,7 +337,7 @@ mod tests {
             let device: Device = Device::flex();
             let item: Vec3 = Vec3(1.5, -2.5, 3.5);
 
-            let derived: Tensor<1> = <Vec3 as TensorConvertible<1>>::to_tensor(&item, &device);
+            let derived: Tensor<1> = <Vec3 as TensorConvertible>::to_tensor::<1>(&item, &device);
             let manual: Tensor<1> = Tensor::from_floats([1.5_f32, -2.5, 3.5], &device);
 
             assert_eq!(derived.dims(), manual.dims());
@@ -396,7 +359,7 @@ mod tests {
             let device: Device = Device::flex();
             let item: Img = Img([0.1, 0.2, 0.3, 0.4]);
 
-            let derived: Tensor<3> = <Img as TensorConvertible<3>>::to_tensor(&item, &device);
+            let derived: Tensor<3> = <Img as TensorConvertible>::to_tensor::<3>(&item, &device);
             let manual: Tensor<3> = Tensor::from_data(
                 TensorData::new(vec![0.1_f32, 0.2, 0.3, 0.4], [2, 2, 1]),
                 &device,
@@ -551,13 +514,11 @@ mod tests {
     #[derive(Debug, Clone)]
     struct TestFiniteRow([f32; 4]);
 
-    impl Observation<1> for TestFiniteRow {
-        fn shape() -> [usize; 1] {
-            [4]
-        }
+    impl Observation for TestFiniteRow {
+        const SHAPE: &'static [usize] = &[4];
     }
 
-    impl HostRow<1> for TestFiniteRow {
+    impl HostRow for TestFiniteRow {
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }

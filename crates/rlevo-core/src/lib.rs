@@ -32,18 +32,23 @@
 //! |---|---|---|
 //! | `burn` | off | `base::TensorConvertible`, implemented for every [`HostRow`] type, which uploads the row as a Burn tensor. Without it the crate does not depend on Burn |
 //!
-//! # Const-generic rank `R`
+//! # Shapes and ranks
 //!
-//! [`Observation`] and [`Action`], and the traits built on them, are parameterized
-//! by a const generic `R` (rank) that denotes the *number of tensor axes*
-//! (equivalent to `NumPy`'s `ndim` or Burn's `Tensor<R>`). This encodes
-//! shape compatibility at compile time: a rank-1 observation and a rank-2
-//! observation cannot be mixed up without a compile error.
+//! An [`Observation`] states the size of each of its axes as the constant
+//! [`Observation::SHAPE`](base::Observation::SHAPE); its rank, the *number of tensor axes* (`NumPy`'s
+//! `ndim`, the `D` of Burn's `Tensor<D>`), is `SHAPE.len()`. An [`Action`]
+//! has no shape: a discrete action's size is
+//! [`DiscreteAction::ACTION_COUNT`](action::DiscreteAction::ACTION_COUNT) and a
+//! continuous action's is
+//! [`ContinuousAction::COMPONENTS`](action::ContinuousAction::COMPONENTS)
+//! (ADR 0100). No trait here carries a rank parameter; the one rank left is a
+//! model's input rank, which an agent checks against `SHAPE.len()` when it is
+//! built (ADR 0101).
 //!
 //! ```text
-//! Environment<OR, AR>
-//!   ├── ObservationType: Observation<OR>  (shape: [usize; OR])
-//!   ├── ActionType     : Action<AR>       (shape: [usize; AR])
+//! Environment
+//!   ├── ObservationType: Observation  (SHAPE: &'static [usize])
+//!   ├── ActionType     : Action
 //!   └── reset / step   → Snapshot<ObservationType>
 //! ```
 //!

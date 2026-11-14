@@ -68,13 +68,11 @@ impl MaskObservation {
     }
 }
 
-impl Observation<1> for MaskObservation {
-    fn shape() -> [usize; 1] {
-        [OBS_DIM]
-    }
+impl Observation for MaskObservation {
+    const SHAPE: &'static [usize] = &[OBS_DIM];
 }
 
-impl HostRow<1> for MaskObservation {
+impl HostRow for MaskObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.values);
     }
@@ -84,16 +82,13 @@ impl HostRow<1> for MaskObservation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MaskDiscreteAction(usize);
 
-impl Action<1> for MaskDiscreteAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Action for MaskDiscreteAction {
     fn is_valid(&self) -> bool {
         self.0 < ACTIONS
     }
 }
 
-impl DiscreteAction<1> for MaskDiscreteAction {
+impl DiscreteAction for MaskDiscreteAction {
     const ACTION_COUNT: usize = ACTIONS;
 
     fn to_index(&self) -> usize {
@@ -109,16 +104,13 @@ impl DiscreteAction<1> for MaskDiscreteAction {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct MaskContinuousAction(f32);
 
-impl Action<1> for MaskContinuousAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Action for MaskContinuousAction {
     fn is_valid(&self) -> bool {
         self.0.is_finite()
     }
 }
 
-impl ContinuousAction<1> for MaskContinuousAction {
+impl ContinuousAction for MaskContinuousAction {
     const COMPONENTS: usize = 1;
 
     fn as_slice(&self) -> &[f32] {
@@ -130,7 +122,7 @@ impl ContinuousAction<1> for MaskContinuousAction {
     }
 }
 
-impl BoundedAction<1> for MaskContinuousAction {
+impl BoundedAction for MaskContinuousAction {
     fn low() -> &'static [f32] {
         &[-1.0]
     }
@@ -204,7 +196,7 @@ impl<A> MaskEnv<A> {
     }
 }
 
-impl<A: Action<1> + Clone> Environment<1, 1> for MaskEnv<A> {
+impl<A: Action + Clone> Environment for MaskEnv<A> {
     type ObservationType = MaskObservation;
     type ActionType = A;
 
@@ -312,7 +304,7 @@ impl TinySacActor {
             mean: LinearConfig::new(OBS_DIM, ACT_DIM).init(device),
         }
     }
-    fn sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
+    fn sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput {
         let mu = self.mean.forward(obs);
         let pre_tanh = mu + eps;
         let action = activation::tanh(pre_tanh);
@@ -327,11 +319,11 @@ impl TinySacActor {
     }
 }
 
-impl SquashedGaussianPolicy<2, 2> for TinySacActor {
+impl SquashedGaussianPolicy<2> for TinySacActor {
     fn action_dim(&self) -> usize {
         ACT_DIM
     }
-    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
+    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput {
         self.sample(obs, eps)
     }
     fn deterministic_action(&self, obs: Tensor<2>) -> Tensor<2> {
@@ -344,7 +336,7 @@ impl SquashedGaussianPolicy<2, 2> for TinySacActor {
 /// unchanged, end an episode that finished, and reset only while steps remain.
 pub(crate) fn drive<E, A>(env: &mut E, agent: &mut A, steps: usize, rng: &mut StdRng)
 where
-    E: Environment<1, 1>,
+    E: Environment,
     A: Agent<E::ObservationType, E::ActionType>,
 {
     let mut obs = env.reset().expect("reset").observation;
@@ -383,7 +375,7 @@ const COUNTER_STEPS: usize = 12;
 /// `NaN` observation (three degenerate selections).
 pub(crate) fn exercise_counters<Act, G>(agent: &mut G, env: MaskEnv<Act>, rng: &mut StdRng)
 where
-    Act: Action<1> + Clone,
+    Act: Action + Clone,
     G: Agent<MaskObservation, Act>,
 {
     let mut env = env.with_nan_reward_at(2);

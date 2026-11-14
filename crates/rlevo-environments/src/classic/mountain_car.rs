@@ -194,10 +194,8 @@ impl MountainCarObservation {
     }
 }
 
-impl Observation<1> for MountainCarObservation {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
+impl Observation for MountainCarObservation {
+    const SHAPE: &'static [usize] = &[2];
 }
 
 // ---------------------------------------------------------------------------
@@ -215,16 +213,13 @@ pub enum MountainCarAction {
     Right,
 }
 
-impl Action<1> for MountainCarAction {
-    fn shape() -> [usize; 1] {
-        [3]
-    }
+impl Action for MountainCarAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for MountainCarAction {
+impl DiscreteAction for MountainCarAction {
     const ACTION_COUNT: usize = 3;
 
     /// Constructs an action from its integer index.
@@ -387,7 +382,7 @@ fn mountain_car_observation(state: MountainCarState) -> MountainCarObservation {
     }
 }
 
-impl Environment<1, 1> for MountainCar {
+impl Environment for MountainCar {
     type ObservationType = MountainCarObservation;
     type ActionType = MountainCarAction;
 
@@ -518,7 +513,7 @@ fn style_mountain_car_line(line: &str) -> crate::render::StyledLine {
 // Host rows
 // ---------------------------------------------------------------------------
 
-impl HostRow<1> for MountainCarObservation {
+impl HostRow for MountainCarObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
     }
@@ -656,7 +651,7 @@ mod tests {
 
     #[test]
     fn observation_shape() {
-        assert_eq!(MountainCarObservation::shape(), [2]);
+        assert_eq!(MountainCarObservation::SHAPE, &[2]);
     }
 
     #[test]

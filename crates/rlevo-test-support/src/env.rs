@@ -59,13 +59,11 @@ pub struct LinearObservation {
     pub x: f32,
 }
 
-impl Observation<1> for LinearObservation {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Observation for LinearObservation {
+    const SHAPE: &'static [usize] = &[1];
 }
 
-impl HostRow<1> for LinearObservation {
+impl HostRow for LinearObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.x);
     }
@@ -75,16 +73,13 @@ impl HostRow<1> for LinearObservation {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LinearAction(pub f32);
 
-impl Action<1> for LinearAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Action for LinearAction {
     fn is_valid(&self) -> bool {
         self.0.is_finite() && self.0.abs() <= 1.0
     }
 }
 
-impl ContinuousAction<1> for LinearAction {
+impl ContinuousAction for LinearAction {
     const COMPONENTS: usize = 1;
 
     fn as_slice(&self) -> &[f32] {
@@ -96,7 +91,7 @@ impl ContinuousAction<1> for LinearAction {
     }
 }
 
-impl BoundedAction<1> for LinearAction {
+impl BoundedAction for LinearAction {
     fn low() -> &'static [f32] {
         &[-1.0]
     }
@@ -141,7 +136,7 @@ impl LinearEnv {
     }
 }
 
-impl Environment<1, 1> for LinearEnv {
+impl Environment for LinearEnv {
     type ObservationType = LinearObservation;
     type ActionType = LinearAction;
 

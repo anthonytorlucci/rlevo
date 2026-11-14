@@ -509,7 +509,7 @@ impl BipedalWalker {
     }
 }
 
-impl Environment<1, 1> for BipedalWalker {
+impl Environment for BipedalWalker {
     type ObservationType = BipedalWalkerObservation;
     type ActionType = BipedalWalkerAction;
 
@@ -723,7 +723,7 @@ mod tests {
 
     #[test]
     fn test_obs_shape() {
-        assert_eq!(BipedalWalkerObservation::shape(), [24]);
+        assert_eq!(BipedalWalkerObservation::SHAPE, [24]);
     }
 
     #[test]

@@ -269,8 +269,8 @@ struct Layout {
 
 /// Two-room gridworld requiring key pickup, door toggle, and goal navigation.
 ///
-/// Implements [`Environment<3, 1>`]: a rank-3 observation and a rank-1
-/// action; the reward is a scalar.
+/// Implements [`Environment`]: a rank-3 observation and a discrete action;
+/// the reward is a scalar.
 ///
 /// This environment tests long-horizon reasoning: the agent must learn a
 /// strict ordering (pick up key → unlock door → navigate to goal) before any
@@ -584,7 +584,7 @@ impl DoorKeyEnv {
     }
 }
 
-impl Environment<3, 1> for DoorKeyEnv {
+impl Environment for DoorKeyEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
 

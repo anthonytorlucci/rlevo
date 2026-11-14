@@ -330,7 +330,7 @@ impl Default for Swimmer {
     }
 }
 
-impl Environment<1, 1> for Swimmer {
+impl Environment for Swimmer {
     type ObservationType = SwimmerObservation;
     type ActionType = SwimmerAction;
 
@@ -705,8 +705,7 @@ mod tests {
     }
 
     #[test]
-    fn action_shape_and_validity() {
-        assert_eq!(SwimmerAction::shape(), [2]);
+    fn action_validity() {
         assert!(SwimmerAction::new(0.0, 0.0).is_valid());
         assert!(SwimmerAction::new(1.0, -1.0).is_valid());
         assert!(!SwimmerAction::new(1.5, 0.0).is_valid());
@@ -715,7 +714,7 @@ mod tests {
 
     #[test]
     fn observation_shape() {
-        assert_eq!(SwimmerObservation::shape(), [8]);
+        assert_eq!(SwimmerObservation::SHAPE, [8]);
     }
 
     /// A **narrowed** `action_clip` must still accept a boundary action of the

@@ -56,13 +56,11 @@ impl Default for BipedalWalkerObservation {
     }
 }
 
-impl Observation<1> for BipedalWalkerObservation {
-    fn shape() -> [usize; 1] {
-        [24]
-    }
+impl Observation for BipedalWalkerObservation {
+    const SHAPE: &'static [usize] = &[24];
 }
 
-impl HostRow<1> for BipedalWalkerObservation {
+impl HostRow for BipedalWalkerObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.values);
     }
@@ -74,7 +72,7 @@ mod tests {
 
     #[test]
     fn test_shape() {
-        assert_eq!(BipedalWalkerObservation::shape(), [24]);
+        assert_eq!(BipedalWalkerObservation::SHAPE, [24]);
     }
 
     #[test]
@@ -96,7 +94,7 @@ mod tests {
 
         assert_eq!(
             row.len(),
-            BipedalWalkerObservation::shape().iter().product::<usize>()
+            BipedalWalkerObservation::SHAPE.iter().product::<usize>()
         );
         assert_eq!(row, values);
     }

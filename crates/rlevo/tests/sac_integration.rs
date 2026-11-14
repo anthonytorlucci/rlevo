@@ -102,12 +102,12 @@ impl StochasticActor {
     }
 }
 
-impl SquashedGaussianPolicy<2, 2> for StochasticActor {
+impl SquashedGaussianPolicy<2> for StochasticActor {
     fn action_dim(&self) -> usize {
         self.action_dim
     }
 
-    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
+    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput {
         let (action, log_prob) = self.sample_impl(obs, eps);
         SampleOutput { action, log_prob }
     }
@@ -133,8 +133,7 @@ fn critic(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> 
 }
 
 // Concrete SAC agent over the shared 1-D continuous fixture.
-type LinearAgent =
-    SacAgent<StochasticActor, MlpCritic, LinearObservation, LinearAction, 1, 2, 1, 2>;
+type LinearAgent = SacAgent<StochasticActor, MlpCritic, LinearObservation, LinearAction, 2>;
 
 /// Drives `agent` against `env` for `steps` env steps, storing every transition
 /// and ticking the warm-up counter. Used to prime the replay buffer past
@@ -201,13 +200,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
 fn random_linear(seed: u64) -> f32 {
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
-    random_return(
-        &mut env,
-        200,
-        20,
-        &mut rng,
-        uniform_bounded::<1, LinearAction>,
-    )
+    random_return(&mut env, 200, 20, &mut rng, uniform_bounded::<LinearAction>)
 }
 
 /// Mean episode return of a uniform-random torque policy on the `TimeLimit`ed
@@ -226,7 +219,7 @@ fn random_pendulum(seed: u64) -> f32 {
         100,
         200,
         &mut rng,
-        uniform_bounded::<1, PendulumAction>,
+        uniform_bounded::<PendulumAction>,
     )
 }
 
@@ -363,16 +356,8 @@ fn sac_pendulum_improves_over_random() {
         policy_frequency: 2,
         ..Default::default()
     };
-    let mut agent: SacAgent<
-        StochasticActor,
-        MlpCritic,
-        PendulumObservation,
-        PendulumAction,
-        1,
-        2,
-        1,
-        2,
-    > = SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
+    let mut agent: SacAgent<StochasticActor, MlpCritic, PendulumObservation, PendulumAction, 2> =
+        SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     let episodes = train(&mut env, &mut agent, 30_000, usize::MAX, &mut rng).expect("training");
 

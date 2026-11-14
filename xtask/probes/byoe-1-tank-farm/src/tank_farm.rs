@@ -57,10 +57,8 @@ impl TankObs {
     }
 }
 
-impl Observation<2> for TankObs {
-    fn shape() -> [usize; 2] {
-        [2, HISTORY]
-    }
+impl Observation for TankObs {
+    const SHAPE: &'static [usize] = &[2, HISTORY];
 }
 
 /// The environment's own state: the current level of each tank.
@@ -79,11 +77,7 @@ pub struct PumpCommand {
     pub rates: [f32; 2],
 }
 
-impl Action<1> for PumpCommand {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
+impl Action for PumpCommand {
     fn is_valid(&self) -> bool {
         self.rates
             .iter()
@@ -91,7 +85,7 @@ impl Action<1> for PumpCommand {
     }
 }
 
-impl ContinuousAction<1> for PumpCommand {
+impl ContinuousAction for PumpCommand {
     const COMPONENTS: usize = 2;
 
     fn as_slice(&self) -> &[f32] {
@@ -106,7 +100,7 @@ impl ContinuousAction<1> for PumpCommand {
     }
 }
 
-impl BoundedAction<1> for PumpCommand {
+impl BoundedAction for PumpCommand {
     fn low() -> &'static [f32] {
         &[0.0, 0.0]
     }
@@ -153,7 +147,7 @@ impl TankFarm {
     }
 }
 
-impl Environment<2, 1> for TankFarm {
+impl Environment for TankFarm {
     type ObservationType = TankObs;
     type ActionType = PumpCommand;
 

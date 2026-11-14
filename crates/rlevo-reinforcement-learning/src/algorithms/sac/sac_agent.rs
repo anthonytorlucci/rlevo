@@ -23,9 +23,10 @@ use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
+use crate::algorithms::shared::{assert_batch_rank, row_len, upload_one, upload_rows};
 use crate::replay::{ContinuousTransition, ReplayStrategy, UniformReplay, UniformReplayConfig};
 use rlevo_core::action::BoundedAction;
-use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::base::HostRow;
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 
@@ -85,10 +86,11 @@ pub(crate) fn compute_sac_target(
 /// # Const generics
 ///
 /// Same layout as [`Td3Agent`](crate::algorithms::td3::td3_agent::Td3Agent):
-/// - `OR` — rank of a single observation tensor.
-/// - `BOR` — rank of a batched observation tensor (= `OR + 1`).
-/// - `AR` — rank of a single action tensor.
-/// - `BAR` — rank of a batched action tensor (= `AR + 1`).
+/// - `BOR` — the rank of the batch of observations the model takes: the
+///   observation's rank, `O::SHAPE.len()`, plus the batch axis. The
+///   constructor asserts the relation when the crate is built (ADR 0101), so a
+///   mismatch fails `cargo build` and `cargo test`; `cargo check` does not
+///   report it.
 ///
 /// # Network ownership
 ///
@@ -104,20 +106,12 @@ pub(crate) fn compute_sac_target(
 /// alone and leaves `critic_2` and the actor intact. A panic inside a `step`
 /// is nonetheless terminal for the network it was stepping — see `Slot` for
 /// why that residual window cannot be closed.
-pub struct SacAgent<
-    Actor,
-    Critic,
-    O,
-    A,
-    const OR: usize,
-    const BOR: usize,
-    const AR: usize,
-    const BAR: usize,
-> where
-    Actor: SquashedGaussianPolicy<BOR, BAR>,
-    Critic: ContinuousQ<BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: BoundedAction<AR>,
+pub struct SacAgent<Actor, Critic, O, A, const BOR: usize>
+where
+    Actor: SquashedGaussianPolicy<BOR>,
+    Critic: ContinuousQ<BOR>,
+    O: HostRow,
+    A: BoundedAction,
 {
     actor: Slot<Actor>,
     // Plain snapshot of `actor`, refreshed after each actor update
@@ -196,13 +190,12 @@ pub struct SacAgent<
     training: bool,
 }
 
-impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    std::fmt::Debug for SacAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const BOR: usize> std::fmt::Debug for SacAgent<Actor, Critic, O, A, BOR>
 where
-    Actor: SquashedGaussianPolicy<BOR, BAR>,
-    Critic: ContinuousQ<BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: BoundedAction<AR>,
+    Actor: SquashedGaussianPolicy<BOR>,
+    Critic: ContinuousQ<BOR>,
+    O: HostRow,
+    A: BoundedAction,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SacAgent")
@@ -218,13 +211,12 @@ where
     }
 }
 
-impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    SacAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const BOR: usize> SacAgent<Actor, Critic, O, A, BOR>
 where
-    Actor: SquashedGaussianPolicy<BOR, BAR>,
-    Critic: ContinuousQ<BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: BoundedAction<AR>,
+    Actor: SquashedGaussianPolicy<BOR>,
+    Critic: ContinuousQ<BOR>,
+    O: HostRow,
+    A: BoundedAction,
 {
     /// Constructs a new agent from pre-built actor and two independent
     /// critic networks.
@@ -262,7 +254,8 @@ where
         device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
-        assert_bounds_match_components::<AR, A>();
+        assert_batch_rank::<O, BOR>();
+        assert_bounds_match_components::<A>();
         let device = device.autodiff();
         let plain_device = device.clone().without_autodiff();
         let actor = actor.train();
@@ -557,12 +550,11 @@ where
         // isn't expanded every env step — the result is never `.backward`'d
         // and the orphan graphs otherwise accumulate in Burn 0.20's shared
         // server (and interfere with later critic backwards).
-        let obs_inner: Tensor<OR> = obs.to_tensor(&self.plain_device);
-        let batched_inner: Tensor<BOR> = obs_inner.unsqueeze::<BOR>();
+        let batched_inner: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.plain_device);
 
         let action_dim = self.actor.get().action_dim();
-        let eps: Tensor<BAR> = if training {
-            sample_noise::<BAR>(1, action_dim, &self.plain_device, rng)
+        let eps: Tensor<2> = if training {
+            sample_noise(1, action_dim, &self.plain_device, rng)
         } else {
             // `$\epsilon$` = 0 `$\Rightarrow$` z = `$\mu$`, which matches `deterministic_action`
             // for a squashed-Gaussian policy (both evaluate to `$\text{scale} \cdot \tanh(\mu)$`).
@@ -571,7 +563,7 @@ where
                 &self.plain_device,
             )
         };
-        let raw: Tensor<BAR> = self
+        let raw: Tensor<2> = self
             .actor_snapshot
             .forward_sample(batched_inner, eps)
             .action;
@@ -864,10 +856,8 @@ where
             return Ok(None);
         };
 
-        let obs_shape = O::shape();
-        let obs_numel: usize = obs_shape.iter().product();
-        let action_shape = A::shape();
-        let action_numel: usize = action_shape.iter().product();
+        let obs_numel: usize = row_len::<O>();
+        let action_numel: usize = A::COMPONENTS;
 
         let mut obs_flat: Vec<f32> = Vec::with_capacity(batch_size * obs_numel);
         let mut next_flat: Vec<f32> = Vec::with_capacity(batch_size * obs_numel);
@@ -886,21 +876,12 @@ where
             terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
-        let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(BOR);
-        batched_obs_shape.push(batch_size);
-        batched_obs_shape.extend_from_slice(&obs_shape);
-        let mut batched_action_shape: Vec<usize> = Vec::with_capacity(BAR);
-        batched_action_shape.push(batch_size);
-        batched_action_shape.extend_from_slice(&action_shape);
-
-        let obs_t: Tensor<BOR> = Tensor::from_data(
-            TensorData::new(obs_flat, batched_obs_shape.clone()),
+        let obs_t: Tensor<BOR> = upload_rows::<O, BOR>(obs_flat, batch_size, &device);
+        let next_t_inner: Tensor<BOR> = upload_rows::<O, BOR>(next_flat, batch_size, &plain);
+        let action_t: Tensor<2> = Tensor::from_data(
+            TensorData::new(action_flat, [batch_size, A::COMPONENTS]),
             &device,
         );
-        let next_t_inner: Tensor<BOR> =
-            Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &plain);
-        let action_t: Tensor<BAR> =
-            Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
 
         let rewards_inner: Tensor<1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &plain);
@@ -909,7 +890,7 @@ where
 
         // --- Target computation (no autodiff) ---
         let action_dim = self.actor.get().action_dim();
-        let next_eps: Tensor<BAR> = sample_noise::<BAR>(batch_size, action_dim, &plain, rng);
+        let next_eps: Tensor<2> = sample_noise(batch_size, action_dim, &plain, rng);
         let next_sample = self
             .actor_snapshot
             .forward_sample(next_t_inner.clone(), next_eps);
@@ -999,7 +980,7 @@ where
             .critic_updates
             .is_multiple_of(self.config.policy_frequency)
         {
-            let eps: Tensor<BAR> = sample_noise::<BAR>(batch_size, action_dim, &device, rng);
+            let eps: Tensor<2> = sample_noise(batch_size, action_dim, &device, rng);
             let sample = self.actor.get().forward_sample(obs_t.clone(), eps);
             let log_prob = sample.log_prob;
             // NOTE: canonical SAC uses `min(Q1(s,a), Q2(s,a))` in the actor
@@ -1094,20 +1075,17 @@ where
 }
 
 /// Draws `rows * cols` iid standard-normal samples on CPU and assembles them
-/// into a rank-`BAR` tensor of shape `[rows, cols]`. The built-in
-/// [`SquashedGaussianPolicyHead`](crate::algorithms::sac::sac_policy::SquashedGaussianPolicyHead)
-/// uses `BAR = 2`; the agent stays generic so higher-rank action layouts can
-/// plug in a custom policy and their own `BAR`.
+/// into a `[rows, cols]` tensor, the layout of a batch of actions.
 // `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
 // Narrowing to the tensor's own dtype is the intent, and the sample is finite
 // by construction.
 #[allow(clippy::cast_possible_truncation)]
-fn sample_noise<const BAR: usize>(
+fn sample_noise(
     rows: usize,
     cols: usize,
     device: &Device,
     rng: &mut (impl Rng + ?Sized),
-) -> Tensor<BAR> {
+) -> Tensor<2> {
     use rand_distr::{Distribution, StandardNormal};
     let mut data: Vec<f32> = Vec::with_capacity(rows * cols);
     let normal = StandardNormal;
@@ -1115,7 +1093,7 @@ fn sample_noise<const BAR: usize>(
         let x: f64 = normal.sample(rng);
         data.push(x as f32);
     }
-    Tensor::<BAR>::from_data(TensorData::new(data, vec![rows, cols]), device)
+    Tensor::<2>::from_data(TensorData::new(data, vec![rows, cols]), device)
 }
 
 /// Driven through [`Agent`], the agent acts with exploration and learns
@@ -1132,13 +1110,12 @@ fn sample_noise<const BAR: usize>(
 /// `rl/skipped_updates`, `rl/dropped_transitions`,
 /// `rl/dropped_observations` and `rl/degenerate_action_selections`, each
 /// what the accessor of that name returns.
-impl<Actor, Critic, O, A, const OR: usize, const BOR: usize, const AR: usize, const BAR: usize>
-    Agent<O, A> for SacAgent<Actor, Critic, O, A, OR, BOR, AR, BAR>
+impl<Actor, Critic, O, A, const BOR: usize> Agent<O, A> for SacAgent<Actor, Critic, O, A, BOR>
 where
-    Actor: SquashedGaussianPolicy<BOR, BAR>,
-    Critic: ContinuousQ<BOR, BAR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: BoundedAction<AR>,
+    Actor: SquashedGaussianPolicy<BOR>,
+    Critic: ContinuousQ<BOR>,
+    O: HostRow,
+    A: BoundedAction,
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         self.select(obs, self.training, rng)
@@ -1252,8 +1229,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rlevo_core::action::ContinuousAction;
 
-    type GuardAgent =
-        SacAgent<TinySacActor, MlpCritic, MaskObservation, MaskContinuousAction, 1, 2, 1, 2>;
+    type GuardAgent = SacAgent<TinySacActor, MlpCritic, MaskObservation, MaskContinuousAction, 2>;
 
     /// Replaces every float parameter of a module with `NaN`, simulating a
     /// critic that has diverged to non-finite weights — the realistic source of
@@ -2177,17 +2153,11 @@ mod driven_tests {
         let actor = TinySacActor::new(&device);
         let critic_1 = tiny_critic(&device);
         let critic_2 = tiny_critic(&device);
-        let mut agent = SacAgent::<
-            TinySacActor,
-            MlpCritic,
-            MaskObservation,
-            MaskContinuousAction,
-            1,
-            2,
-            1,
-            2,
-        >::new(actor, critic_1, critic_2, config, device)
-        .expect("default config is valid");
+        let mut agent =
+            SacAgent::<TinySacActor, MlpCritic, MaskObservation, MaskContinuousAction, 2>::new(
+                actor, critic_1, critic_2, config, device,
+            )
+            .expect("default config is valid");
         let mut env = ContinuousMaskEnv::new(PERIOD, end_status);
         let mut rng = StdRng::seed_from_u64(7);
         drive(&mut env, &mut agent, STEPS, &mut rng);
@@ -2246,23 +2216,15 @@ mod driven_tests {
             replay_buffer_capacity: 64,
             ..SacTrainingConfig::default()
         };
-        let mut agent = SacAgent::<
-            TinySacActor,
-            MlpCritic,
-            MaskObservation,
-            MaskContinuousAction,
-            1,
-            2,
-            1,
-            2,
-        >::new(
-            TinySacActor::new(&device),
-            tiny_critic(&device),
-            tiny_critic(&device),
-            config,
-            device,
-        )
-        .expect("valid config");
+        let mut agent =
+            SacAgent::<TinySacActor, MlpCritic, MaskObservation, MaskContinuousAction, 2>::new(
+                TinySacActor::new(&device),
+                tiny_critic(&device),
+                tiny_critic(&device),
+                config,
+                device,
+            )
+            .expect("valid config");
         let mut rng = StdRng::seed_from_u64(7);
         exercise_counters(
             &mut agent,

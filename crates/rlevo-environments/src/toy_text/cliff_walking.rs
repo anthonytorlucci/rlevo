@@ -147,10 +147,8 @@ pub struct CliffWalkingObservation {
     pub state_id: u16,
 }
 
-impl Observation<1> for CliffWalkingObservation {
-    fn shape() -> [usize; 1] {
-        [NROW as usize * NCOL as usize]
-    }
+impl Observation for CliffWalkingObservation {
+    const SHAPE: &'static [usize] = &[NROW as usize * NCOL as usize];
 }
 
 // ── action ────────────────────────────────────────────────────────────────────
@@ -171,16 +169,13 @@ pub enum CliffWalkingAction {
     Left = 3,
 }
 
-impl Action<1> for CliffWalkingAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Action for CliffWalkingAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for CliffWalkingAction {
+impl DiscreteAction for CliffWalkingAction {
     const ACTION_COUNT: usize = 4;
 
     /// Constructs an action from its zero-based index.
@@ -357,7 +352,7 @@ impl CliffWalking {
     }
 }
 
-impl Environment<1, 1> for CliffWalking {
+impl Environment for CliffWalking {
     type ObservationType = CliffWalkingObservation;
     type ActionType = CliffWalkingAction;
 
@@ -666,7 +661,7 @@ mod tests {
     #[test]
     /// Verifies the observation shape matches the 48-cell grid.
     fn obs_shape() {
-        assert_eq!(CliffWalkingObservation::shape(), [48]);
+        assert_eq!(CliffWalkingObservation::SHAPE, [48]);
     }
 
     #[test]

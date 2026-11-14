@@ -54,7 +54,7 @@ const TRAIN_TIMESTEPS: usize = 30_000;
 /// Episodes used to estimate each policy's reward statistics.
 const EVAL_EPISODES: usize = 200;
 
-type GridAgent = DqnAgent<MlpQNetwork, GridObservation, GridAction, 3, 4>;
+type GridAgent = DqnAgent<MlpQNetwork, GridObservation, GridAction, 4>;
 
 /// Small, fast-to-solve `EmptyEnv` so DQN converges within `TRAIN_TIMESTEPS`.
 fn grid_config() -> EmptyConfig {

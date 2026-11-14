@@ -112,7 +112,7 @@ const EVAL_EPISODES: usize = 200;
 /// flip. A reactive policy is capped here — it is **not** pinned to zero.
 const REACTIVE_CEILING: f32 = 0.5;
 
-type MemoryAgent = DqnAgent<MlpQNetwork, GridObservation, GridAction, 3, 4>;
+type MemoryAgent = DqnAgent<MlpQNetwork, GridObservation, GridAction, 4>;
 
 /// The shipped default (`size`, `max_steps`) under this bench's fixed seed.
 ///

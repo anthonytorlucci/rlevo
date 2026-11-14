@@ -264,10 +264,10 @@ fn stage_batch<O, const DO: usize, const DB: usize>(
     staging: Staging,
 ) -> (Tensor<DB>, Tensor<DB>)
 where
-    O: TensorConvertible<DO>,
+    O: TensorConvertible,
 {
     debug_assert_eq!(DB, DO + 1, "batched rank DB must equal row rank DO + 1");
-    let row_shape = O::shape();
+    let row_shape = O::SHAPE;
     let row_len: usize = row_shape.iter().product();
     let mut obs_flat: Vec<f32> = Vec::with_capacity(batch.len() * row_len);
     let mut next_flat: Vec<f32> = Vec::with_capacity(batch.len() * row_len);
@@ -291,7 +291,7 @@ where
     }
     let mut shape = [0usize; DB];
     shape[0] = batch.len();
-    shape[1..].copy_from_slice(&row_shape);
+    shape[1..].copy_from_slice(row_shape);
     let obs_tensor: Tensor<DB> = Tensor::from_data(TensorData::new(obs_flat, shape), device);
     let next_tensor: Tensor<DB> = Tensor::from_data(TensorData::new(next_flat, shape), plain);
     (obs_tensor, next_tensor)
@@ -304,7 +304,7 @@ fn assert_stage_bit_identical<O, const DO: usize, const DB: usize>(
     batch: &[SynthTransition<O>],
     device: &Device,
 ) where
-    O: TensorConvertible<DO>,
+    O: TensorConvertible,
 {
     let (rt_obs, rt_next) = stage_batch::<O, DO, DB>(batch, device, device, Staging::Roundtrip);
     let (hr_obs, hr_next) = stage_batch::<O, DO, DB>(batch, device, device, Staging::HostRow);
@@ -430,7 +430,7 @@ fn wide_mlp(device: &Device) -> MlpQNetwork {
 /// `Linear` layers down to the 4-way pixel-grid action space.
 ///
 /// Input arrives batched as `[batch, H, W, C]` (row-major, matching
-/// `PixelObservation::shape()`); `forward_impl` permutes to
+/// `PixelObservation::SHAPE`); `forward_impl` permutes to
 /// `[batch, C, H, W]` before the first convolution.
 #[derive(Module, Debug)]
 struct PixelConvNet {
@@ -518,7 +518,7 @@ fn run_learn_step<M, O, const DO: usize, const DB: usize>(
 ) -> (M, M, LearnStepProbe)
 where
     M: DqnModel<DB>,
-    O: TensorConvertible<DO>,
+    O: TensorConvertible,
 {
     let batch_size = batch.len();
 
@@ -624,7 +624,7 @@ fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
     make_batch: impl Fn(usize, &mut StdRng) -> Vec<SynthTransition<O>>,
 ) where
     M: DqnModel<DB>,
-    O: TensorConvertible<DO>,
+    O: TensorConvertible,
 {
     // As the agent does: train on the device with autodiff on, run the
     // target path without it.

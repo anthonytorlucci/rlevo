@@ -88,13 +88,11 @@ impl Default for LunarLanderObservation {
     }
 }
 
-impl Observation<1> for LunarLanderObservation {
-    fn shape() -> [usize; 1] {
-        [8]
-    }
+impl Observation for LunarLanderObservation {
+    const SHAPE: &'static [usize] = &[8];
 }
 
-impl HostRow<1> for LunarLanderObservation {
+impl HostRow for LunarLanderObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.values);
     }
@@ -106,7 +104,7 @@ mod tests {
 
     #[test]
     fn test_shape() {
-        assert_eq!(LunarLanderObservation::shape(), [8]);
+        assert_eq!(LunarLanderObservation::SHAPE, [8]);
     }
 
     #[test]
@@ -125,7 +123,7 @@ mod tests {
 
         assert_eq!(
             row.len(),
-            LunarLanderObservation::shape().iter().product::<usize>()
+            LunarLanderObservation::SHAPE.iter().product::<usize>()
         );
         assert_eq!(row, values);
     }

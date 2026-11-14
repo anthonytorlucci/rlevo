@@ -150,26 +150,25 @@ replaces.
 
 | Symbol | Type | Description |
 | --- | --- | --- |
-| `OR` | `Observation` | rank of the representative observation tensor |
-| `AR` | `Action` | rank of the representative action tensor |
 | `E` | Environment | - |
 | `BS` | Batch size | - |
+| `BOR` | Model input rank | the rank of the batched observation tensor a model takes: the observation's rank plus one, asserted at build time |
 
-### Const Generics and Type Inference
+### Ranks and Shapes
 
-When working with const generic dimensions:
-- `Environment<OR, AR>` has two associated types, `ObservationType:
-  Observation<OR>` and `ActionType: Action<AR>`; `reset` and `step` return
+No domain trait carries a rank (ADR 0100, ADR 0101):
+- `Environment` has two associated types, `ObservationType: Observation` and
+  `ActionType: Action`, and no parameters; `reset` and `step` return
   `Snapshot<Self::ObservationType>`. An environment's state is its own type,
   with no rank in the contract (ADR 0090), so a modality-changing POMDP
   needs nothing special.
-- Action order `AR` must be consistent with `Action<AR>`.
-- Environment's `OR` and `AR` parameters create a type-level constraint system.
-
-If you encounter dimension mismatch errors, verify:
-1. The const generic parameters match across all trait bounds
-2. `shape()` implementations return arrays of correct length
-3. Tensor conversions preserve dimensionality
+- An observation states its shape as `const SHAPE: &'static [usize]`; its rank
+  is `SHAPE.len()`. An action has no shape: a discrete action's size is
+  `ACTION_COUNT`, a continuous one's is `COMPONENTS`.
+- An agent keeps one const generic, `BOR`, the model's input rank. Its
+  constructor asserts `O::SHAPE.len() + 1 == BOR`. A mismatch is a build
+  error at `cargo build` or `cargo test`, and `cargo check` does not report
+  it.
 
 ### Mathematical Notation in Docs
 

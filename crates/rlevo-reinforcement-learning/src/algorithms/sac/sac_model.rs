@@ -25,10 +25,10 @@ pub use crate::algorithms::ddpg::ddpg_model::ContinuousQ;
 
 /// Paired squashed-action sample and per-row log-probability.
 #[derive(Debug, Clone)]
-pub struct SampleOutput<const BAR: usize> {
+pub struct SampleOutput {
     /// Post-squash action tensor of shape `(batch, ...action)` already in the
     /// env's action range.
-    pub action: Tensor<BAR>,
+    pub action: Tensor<2>,
     /// Summed log-probability of `action` under the current policy, including
     /// the tanh Jacobian correction. Shape `(batch,)`.
     pub log_prob: Tensor<1>,
@@ -37,13 +37,13 @@ pub struct SampleOutput<const BAR: usize> {
 /// Contract implemented by any network usable as a SAC actor.
 ///
 /// The actor maps a batch of observations of rank `BOR` (batch size included)
-/// to a batch of reparameterized squashed-Gaussian samples of rank `BAR`,
+/// to a `[batch, COMPONENTS]` batch of reparameterized squashed-Gaussian samples,
 /// along with their log-probabilities under the current policy. The squashing
 /// (`tanh` + optional scale/bias) and the associated Jacobian correction must
 /// be applied by the implementor so the returned `action` is already in the
 /// env-visible range and the returned `log_prob` is the true log-density of
 /// that squashed sample.
-pub trait SquashedGaussianPolicy<const BOR: usize, const BAR: usize>: Module {
+pub trait SquashedGaussianPolicy<const BOR: usize>: Module {
     /// Number of continuous action dimensions emitted per row. Needed by the
     /// agent to size the `$\epsilon$` noise tensor without another trait bound.
     fn action_dim(&self) -> usize;
@@ -53,10 +53,10 @@ pub trait SquashedGaussianPolicy<const BOR: usize, const BAR: usize>: Module {
     /// log-probability (shape `(batch,)`) under the current policy. The agent
     /// runs it on the training actor and, for the Bellman target against
     /// `next_obs`, on a [`valid`](Module::valid) snapshot of it.
-    fn forward_sample(&self, obs: Tensor<BOR>, eps: Tensor<BAR>) -> SampleOutput<BAR>;
+    fn forward_sample(&self, obs: Tensor<BOR>, eps: Tensor<2>) -> SampleOutput;
 
     /// Deterministic evaluation action (policy mean squashed) — used by
     /// `SacAgent::act(training=false)`. Returns shape `(batch, ...action)`
     /// already in the env's action range.
-    fn deterministic_action(&self, obs: Tensor<BOR>) -> Tensor<BAR>;
+    fn deterministic_action(&self, obs: Tensor<BOR>) -> Tensor<2>;
 }

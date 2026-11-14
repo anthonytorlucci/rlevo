@@ -92,7 +92,7 @@ impl Default for CarRacingObservation {
 /// Hand-written `Serialize` — retained because serde has no derive for arrays longer than 32
 /// elements, and `pixels` holds `PIXEL_BYTES` (`$96 \times 96 \times 3$` = 27,648) of them.
 ///
-/// This is not a leftover of a trait bound: `Observation<R>` no longer requires
+/// This is not a leftover of a trait bound: `Observation` no longer requires
 /// serde (ADR 0064). The impl stays because [`CarRacingObservation`] is part of
 /// the public API and consumers persist frames; `#[derive(Serialize)]` on the
 /// struct simply does not compile at this array length.
@@ -112,7 +112,7 @@ impl serde::Serialize for CarRacingObservation {
 /// (`$96 \times 96 \times 3$` = `$27{,}648 > 32$`).
 ///
 /// It exists because of that array-length limit, **not** because of any trait
-/// bound — `Observation<R>` no longer requires serde (ADR 0064). Do not try to
+/// bound — `Observation` no longer requires serde (ADR 0064). Do not try to
 /// "simplify" it into a derive; there is no derive to simplify it into.
 impl<'de> serde::Deserialize<'de> for CarRacingObservation {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -141,13 +141,11 @@ impl<'de> serde::Deserialize<'de> for CarRacingObservation {
     }
 }
 
-impl Observation<3> for CarRacingObservation {
-    fn shape() -> [usize; 3] {
-        [FRAME_SIZE, FRAME_SIZE, 3]
-    }
+impl Observation for CarRacingObservation {
+    const SHAPE: &'static [usize] = &[FRAME_SIZE, FRAME_SIZE, 3];
 }
 
-impl HostRow<3> for CarRacingObservation {
+impl HostRow for CarRacingObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         // Normalize bytes to [0, 1] so a Burn policy can consume the frame directly.
         buf.extend(self.pixels.iter().map(|&b| f32::from(b) / 255.0));
@@ -186,7 +184,7 @@ mod tests {
 
     #[test]
     fn test_shape() {
-        assert_eq!(CarRacingObservation::shape(), [96, 96, 3]);
+        assert_eq!(CarRacingObservation::SHAPE, [96, 96, 3]);
     }
 
     #[test]
@@ -237,7 +235,7 @@ mod tests {
 
         assert_eq!(
             row.len(),
-            CarRacingObservation::shape().iter().product::<usize>()
+            CarRacingObservation::SHAPE.iter().product::<usize>()
         );
         assert_eq!(row.len(), PIXEL_BYTES);
         for (i, (&value, &byte)) in row.iter().zip(px.iter()).enumerate() {

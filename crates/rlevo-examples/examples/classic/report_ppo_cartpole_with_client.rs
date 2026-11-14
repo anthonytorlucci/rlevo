@@ -89,11 +89,11 @@ const NUM_ACTIONS: usize = 2;
 /// `hidden`-wide `tanh` layers. Neither is defined here: PPO ships both.
 ///
 /// ```text
-/// pub struct PpoAgent<P, V, O, const OR: usize, const BOR: usize>
+/// pub struct PpoAgent<P, V, O, const BOR: usize>
 /// where
 ///     P: PpoPolicy<BOR>,                           --> CategoricalPolicyHead
 ///     V: PpoValue<BOR>,                            --> MlpValue
-///     O: Observation<OR> + TensorConvertible<OR>,  --> CartPoleObservation
+///     O: HostRow,                                  --> CartPoleObservation
 /// { /* private fields */ }
 /// ```
 ///
@@ -102,7 +102,7 @@ const NUM_ACTIONS: usize = 2;
 /// links:
 /// - <https://docs.rs/rlevo-reinforcement-learning/latest/rlevo_reinforcement_learning/algorithms/ppo/ppo_agent/struct.PpoAgent.html>
 /// - <https://docs.rs/rlevo-environments/latest/rlevo_environments/classic/cartpole/index.html>
-pub type CartPoleAgent = PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2>;
+pub type CartPoleAgent = PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 2>;
 
 /// Builds the base [`CartPole`] wrapped in a [`TimeLimit`]; `main` adds the
 /// `RecordingTap` on top of this.
@@ -234,8 +234,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // CartPole → TimeLimit → RecordingTap. The metric stream is captured
     // headlessly and replayed by the report client.
     // Structured-only (ADR-0013): record `FamilyPayload::Classic2D` line-art.
-    let mut env: RecordingTap<_, 1, 1> =
-        RecordingTap::with_classic2d_payload(base_env(), sink.clone());
+    let mut env: RecordingTap<_> = RecordingTap::with_classic2d_payload(base_env(), sink.clone());
     let mut agent = build_agent(TOTAL_TIMESTEPS);
 
     train(&mut env, &mut agent, TOTAL_TIMESTEPS, usize::MAX, &mut rng)?;

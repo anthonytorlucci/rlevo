@@ -46,7 +46,7 @@ fn qrdqn_network(num_quantiles: usize, device: &Device) -> MlpDistributionalQ {
     .expect("valid network config")
 }
 
-type Agent = QrDqnAgent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = QrDqnAgent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 2>;
 
 /// Build a deterministic `QrDqnAgent` for `CartPole` with `num_quantiles = 21`
 /// and `kappa = 1.0`.

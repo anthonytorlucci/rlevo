@@ -24,16 +24,8 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_policy::{
     SquashedGaussianPolicyHead, SquashedGaussianPolicyHeadConfig,
 };
 
-type Agent = SacAgent<
-    SquashedGaussianPolicyHead,
-    MlpCritic,
-    PendulumObservation,
-    PendulumAction,
-    1,
-    2,
-    1,
-    2,
->;
+type Agent =
+    SacAgent<SquashedGaussianPolicyHead, MlpCritic, PendulumObservation, PendulumAction, 2>;
 
 fn build_agent() -> Agent {
     let device = Device::flex();

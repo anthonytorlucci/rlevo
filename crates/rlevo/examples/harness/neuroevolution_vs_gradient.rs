@@ -306,14 +306,14 @@ impl Agent<CartPoleObservation, CartPoleAction> for NeuroevolutionAgent {
 /// An agent that picks uniformly at random: the floor every row must clear.
 struct Random;
 
-impl<O, A: DiscreteAction<1>> Agent<O, A> for Random {
+impl<O, A: DiscreteAction> Agent<O, A> for Random {
     fn act(&mut self, _obs: &O, rng: &mut dyn Rng) -> A {
         A::from_index(rng.random_range(0..A::ACTION_COUNT))
     }
 }
 
 /// PPO with a categorical policy head of [`PolicyNet`]'s shape.
-fn ppo(seed: u64) -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2> {
+fn ppo(seed: u64) -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 2> {
     let device = Device::flex();
     device.seed(seed);
     let policy = CategoricalPolicyHeadConfig {
@@ -347,7 +347,7 @@ fn ppo(seed: u64) -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservati
 /// shape. Of the three learners it is the most sensitive to its settings at
 /// this budget: the rate and exploration schedule the agent template uses,
 /// chosen for a 64-unit network, do worse here than these defaults.
-fn dqn(seed: u64) -> DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2> {
+fn dqn(seed: u64) -> DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 2> {
     let device = Device::flex();
     device.seed(seed);
     let network = MlpQNetworkConfig {

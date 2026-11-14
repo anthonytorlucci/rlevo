@@ -21,13 +21,11 @@ struct WalkObservation {
     position: i32,
 }
 
-impl Observation<1> for WalkObservation {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Observation for WalkObservation {
+    const SHAPE: &'static [usize] = &[1];
 }
 
-impl HostRow<1> for WalkObservation {
+impl HostRow for WalkObservation {
     #[allow(clippy::cast_precision_loss)]
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.position as f32);
@@ -47,16 +45,13 @@ enum WalkAction {
     Right,
 }
 
-impl Action<1> for WalkAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Action for WalkAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for WalkAction {
+impl DiscreteAction for WalkAction {
     const ACTION_COUNT: usize = 2;
 
     fn from_index(index: usize) -> Self {
@@ -110,7 +105,7 @@ impl RandomWalkEnv {
     }
 }
 
-impl Environment<1, 1> for RandomWalkEnv {
+impl Environment for RandomWalkEnv {
     type ObservationType = WalkObservation;
     type ActionType = WalkAction;
 

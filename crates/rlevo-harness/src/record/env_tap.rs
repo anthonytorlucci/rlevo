@@ -55,7 +55,7 @@ pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Syn
 /// one-line `#[derive(...)]` addition to opt in to recording — see the
 /// example wired in
 /// `crates/rlevo-examples/examples/classic/report_ppo_cartpole_with_client.rs`.
-pub struct RecordingTap<E, const D: usize, const AD: usize> {
+pub struct RecordingTap<E> {
     inner: E,
     sink: Arc<Mutex<dyn RecordSink>>,
     payload_extractor: PayloadExtractor<E>,
@@ -68,7 +68,7 @@ pub struct RecordingTap<E, const D: usize, const AD: usize> {
     started: bool,
 }
 
-impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
+impl<E> RecordingTap<E>
 where
     E: AsciiRenderable,
 {
@@ -113,7 +113,7 @@ where
     }
 }
 
-impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD> {
+impl<E> RecordingTap<E> {
     /// Headless constructor — does **not** require [`AsciiRenderable`]
     /// on `E`. Frames ship with `ascii = None` and `styled = None`;
     /// the family payload is the only rendering surface. Intended for
@@ -158,7 +158,7 @@ impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD> {
     }
 }
 
-impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
+impl<E> RecordingTap<E>
 where
     E: AsciiRenderable + Box2dPayloadSource + 'static,
 {
@@ -173,7 +173,7 @@ where
     }
 }
 
-impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
+impl<E> RecordingTap<E>
 where
     E: Locomotion2DPayloadSource + 'static,
 {
@@ -189,7 +189,7 @@ where
     }
 }
 
-impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
+impl<E> RecordingTap<E>
 where
     E: GridPayloadSource + 'static,
 {
@@ -205,7 +205,7 @@ where
     }
 }
 
-impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
+impl<E> RecordingTap<E>
 where
     E: TabularPayloadSource + 'static,
 {
@@ -220,7 +220,7 @@ where
     }
 }
 
-impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
+impl<E> RecordingTap<E>
 where
     E: Classic2DPayloadSource + 'static,
 {
@@ -236,7 +236,7 @@ where
     }
 }
 
-impl<E, const D: usize, const AD: usize> std::fmt::Debug for RecordingTap<E, D, AD>
+impl<E> std::fmt::Debug for RecordingTap<E>
 where
     E: std::fmt::Debug,
 {
@@ -256,7 +256,7 @@ where
     }
 }
 
-impl<E, const D: usize, const AD: usize> AsciiRenderable for RecordingTap<E, D, AD>
+impl<E> AsciiRenderable for RecordingTap<E>
 where
     E: AsciiRenderable,
 {
@@ -269,9 +269,9 @@ where
     }
 }
 
-impl<E, const D: usize, const AD: usize> RecordingTap<E, D, AD>
+impl<E> RecordingTap<E>
 where
-    E: Environment<D, AD>,
+    E: Environment,
     E::ActionType: Serialize,
 {
     fn capture_frame(&mut self, action_bytes: Vec<u8>, reward: f32) {
@@ -290,9 +290,9 @@ where
     }
 }
 
-impl<E, const D: usize, const AD: usize> Environment<D, AD> for RecordingTap<E, D, AD>
+impl<E> Environment for RecordingTap<E>
 where
-    E: Environment<D, AD>,
+    E: Environment,
     E::ActionType: Serialize + Clone,
 {
     type ObservationType = E::ObservationType;
@@ -400,19 +400,14 @@ mod tests {
         pos: i32,
     }
 
-    impl Observation<1> for StubObs {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
+    impl Observation for StubObs {
+        const SHAPE: &'static [usize] = &[1];
     }
 
     #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
     struct StubAction(u8);
 
-    impl Action<1> for StubAction {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
+    impl Action for StubAction {
         fn is_valid(&self) -> bool {
             true
         }
@@ -448,7 +443,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1> for StubEnv {
+    impl Environment for StubEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
 
@@ -489,7 +484,7 @@ mod tests {
     fn reset_starts_episode_and_emits_initial_frame() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.0, Termination::TerminateAt(u32::MAX));
-        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
 
         let probe = probe.lock();
@@ -509,7 +504,7 @@ mod tests {
     fn step_appends_frame_with_action_bytes_and_reward() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.5, Termination::TerminateAt(u32::MAX));
-        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         tap.step(StubAction(7)).unwrap();
         tap.step(StubAction(9)).unwrap();
@@ -535,7 +530,7 @@ mod tests {
     fn termination_closes_episode_with_return_and_length() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(1.0, Termination::TerminateAt(3));
-        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         tap.step(StubAction(1)).unwrap();
         tap.step(StubAction(1)).unwrap();
@@ -552,7 +547,7 @@ mod tests {
     fn truncation_closes_episode_symmetrically() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.5, Termination::TruncateAt(2));
-        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         tap.step(StubAction(0)).unwrap();
         tap.step(StubAction(0)).unwrap();
@@ -565,7 +560,7 @@ mod tests {
     fn second_episode_increments_episode_idx() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(1.0, Termination::TerminateAt(2));
-        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         tap.step(StubAction(1)).unwrap();
         tap.step(StubAction(1)).unwrap();
@@ -584,7 +579,7 @@ mod tests {
     fn into_inner_returns_wrapped_env() {
         let (_probe, sink) = sink_handle();
         let env = StubEnv::new(0.0, Termination::TerminateAt(u32::MAX));
-        let tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
+        let tap: RecordingTap<_> = RecordingTap::new(env, sink);
         let inner = tap.into_inner();
         assert_eq!(inner.render_ascii(), "pos=0");
     }
@@ -593,7 +588,7 @@ mod tests {
     fn default_constructor_emits_ascii_payload() {
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.0, Termination::TerminateAt(u32::MAX));
-        let mut tap: RecordingTap<_, 1, 1> = RecordingTap::new(env, sink);
+        let mut tap: RecordingTap<_> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
         let probe = probe.lock();
         let ep = &probe.episodes[&0];
@@ -611,17 +606,16 @@ mod tests {
 
         let (probe, sink) = sink_handle();
         let env = StubEnv::new(0.5, Termination::TerminateAt(2));
-        let mut tap: RecordingTap<_, 1, 1> =
-            RecordingTap::with_payload_extractor(env, sink, |stub| {
-                FamilyPayload::Landscape2D(Landscape2DPayload::from(Landscape2DSnapshot {
-                    bounds_x: (-1.0, 1.0),
-                    bounds_y: (-1.0, 1.0),
-                    current: Point2::new(f32::from(i16::try_from(stub.pos).unwrap_or(0)), 0.0),
-                    best: None,
-                    trail: vec![],
-                    label: "stub".into(),
-                }))
-            });
+        let mut tap: RecordingTap<_> = RecordingTap::with_payload_extractor(env, sink, |stub| {
+            FamilyPayload::Landscape2D(Landscape2DPayload::from(Landscape2DSnapshot {
+                bounds_x: (-1.0, 1.0),
+                bounds_y: (-1.0, 1.0),
+                current: Point2::new(f32::from(i16::try_from(stub.pos).unwrap_or(0)), 0.0),
+                best: None,
+                trail: vec![],
+                label: "stub".into(),
+            }))
+        });
         tap.reset().unwrap();
         tap.step(StubAction(0)).unwrap();
         tap.step(StubAction(0)).unwrap();
@@ -649,10 +643,7 @@ mod tests {
         }
     }
 
-    impl Action<1> for FailAction {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
+    impl Action for FailAction {
         fn is_valid(&self) -> bool {
             true
         }
@@ -665,7 +656,7 @@ mod tests {
         pos: i32,
     }
 
-    impl Environment<1, 1> for FailEnv {
+    impl Environment for FailEnv {
         type ObservationType = StubObs;
         type ActionType = FailAction;
 
@@ -690,7 +681,7 @@ mod tests {
 
         let (probe, sink) = sink_handle();
         let env = FailEnv { pos: 0 };
-        let mut tap: RecordingTap<_, 1, 1> =
+        let mut tap: RecordingTap<_> =
             RecordingTap::new_headless(env, sink, |_| FamilyPayload::Ascii);
         tap.reset().unwrap();
         // The inner step still succeeds; only the action encode fails.

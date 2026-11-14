@@ -309,13 +309,11 @@ impl GoToDoorObservation {
     }
 }
 
-impl Observation<3> for GoToDoorObservation {
-    fn shape() -> [usize; 3] {
-        [VIEW_SIZE, VIEW_SIZE, GO_TO_DOOR_OBS_CHANNELS]
-    }
+impl Observation for GoToDoorObservation {
+    const SHAPE: &'static [usize] = &[VIEW_SIZE, VIEW_SIZE, GO_TO_DOOR_OBS_CHANNELS];
 }
 
-impl HostRow<3> for GoToDoorObservation {
+impl HostRow for GoToDoorObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         for row in &self.view {
             for cell in row {
@@ -487,7 +485,7 @@ impl FromStr for GoToDoorConfig {
 /// every [`GoToDoorObservation`] cell — this is the only place it appears, so a
 /// policy that ignores that channel cannot beat 25%.
 ///
-/// Implements [`Environment<3, 1>`] with [`GoToDoorObservation`] / [`GridAction`] /
+/// Implements [`Environment`] with [`GoToDoorObservation`] / [`GridAction`] /
 /// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// [`GridAction::Done`] ends the episode either way — at a target-colored door
@@ -802,7 +800,7 @@ impl GoToDoorEnv {
     }
 }
 
-impl Environment<3, 1> for GoToDoorEnv {
+impl Environment for GoToDoorEnv {
     type ObservationType = GoToDoorObservation;
     type ActionType = GridAction;
 
@@ -1101,7 +1099,7 @@ mod tests {
     #[test]
     fn test_observation_shape_is_7x7x4() {
         assert_eq!(
-            <GoToDoorObservation as Observation<3>>::shape(),
+            <GoToDoorObservation as Observation>::SHAPE,
             [VIEW_SIZE, VIEW_SIZE, GO_TO_DOOR_OBS_CHANNELS],
             "the mission channel widens the view to 4 channels"
         );
@@ -1291,7 +1289,7 @@ mod tests {
 
         assert_eq!(
             row.len(),
-            GoToDoorObservation::shape().iter().product::<usize>()
+            GoToDoorObservation::SHAPE.iter().product::<usize>()
         );
         let mission = f32::from(env.mission().target_color.to_u8());
         for r in 0..VIEW_SIZE {

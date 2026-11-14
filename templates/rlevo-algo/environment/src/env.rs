@@ -50,16 +50,14 @@ pub struct Cell {
     pub index: usize,
 }
 
-impl Observation<1> for Cell {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Observation for Cell {
+    const SHAPE: &'static [usize] = &[1];
 }
 
 /// The observation as the numbers a learner reads: the cell's index scaled
 /// to `[0, 1]`. A shipped agent that builds a tensor from an observation,
 /// such as `DqnAgent`, needs this.
-impl HostRow<1> for Cell {
+impl HostRow for Cell {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         #[allow(clippy::cast_precision_loss)]
         buf.push(self.index as f32 / (LENGTH - 1) as f32);
@@ -73,17 +71,13 @@ pub enum Move {
     Right,
 }
 
-impl Action<1> for Move {
-    fn shape() -> [usize; 1] {
-        [Self::ACTION_COUNT]
-    }
-
+impl Action for Move {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for Move {
+impl DiscreteAction for Move {
     const ACTION_COUNT: usize = 2;
 
     fn from_index(index: usize) -> Self {
@@ -125,7 +119,7 @@ impl MyEnv {
     }
 }
 
-impl Environment<1, 1> for MyEnv {
+impl Environment for MyEnv {
     type ObservationType = Cell;
     type ActionType = Move;
 

@@ -40,10 +40,8 @@ pub struct RoomObs {
     pub outdoor_c: f32,
 }
 
-impl Observation<1> for RoomObs {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
+impl Observation for RoomObs {
+    const SHAPE: &'static [usize] = &[2];
 }
 
 /// The environment's own state: the indoor temperature and the hour.
@@ -60,11 +58,7 @@ pub enum Boiler {
     On,
 }
 
-impl Action<1> for Boiler {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
+impl Action for Boiler {
     fn is_valid(&self) -> bool {
         true
     }
@@ -106,7 +100,7 @@ impl Thermostat {
     }
 }
 
-impl Environment<1, 1> for Thermostat {
+impl Environment for Thermostat {
     type ObservationType = RoomObs;
     type ActionType = Boiler;
 

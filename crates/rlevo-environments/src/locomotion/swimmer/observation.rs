@@ -81,13 +81,11 @@ impl Default for SwimmerObservation {
     }
 }
 
-impl Observation<1> for SwimmerObservation {
-    fn shape() -> [usize; 1] {
-        [8]
-    }
+impl Observation for SwimmerObservation {
+    const SHAPE: &'static [usize] = &[8];
 }
 
-impl HostRow<1> for SwimmerObservation {
+impl HostRow for SwimmerObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.0);
     }

@@ -208,7 +208,7 @@ macro_rules! assert_solvable {
 ///   task, so the step cap must not be what ended it.
 fn run_script<E>(env: &mut E, script: &[GridAction]) -> f32
 where
-    E: Environment<3, 1, ActionType = GridAction>,
+    E: Environment<ActionType = GridAction>,
 {
     assert!(
         !script.is_empty(),
@@ -255,7 +255,7 @@ where
 /// status.
 fn assert_cap_endings<E>(route: &[GridAction], mut make: impl FnMut(usize) -> E)
 where
-    E: Environment<3, 1, ActionType = GridAction>,
+    E: Environment<ActionType = GridAction>,
 {
     let budget = route.len();
     let reward = run_script(&mut make(budget), route);

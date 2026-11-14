@@ -230,7 +230,7 @@ impl FromStr for UnlockConfig {
 /// moment the door opens; the episode times out if the step budget is
 /// exhausted first.
 ///
-/// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`] /
+/// Implements [`Environment`] with [`GridObservation`] / [`GridAction`] /
 /// [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// # Examples
@@ -421,7 +421,7 @@ impl UnlockEnv {
     }
 }
 
-impl Environment<3, 1> for UnlockEnv {
+impl Environment for UnlockEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
 

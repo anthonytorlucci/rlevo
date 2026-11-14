@@ -35,7 +35,7 @@ fn random_baseline(seed: u64, episodes: usize) -> f32 {
         episodes,
         MAX_STEPS,
         &mut rng,
-        uniform_discrete::<1, SantaFeAntAction>,
+        uniform_discrete::<SantaFeAntAction>,
     )
 }
 

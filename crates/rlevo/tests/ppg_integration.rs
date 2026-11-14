@@ -65,7 +65,7 @@ fn make_cart_pole_agent(
     num_steps: usize,
     total_timesteps: usize,
     n_iteration: usize,
-) -> PpgAgent<PpgCategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2> {
+) -> PpgAgent<PpgCategoricalPolicyHead, MlpValue, CartPoleObservation, 2> {
     let device = seeded_device(seed);
 
     let policy = PpgCategoricalPolicyHeadConfig {
@@ -345,7 +345,7 @@ fn random_cartpole(seed: u64) -> f32 {
         100,
         500,
         &mut rng,
-        uniform_discrete::<1, CartPoleAction>,
+        uniform_discrete::<CartPoleAction>,
     )
 }
 

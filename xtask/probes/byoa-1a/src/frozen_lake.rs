@@ -49,5 +49,5 @@ fn state_of(obs: &FrozenLakeObservation) -> usize {
 
 /// A fresh learner, sized to every state the observation can name.
 pub fn learner() -> Learner {
-    QLearner::new(FrozenLakeObservation::shape()[0], state_of, SCHEDULE)
+    QLearner::new(FrozenLakeObservation::SHAPE[0], state_of, SCHEDULE)
 }

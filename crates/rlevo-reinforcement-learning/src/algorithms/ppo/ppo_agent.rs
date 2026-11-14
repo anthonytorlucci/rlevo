@@ -8,14 +8,15 @@
 //! and a full rollout is finished and used to update both networks.
 
 use burn::optim::{GradientsParams, ModuleOptimizer};
-use burn::tensor::{Device, Tensor, TensorData};
+use burn::tensor::{Device, Tensor};
 use rand::Rng;
 use rlevo_core::action::{ContinuousAction, DiscreteAction};
 use rlevo_core::agent::{Agent, Transition};
 use rlevo_core::fitness::Metric;
 
 use crate::algorithms::shared::{FiniteLossGuard, Slot, rl_counter};
-use rlevo_core::base::{Observation, TensorConvertible};
+use crate::algorithms::shared::{assert_batch_rank, row_len, upload_one, upload_rows};
+use rlevo_core::base::HostRow;
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 
@@ -117,11 +118,11 @@ pub(crate) struct PpoUpdateStats {
 /// both networks intact and the agent usable. Only a panic *inside* the
 /// optimizer step itself poisons a slot; that window is irreducible and
 /// terminal for the agent (see `Slot`).
-pub struct PpoAgent<P, V, O, const OR: usize, const BOR: usize>
+pub struct PpoAgent<P, V, O, const BOR: usize>
 where
     P: PpoPolicy<BOR>,
     V: PpoValue<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
+    O: HostRow,
 {
     policy: Slot<P>,
     value: Slot<V>,
@@ -158,11 +159,11 @@ where
     continuation: Option<O>,
 }
 
-impl<P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug for PpoAgent<P, V, O, OR, BOR>
+impl<P, V, O, const BOR: usize> std::fmt::Debug for PpoAgent<P, V, O, BOR>
 where
     P: PpoPolicy<BOR>,
     V: PpoValue<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
+    O: HostRow,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PpoAgent")
@@ -177,11 +178,11 @@ where
 /// Greedy / inference-only methods, separated out because they additionally
 /// require `O` to convert onto the plain (non-autodiff) device. Construction
 /// and training (the main `impl` below) do not need that bound.
-impl<P, V, O, const OR: usize, const BOR: usize> PpoAgent<P, V, O, OR, BOR>
+impl<P, V, O, const BOR: usize> PpoAgent<P, V, O, BOR>
 where
     P: PpoPolicy<BOR>,
     V: PpoValue<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
+    O: HostRow,
 {
     /// Snapshots the policy without autodiff ([`valid`](burn::module::Module::valid)) for
     /// repeated greedy inference.
@@ -208,17 +209,16 @@ where
     /// [`act`](Self::act) samples from the stochastic policy, which injects
     /// exploration noise into the returned action.
     pub fn act_greedy_env_row_with(&self, net: &P, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.plain_device);
         net.deterministic_env_row(batched)
     }
 }
 
-impl<P, V, O, const OR: usize, const BOR: usize> PpoAgent<P, V, O, OR, BOR>
+impl<P, V, O, const BOR: usize> PpoAgent<P, V, O, BOR>
 where
     P: PpoPolicy<BOR>,
     V: PpoValue<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
+    O: HostRow,
 {
     /// Construct a new agent from a pre-built policy and value network.
     ///
@@ -243,6 +243,7 @@ where
         total_iterations: usize,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        assert_batch_rank::<O, BOR>();
         let device = device.autodiff();
         let plain_device = device.clone().without_autodiff();
         let policy = policy.train();
@@ -441,8 +442,7 @@ where
     /// earlier optimizer step. Such an agent is poisoned and must be rebuilt —
     /// see [`Slot`].
     fn sample(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
 
         // Policy forward (autodiff graph is dropped on tensor drop).
         let sample = self.policy().sample_with_logprob(batched.clone(), rng);
@@ -452,8 +452,7 @@ where
         let log_prob = sample.log_prob.into_scalar::<f32>();
 
         // Value forward on a fresh copy of the obs tensor.
-        let value_raw: Tensor<OR> = obs.to_tensor(&self.device);
-        let value_t: Tensor<BOR> = value_raw.unsqueeze::<BOR>();
+        let value_t: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
         let value = self.value().forward(value_t).into_scalar::<f32>();
 
         ActOutcome {
@@ -467,7 +466,7 @@ where
     /// The policy's deterministic env row for `obs`: the action an evaluation
     /// takes. Runs on the training device, so it needs no inference snapshot.
     fn greedy_env_row(&self, obs: &O) -> Vec<f32> {
-        let batched: Tensor<BOR> = obs.to_tensor(&self.device).unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
         self.policy().deterministic_env_row(batched)
     }
 
@@ -546,8 +545,7 @@ where
 
     /// One value-network forward on a single observation.
     fn value_of(&self, obs: &O) -> f32 {
-        let t: Tensor<OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<BOR> = t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
         self.value().forward(batched).into_scalar::<f32>()
     }
 
@@ -616,8 +614,7 @@ where
         let mut policy_healthy = 0_usize;
         let mut value_healthy = 0_usize;
 
-        let obs_shape = O::shape();
-        let numel_per_obs: usize = obs_shape.iter().product();
+        let numel_per_obs: usize = row_len::<O>();
 
         'epochs: for _epoch in 0..self.config.update_epochs {
             epochs_run += 1;
@@ -638,11 +635,7 @@ where
                 for &i in chunk {
                     self.buffer.obs()[i].write_host_row(&mut obs_flat);
                 }
-                let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
-                batched_shape.push(n);
-                batched_shape.extend_from_slice(&obs_shape);
-                let obs_batch: Tensor<BOR> =
-                    Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
+                let obs_batch: Tensor<BOR> = upload_rows::<O, BOR>(obs_flat, n, &self.device);
 
                 // Action tensor.
                 let action_flat = self.buffer.gather_action_flat(chunk);
@@ -856,21 +849,20 @@ where
 ///
 /// `on_transition` panics, while training, when no [`act`](Agent::act)
 /// preceded it: there is no sample to record.
-impl<V, O, A, const OR: usize> Agent<O, A>
-    for PpoAgent<policies::CategoricalPolicyHead, V, O, OR, 2>
+impl<V, O, A> Agent<O, A> for PpoAgent<policies::CategoricalPolicyHead, V, O, 2>
 where
     V: PpoValue<2>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         if self.training {
             let sample = self.sample(obs, rng);
-            let action = policies::categorical::discrete_action_from_row::<1, A>(&sample.env_row);
+            let action = policies::categorical::discrete_action_from_row::<A>(&sample.env_row);
             self.pending = Some(sample);
             action
         } else {
-            policies::categorical::discrete_action_from_row::<1, A>(&self.greedy_env_row(obs))
+            policies::categorical::discrete_action_from_row::<A>(&self.greedy_env_row(obs))
         }
     }
 
@@ -919,21 +911,20 @@ where
 ///
 /// `on_transition` panics, while training, when no [`act`](Agent::act)
 /// preceded it: there is no sample to record.
-impl<V, O, A, const OR: usize> Agent<O, A>
-    for PpoAgent<policies::TanhGaussianPolicyHead, V, O, OR, 2>
+impl<V, O, A> Agent<O, A> for PpoAgent<policies::TanhGaussianPolicyHead, V, O, 2>
 where
     V: PpoValue<2>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: ContinuousAction<1>,
+    O: HostRow,
+    A: ContinuousAction,
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         if self.training {
             let sample = self.sample(obs, rng);
-            let action = policies::gaussian::continuous_action_from_row::<1, A>(&sample.env_row);
+            let action = policies::gaussian::continuous_action_from_row::<A>(&sample.env_row);
             self.pending = Some(sample);
             action
         } else {
-            policies::gaussian::continuous_action_from_row::<1, A>(&self.greedy_env_row(obs))
+            policies::gaussian::continuous_action_from_row::<A>(&self.greedy_env_row(obs))
         }
     }
 
@@ -965,13 +956,13 @@ mod tests {
     use burn::nn::{Linear, LinearConfig};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rlevo_core::base::HostRow;
+    use rlevo_core::base::Observation;
     use serde::{Deserialize, Serialize};
 
     use crate::algorithms::ppo::policies::CategoricalPolicyHeadConfig;
     use crate::algorithms::ppo::policies::categorical::CategoricalPolicyHead;
 
-    type TestAgent = PpoAgent<CategoricalPolicyHead, TestValue, TestObs, 1, 2>;
+    type TestAgent = PpoAgent<CategoricalPolicyHead, TestValue, TestObs, 2>;
 
     /// Minimal scalar value head, one linear layer. Not the crate's
     /// `MlpValue`: the tests below read its `head` field.
@@ -997,13 +988,11 @@ mod tests {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestObs([f32; 2]);
 
-    impl Observation<1> for TestObs {
-        fn shape() -> [usize; 1] {
-            [2]
-        }
+    impl Observation for TestObs {
+        const SHAPE: &'static [usize] = &[2];
     }
 
-    impl HostRow<1> for TestObs {
+    impl HostRow for TestObs {
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }
@@ -1380,7 +1369,7 @@ mod update_telemetry_tests {
 
     fn pendulum_agent(
         num_steps: usize,
-    ) -> PpoAgent<TanhGaussianPolicyHead, MlpValue, PendulumObservation, 1, 2> {
+    ) -> PpoAgent<TanhGaussianPolicyHead, MlpValue, PendulumObservation, 2> {
         let device = Device::flex();
         let policy = TanhGaussianPolicyHeadConfig {
             obs_dim: 3,
@@ -1398,7 +1387,7 @@ mod update_telemetry_tests {
 
     fn cart_pole_agent(
         num_steps: usize,
-    ) -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2> {
+    ) -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 2> {
         let device = Device::flex();
         let policy = CategoricalPolicyHeadConfig {
             obs_dim: 4,
@@ -1451,9 +1440,7 @@ mod update_telemetry_tests {
             let obs_now = snapshot.observation;
             let act = agent.sample(&obs_now, &mut rng);
             let next = env
-                .step(continuous_action_from_row::<1, PendulumAction>(
-                    &act.env_row,
-                ))
+                .step(continuous_action_from_row::<PendulumAction>(&act.env_row))
                 .expect("step");
             let reward: f32 = (next.reward).into();
             let status = next.status;
@@ -1543,7 +1530,7 @@ mod update_telemetry_tests {
             let obs_now = snapshot.observation;
             let act = agent.sample(&obs_now, &mut rng);
             let next = env
-                .step(discrete_action_from_row::<1, CartPoleAction>(&act.env_row))
+                .step(discrete_action_from_row::<CartPoleAction>(&act.env_row))
                 .expect("step");
             let reward: f32 = (next.reward).into();
             let status = next.status;
@@ -1567,7 +1554,7 @@ mod update_telemetry_tests {
     /// Takes one step through the `Agent` hooks from `obs`, and returns the
     /// snapshot the environment produced.
     fn hook_step(
-        agent: &mut PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2>,
+        agent: &mut PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 2>,
         env: &mut CartPole,
         obs: &CartPoleObservation,
         rng: &mut StdRng,

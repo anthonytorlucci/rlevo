@@ -60,7 +60,7 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 - Constructors: `new()` (default), `with_config(config)` (alternate), `from_*()` (conversion).
 - Accessors returning references: `config()`, `state()`, `arm_means()`.
 - Predicate methods: `is_valid()`, `is_done()`, `is_terminated()`, `is_truncated()`.
-- Dimension methods: `shape()`.
+- Dimension: the associated constant `Observation::SHAPE`. There is no `shape()` method, and `Action` has no shape at all (ADR 0100, ADR 0101).
 - Mutation methods: `update()`, `reset()`, `step()`, `add()`, `record()`.
 - **A generation loop that a person drives has `step()`, which returns nothing, and `is_done()`, which is asked before each call** (ADR 0085): `while !evo_loop.is_done() { evo_loop.step(); }`. A `step()` that returns a bare `bool` makes the caller remember which way it points, and a loop written on it checks the budget after the work instead of before. This is not a rule for every method that advances something. `Environment::step` returns a `Snapshot` that carries its status, and `GenerationProbe::advance` returns `None` once the budget is spent: each is called by a generic evaluator and returns more than a flag. A new driver offers the pair for people and a `GenerationProbe` impl for the evaluator, and builds the second from the first (`begin` is `reset`; `advance` is `is_done`, then `step`, then the metrics).
 - Builder chain methods: `.with_*()` (fluent), `.build()` (finalize).
@@ -81,12 +81,12 @@ applies is decided by the *kind* of struct, not case by case:
 
 ### Constants and Associated Constants
 - Constants: `UPPER_SNAKE_CASE` (e.g., `ACTION_COUNT`, `MAX_STEPS`, `GOAL_STATE`).
-- Const generic parameters: `OR` (observation rank), `AR` (action rank) — never overlap.
-- Batch ranks are always `BOR = OR + 1`, `BAR = AR + 1` — never any other offset.
+- No rank parameter on a domain trait (`Observation`, `Action`, `HostRow`, `Environment`): an observation's rank is `SHAPE.len()`, and an action's size is `ACTION_COUNT` or `COMPONENTS`.
+- `BOR` is the model's input rank, the rank of the batched observation tensor. An agent asserts `O::SHAPE.len() + 1 == BOR` when it is built (ADR 0101).
 
 ### Generic Parameters
-- Domain bounds: `O: Observation<OR>`, `A: Action<AR>`.
-- Const generic ordering in signatures: `<const OR: usize, const AR: usize>` — observation rank, action rank. Use this order in every new trait, struct, and impl.
+- Domain bounds: `O: Observation` (`O: HostRow` where an agent reads the row), `A: Action`.
+- An agent's only const generic is `BOR`, the model's input rank. A batch of continuous actions is always `Tensor<2>`, `[batch, COMPONENTS]`, so no action rank is written.
 - Place all non-trivial bounds in a `where` clause, not inline.
 
 ---
@@ -109,12 +109,12 @@ applies is decided by the *kind* of struct, not case by case:
 
 | Trait | Invariant |
 |-------|-----------|
-| `Observation<OR>` | `shape().len() == OR` (type-enforced by the `[usize; R]` return) and every axis size is `> 0` (**not** type-enforced — this is the implementor's obligation). There is no `numel()` on this trait, so no shape/element-count product identity applies here. The supertrait list is exactly `Debug + Clone + Send + Sync` — a serde bound is declared at the consuming seam, never here |
-| `DiscreteAction<AR>` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
-| `ContinuousAction<AR>` | `as_slice().len() == COMPONENTS` always, and `from_slice` accepts exactly `COMPONENTS` values — `AR` is the tensor rank, never the component count (ADR 0038) |
-| `BoundedAction<AR>` | `low().len() == high().len() == COMPONENTS` (**not** `AR`), and `low()[i] < high()[i]` for all `i` |
-| `HostRow<R>` | Requires `Observation<R>`. `write_host_row` pushes exactly `shape().iter().product()` plain `f32` values, appended (never clearing `buf`); a type implements `HostRow` at exactly **one** rank `R`, its `Observation` rank (ADR 0089) |
-| `TensorConvertible<R>` | Behind `rlevo-core`'s `burn` feature. Encode-only and implemented for every `HostRow<R>` by a blanket impl, so no type writes or overrides it: `to_tensor` uploads exactly the row `write_host_row` writes, in the shape `shape()` reports. Nothing decodes a tensor back into a domain value; the decoders in use read a host value (`DiscreteAction::from_index`, `ContinuousAction::from_slice`), and a decode trait returns with the first code that calls one (ADR 0089) |
+| `Observation` | Every entry of `SHAPE` is `> 0` (**not** type-enforced — this is the implementor's obligation). The rank is `SHAPE.len()`; no parameter declares it. There is no `numel()` on this trait, so no shape/element-count product identity applies here. The supertrait list is exactly `Debug + Clone + Send + Sync` — a serde bound is declared at the consuming seam, never here |
+| `DiscreteAction` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
+| `ContinuousAction` | `as_slice().len() == COMPONENTS` always, and `from_slice` accepts exactly `COMPONENTS` values; `COMPONENTS` is the one authority for a continuous action's size (ADR 0038, ADR 0100) |
+| `BoundedAction` | `low().len() == high().len() == COMPONENTS`, and `low()[i] < high()[i]` for all `i` |
+| `HostRow` | Requires `Observation`. `write_host_row` pushes exactly `SHAPE.iter().product()` plain `f32` values, appended (never clearing `buf`) (ADR 0089, ADR 0101) |
+| `TensorConvertible` | Behind `rlevo-core`'s `burn` feature. Encode-only and implemented for every `HostRow` by a blanket impl, so no type writes or overrides it: `to_tensor::<R>` uploads exactly the row `write_host_row` writes, in the shape `SHAPE` states, and asserts `SHAPE.len() == R` when it is built. Nothing decodes a tensor back into a domain value; the decoders in use read a host value (`DiscreteAction::from_index`, `ContinuousAction::from_slice`), and a decode trait returns with the first code that calls one (ADR 0089) |
 | `ScalarReward` | the default is zero, the additive identity: `r + ScalarReward::default() == r` |
 | `ReplayStrategy<T>` (crate-private since ADR 0095) | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted |
 | `PrioritizedReplay<T>` (crate-private) | `priorities.len() == items.len() == min(pushes, capacity)` — the two vectors are grown and overwritten together and are never popped. The `SumTree` index is *not* length-parallel: it allocates all `capacity` slots up front, so the tree-side statement is that slot `s` carries non-zero mass iff `s < items.len()` |
@@ -162,7 +162,7 @@ Non-fitness float comparisons (geometry, eigenvalues, argmax over logits) use pl
 | Site | Condition |
 |------|-----------|
 | `DiscreteAction::from_index(i)` | `i >= ACTION_COUNT` |
-| `ContinuousAction::from_slice(v)` | `v.len() != COMPONENTS` (**not** `AR`, the tensor rank) |
+| `ContinuousAction::from_slice(v)` | `v.len() != COMPONENTS` |
 | `SumTree::new(capacity)` | `capacity == 0` or `capacity > MAX_BUFFER_CAPACITY` — crate-internal defence in depth; `PrioritizedReplayConfig::validate` rejects both first, so no public call path reaches it |
 | `ImportanceExponent::new(b)` | `b` not finite or $\notin [0, 1]$ — use `try_new` for runtime-derived values |
 | `Priority::new(p)` | `p` not finite or not `> 0` — use `try_new` for runtime-derived values |
@@ -178,7 +178,7 @@ Non-fitness float comparisons (geometry, eigenvalues, argmax over logits) use pl
 | `HillClimbingParams::with_max_iters` | `max_iters == 0` |
 | `HillClimbingParams::with_step_size` | `step_size` not finite or not `> 0` |
 | `HillClimbingParams::with_step_decay` | `step_decay` not finite, `<= 0`, or `> 1` |
-| Batch rank assertion | `BOR != OR + 1` or `BAR != AR + 1`. No rlevo code asserts the relation: an agent stages its own batch and leaves it to Burn, where `Tensor::from_data` panics when the staged shape's rank is not the tensor's, while `unsqueeze` rejects only a target rank smaller than the source |
+| Batch rank assertion | `O::SHAPE.len() + 1 != BOR`. Every agent constructor (and `upload_rows`) asserts it in a `const` block, so it is a build error naming the instantiation: `cargo build` and `cargo test` report it, `cargo check` does not instantiate the function and does not (ADR 0101). `TensorConvertible::to_tensor::<R>` asserts `SHAPE.len() == R` the same way |
 | `ops::selection::tournament_*` | `fitness.is_empty()` or `tournament_size < 2` |
 | `ops::selection::truncation_*` | `fitness.is_empty()` or `top_k > fitness.len()` |
 | `ops::selection::{tournament_select, truncation_select}` | `population.dims()[0] != fitness.len()` |
@@ -378,10 +378,11 @@ pattern-replace.** Leave alone:
 
 ## 7. Const Generics and Type-Level Constraints
 
-- The const generic `OR` is the **observation rank** (a *tensor* rank, not an element count) and `AR` is the **action rank** (role varies by action trait: tensor rank on `Action`, tensor rank on `BoundedAction`, but *not* the component count on `ContinuousAction`/`BoundedAction`, which is `COMPONENTS`). The two are independent. An environment's state has no rank in the contract: it is the environment's own type (ADR 0090).
-- Batch ranks `BOR`, `BAR`, and `BSR` are the row rank plus one, and Burn checks the relation at upload: `Tensor::from_data` panics when a staged shape's rank is not the tensor's (the panic table's "Batch rank assertion" row). Code that builds a `[usize; BR]` shape by copying a row's `shape()` into it asserts `BR == R + 1` first, because the copy panics on a length mismatch otherwise.
-- Never use `OR` or `AR` for the number of elements; use `shape().iter().product()` for that. The element count is *always* reachable from the rank plus a `shape()` — and where `shape()` is not faithful to storage, use the trait-declared constant (`COMPONENTS` for `ContinuousAction`/`BoundedAction`).
-- Associated type bounds cascade: `Environment<OR, AR>`'s two associated types (`ObservationType: Observation<OR>`, `ActionType: Action<AR>`) each carry the corresponding rank through its bound, and `reset` and `step` return `Snapshot<Self::ObservationType>`.
+- No domain trait carries a rank. An observation states its shape as the constant `SHAPE`, and its rank (a *tensor* rank, not an element count) is `SHAPE.len()`. An action has no shape: a discrete action's size is `ACTION_COUNT`, a continuous one's is `COMPONENTS`. An environment's state has no rank in the contract: it is the environment's own type (ADR 0090, ADR 0100, ADR 0101).
+- `BOR` is the model's input rank, the observation's rank plus one, and it is the only rank parameter an agent keeps. The relation is asserted at build time: each agent constructor evaluates `O::SHAPE.len() + 1 == BOR` in a `const` block (the panic table's "Batch rank assertion" row). The error appears at `cargo build` and `cargo test`, not at `cargo check`. A batch of continuous actions is `Tensor<2>`, `[batch, COMPONENTS]`; a network that wants another layout reshapes inside `forward`.
+- An agent lays out a batch of observations in one place, the crate-private `upload_rows` (and `upload_one` for a batch of one) in `rlevo-reinforcement-learning`: it builds `[n, ..O::SHAPE]` at rank `BOR`. Do not copy `SHAPE` into a hand-built shape in an agent.
+- Never use a rank for the number of elements; use `SHAPE.iter().product()` for an observation, `ACTION_COUNT` for a discrete action and `COMPONENTS` for a continuous one.
+- Associated type bounds: `Environment` has two associated types and no parameters (`ObservationType: Observation`, `ActionType: Action`), and `reset` and `step` return `Snapshot<Self::ObservationType>`.
 - `PhantomData<(O, A)>` is the approved pattern to carry erased generic parameters in builder/wrapper types.
 
 ---

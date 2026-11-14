@@ -84,13 +84,11 @@ impl Default for ReacherObservation {
     }
 }
 
-impl Observation<1> for ReacherObservation {
-    fn shape() -> [usize; 1] {
-        [10]
-    }
+impl Observation for ReacherObservation {
+    const SHAPE: &'static [usize] = &[10];
 }
 
-impl HostRow<1> for ReacherObservation {
+impl HostRow for ReacherObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.0);
     }

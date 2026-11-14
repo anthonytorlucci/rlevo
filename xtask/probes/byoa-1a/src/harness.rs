@@ -55,7 +55,7 @@ struct StatusLog<E> {
     log: Log,
 }
 
-impl<E: Environment<1, 1>> Environment<1, 1> for StatusLog<E> {
+impl<E: Environment> Environment for StatusLog<E> {
     type ObservationType = E::ObservationType;
     type ActionType = E::ActionType;
 
@@ -110,7 +110,7 @@ impl<O, A, G: Agent<O, A>> Agent<O, A> for Watched<G> {
 /// Its hooks are the defaults, so its training phase learns nothing.
 struct Uniform;
 
-impl<O, A: DiscreteAction<1>> Agent<O, A> for Uniform {
+impl<O, A: DiscreteAction> Agent<O, A> for Uniform {
     fn act(&mut self, _obs: &O, rng: &mut dyn Rng) -> A {
         A::from_index(rng.random_range(0..A::ACTION_COUNT))
     }

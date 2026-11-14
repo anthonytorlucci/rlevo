@@ -26,7 +26,7 @@ use rlevo_core::environment::Environment;
 ///
 /// Pass as the `sample` argument to [`random_return`] for environments whose
 /// `ActionType` is a [`DiscreteAction`] (e.g. `CartPole`).
-pub fn uniform_discrete<const AR: usize, A: DiscreteAction<AR>>(rng: &mut StdRng) -> A {
+pub fn uniform_discrete<A: DiscreteAction>(rng: &mut StdRng) -> A {
     A::from_index(rng.random_range(0..A::ACTION_COUNT))
 }
 
@@ -35,12 +35,10 @@ pub fn uniform_discrete<const AR: usize, A: DiscreteAction<AR>>(rng: &mut StdRng
 /// Each component is drawn from `U(low[i], high[i])`. Pass as the `sample`
 /// argument to [`random_return`] for environments whose `ActionType` is a
 /// [`BoundedAction`] (e.g. `LinearEnv`, Pendulum).
-pub fn uniform_bounded<const AR: usize, A: BoundedAction<AR>>(rng: &mut StdRng) -> A {
+pub fn uniform_bounded<A: BoundedAction>(rng: &mut StdRng) -> A {
     let low = A::low();
     let high = A::high();
-    // Keyed on COMPONENTS (flattened scalar count), not the rank `AR` — see
-    // ADR 0053. `from_slice` asserts on `COMPONENTS`, so an `AR`-length sample
-    // would panic for any multi-component rank-1 action.
+    // `from_slice` asserts on `COMPONENTS`, the flattened scalar count.
     let values: Vec<f32> = (0..A::COMPONENTS)
         .map(|i| rng.random_range(low[i]..high[i]))
         .collect();
@@ -61,7 +59,7 @@ pub fn uniform_bounded<const AR: usize, A: BoundedAction<AR>>(rng: &mut StdRng) 
 /// # Panics
 ///
 /// Panics if `episodes` is zero, or if `env.reset()` / `env.step()` errors.
-pub fn random_return<const R: usize, const AR: usize, E>(
+pub fn random_return<E>(
     env: &mut E,
     episodes: usize,
     max_steps: usize,
@@ -69,7 +67,7 @@ pub fn random_return<const R: usize, const AR: usize, E>(
     mut sample: impl FnMut(&mut StdRng) -> E::ActionType,
 ) -> f32
 where
-    E: Environment<R, AR>,
+    E: Environment,
 {
     assert!(episodes > 0, "episodes must be non-zero");
     let mut total = 0.0_f32;

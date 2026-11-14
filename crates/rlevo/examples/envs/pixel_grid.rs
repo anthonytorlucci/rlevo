@@ -36,7 +36,7 @@ const SCRIPT: [PixelGridAction; 8] = [
 ];
 
 fn main() {
-    let shape = <PixelObservation as Observation<3>>::shape();
+    let shape = <PixelObservation as Observation>::SHAPE;
     println!(
         "PixelGridEnv scripted rollout — observation is rank {} {:?} over a rank-1 [2] state",
         shape.len(),
