@@ -1,20 +1,20 @@
 ---
 project: rlevo
-status: draft
+status: active
 type: decision
 date: 2026-11-14
-tags: [adr, draft, action, const-generics, rank, environment-contract, rlevo-core, rlevo-reinforcement-learning, public-surface, breaking-change]
+tags: [adr, decision, action, const-generics, rank, environment-contract, rlevo-core, rlevo-reinforcement-learning, public-surface, breaking-change]
 ---
 
 # ADR 0100: An action carries no rank
 
-> Draft. The number is taken at landing; until then this is `P-action-rank`.
-> Nothing here has been compiled. The counts are searches over `crates/`,
-> `xtask/` and `templates/` on `main` at `af3ef1cf`.
+> The counts in Context are searches over `crates/`, `xtask/` and
+> `templates/` on `main` at `af3ef1cf`, before this change.
 
 ## Status
 
-**Proposed (2026-11-14).**
+**Accepted (2026-11-14).** Lands in one change with ADR
+[0101](0101-observation-carries-no-rank.md).
 
 - Supersedes ADR [0053](0053-bounded-action-per-component-bounds.md)
   Decision 8, which kept the rank-per-component action form ("Convention B")
@@ -26,8 +26,9 @@ tags: [adr, draft, action, const-generics, rank, environment-contract, rlevo-cor
   decision as it is: `ContinuousAction::COMPONENTS` stays the one authority
   for a continuous action's scalar count. Its Context describes three
   quantities (rank, shape, components); after this ADR an action has one.
-- Does not decide the observation rank. `Observation<R>` and `HostRow<R>`
-  are untouched. See "Out of scope".
+- Does not decide the observation rank. ADR
+  [0101](0101-observation-carries-no-rank.md) does, in the same change, and
+  amends Decision 2: `Environment` has no const parameter at all.
 
 ## Context
 
@@ -279,13 +280,17 @@ list is the expectation it is checked against.
   environment sized at runtime cannot state a static shape). That is a
   question about spaces, and it applies to observations as well.
 
-## Open before landing
+## Landing
 
-- Compile it. Every count above is a search result, and a search finds
-  spellings, not uses. In particular, confirm no downstream code outside the
-  four production sites reaches `Action::shape` through a generic bound.
-- Lint the feature-gated combinations as well as `--all-features`, and
-  check `rlevo-core --lib` alone.
-- Decide whether this lands before or with the observation-rank decision.
-  Landing first means `Environment<OR, AR>` becomes `Environment<OR>` and
-  may change again; landing together means one break for implementors.
+- The workspace compiles with `Action::shape` removed, so nothing outside
+  the four production sites reached it through a generic bound.
+- Clippy with `-D warnings` is clean with `--all-features`, on each library
+  alone (`rlevo-core --lib` among them), and on the feature-gated
+  combinations. `cargo xtask test-fast`, the workspace doctests, rustdoc
+  with `-D warnings` and every probe pass.
+- It lands with ADR 0101, so implementors meet one break and `Environment`
+  goes from `Environment<OR, AR>` to `Environment` directly.
+- `tools/public-surface.sh` records paths, not generic parameters, so of the
+  expected delta it shows none: `Action::shape` had no recorded path at the
+  base either, and every arity change leaves its line unchanged. The list
+  under "Surface delta" stands as the record.

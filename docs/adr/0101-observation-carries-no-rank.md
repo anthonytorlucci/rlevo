@@ -1,25 +1,25 @@
 ---
 project: rlevo
-status: draft
+status: active
 type: decision
 date: 2026-11-14
-tags: [adr, draft, observation, host-row, tensor-convertible, const-generics, rank, environment-contract, rlevo-core, rlevo-reinforcement-learning, public-surface, breaking-change]
+tags: [adr, decision, observation, host-row, tensor-convertible, const-generics, rank, environment-contract, rlevo-core, rlevo-reinforcement-learning, public-surface, breaking-change]
 ---
 
 # ADR 0101: An observation states its shape, and the model states the rank
 
-> Draft. The number is taken at landing; until then this is
-> `P-observation-rank`. It assumes `P-action-rank`
-> (`2026-11-14-adr-action-carries-no-rank.md`) and is written as the change
-> that follows it. The workspace change has not been compiled. The counts are
-> searches over `crates/`, `xtask/` and `templates/` on `main` at `af3ef1cf`.
-> The one thing that was compiled is the probe described under "What was
-> checked".
+> This ADR is written as the change that follows ADR
+> [0100](0100-action-carries-no-rank.md). The counts in Context are searches
+> over `crates/`, `xtask/` and `templates/` on `main` at `af3ef1cf`, before
+> either change.
 
 ## Status
 
-**Proposed (2026-11-14).**
+**Accepted (2026-11-14).** Lands in one change with ADR
+[0100](0100-action-carries-no-rank.md).
 
+- Amends ADR [0100](0100-action-carries-no-rank.md) Decision 2.
+  `Environment<OR>` becomes `Environment`.
 - Amends ADR [0090](0090-the-environment-contract-keeps-only-what-generic-code-reads.md).
   The contract it kept names `Observation<R>` and a ranked `Environment`.
   They become `Observation` and `Environment`, with no const parameter.
@@ -95,7 +95,7 @@ they are unchecked.
 - 37 `const OR: usize` declarations in 10 files; 58 bounds outside `impl`
   headers that spell `Observation<..>` with a rank; 53 lines in 14 files
   that spell `TensorConvertible<..>`.
-- After `P-action-rank`, `OR` is the only const parameter left on
+- After ADR 0100, `OR` is the only const parameter left on
   `Environment`, at 241 lines in 55 files.
 - Ten calls need `<T as Observation<3>>::shape()` to name the rank.
 - A user names an agent as
@@ -298,7 +298,18 @@ A standalone crate on the pinned toolchain (1.99.0), not the workspace:
   `<V as TensorConvertible>::to_tensor::<2>`. The probe returned an array
   and a `Vec`, not a Burn tensor.
 
-Not checked: anything in the workspace, and anything against Burn.
+That probe was written before the workspace change and checked nothing in
+the workspace or against Burn. The workspace change was checked as it
+landed:
+
+- Clippy with `-D warnings` is clean with `--all-features`, on each library
+  alone, on `rlevo-core` with and without `burn`, and on the harness's
+  `record` and `report` and the environments' `record` gates.
+- `cargo xtask test-fast`, the workspace doctests, rustdoc with
+  `-D warnings` and every probe pass.
+- A `compile_fail` doctest on `DqnAgent::new` builds the agent at `BOR = 3`
+  over a rank-1 observation and expects E0080. The same doctest with
+  `BOR = 2` compiles, so the failure is the assertion of Decision 3.
 
 ## Alternatives considered
 
@@ -329,20 +340,34 @@ Not checked: anything in the workspace, and anything against Burn.
   either. Whether a model should take a flat batch and reshape is a
   separate question about the network seam.
 
-## Open before landing
+## Landing
+
+- **Order.** ADR 0100 and this ADR land in one change, so an implementor
+  meets one break and `Environment` changes arity once.
+- **Decision 4, as landed.** The chokepoint is four crate-private functions
+  in `algorithms/shared.rs`: `row_len::<O>()`, `assert_batch_rank::<O,
+  BOR>()`, `upload_rows::<O, BOR>` for a staged batch and `upload_one::<O,
+  BOR>` for the act and value paths. Every agent uploads through them. The
+  learn loops still write each row into the host buffer themselves, because
+  they interleave observations, next observations, actions and rewards in
+  one pass; the layout and the upload are in one place.
+- **`rlevo-hybrid`.** `RolloutFitness` depends on no observation rank, so it
+  gets no assertion and no restriction; its documentation describes the
+  shape instead.
+- **Surface delta, measured.** `tools/public-surface.sh` on eight crates,
+  at `af3ef1cf` and with this change, moves only `rlevo-core`:
+  `Observation::shape` is removed and `Observation::SHAPE` added. It also
+  lists `DiscreteAction::ACTION_COUNT` as added, an item that exists at the
+  base without a recorded path. The listing records paths, not generic
+  parameters, so the arity changes under "Surface delta" do not appear in
+  it, and that list stands as the record.
+
+## Open
 
 - **Does `TensorConvertible` keep a consumer?** After Decision 4 its
-  callers are three benches, one example's doc comment and the umbrella's
-  re-export. It is the only item behind `rlevo-core`'s `burn` feature
-  (three `cfg` lines in `base.rs`), so deleting it removes the feature and
-  makes the core Burn-free unconditionally, which would amend ADR 0089
-  Decision 1. Against that: an outside author writing a Burn agent on
-  `rlevo-core` alone uses it to get a tensor. This draft keeps it. The
-  count of outside-style callers (probes, template seams) decides.
-- **Read `rlevo-hybrid`'s rank-1 dependence** and decide between an
-  assertion and no restriction.
-- **Compile the workspace change**, lint the feature-gated combinations,
-  check each library alone, run the doctests.
-- **Order.** Land `P-action-rank` first and this second, in one release, so
-  an implementor meets one break. `Environment` changes arity in each pull
-  request and once per release.
+  callers in the workspace are benches and `rlevo-core`'s own tests. It is
+  the only item behind `rlevo-core`'s `burn` feature, so deleting it
+  removes the feature and makes the core Burn-free unconditionally, which
+  would amend ADR 0089 Decision 1. Against that: an outside author writing
+  a Burn agent on `rlevo-core` alone uses it to get a tensor. This ADR keeps
+  it. The count of outside-style callers (probes, template seams) decides.
