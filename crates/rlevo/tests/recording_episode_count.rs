@@ -57,7 +57,7 @@ use rlevo_harness::report::RecordedRun;
 // action. This makes episode boundaries independent of the agent's behaviour,
 // so we can pick `TOTAL_STEPS` to land the final step exactly on a terminal
 // step. It reuses CartPole's observation / action / reward types purely to
-// inherit their `Observation` / `Action` / `TensorConvertible` impls — no
+// inherit their `Observation` / `Action` / `HostRow` impls — no
 // CartPole physics is involved.
 // ---------------------------------------------------------------------------
 
@@ -67,7 +67,7 @@ const EP_LEN: usize = 10;
 /// used to make episode counts predictable in recording tests.
 ///
 /// Reuses `CartPole`'s observation, action, and reward types solely to inherit
-/// their `Observation`, `Action`, and `TensorConvertible` impls. No `CartPole`
+/// their `Observation`, `Action`, and `HostRow` impls. No `CartPole`
 /// physics is involved.
 #[derive(Debug)]
 struct FixedLenEnv {

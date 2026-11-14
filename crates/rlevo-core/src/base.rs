@@ -1,5 +1,4 @@
-//! Primitive trait vocabulary: [`Observation`], [`Action`] and [`HostRow`],
-//! plus `TensorConvertible` under the `burn` feature.
+//! Primitive trait vocabulary: [`Observation`], [`Action`] and [`HostRow`].
 //!
 //! All other modules in this crate depend on the types defined here.
 //!
@@ -10,12 +9,10 @@
 //! Core traits for reinforcement learning abstractions.
 //!
 //! This module defines the foundational vocabulary used throughout `rlevo-core`:
-//! observations, actions, and the host row a tensor is built from. The conversion to a Burn tensor itself,
-//! `TensorConvertible`, exists only under the `burn` feature. All other modules
+//! observations, actions, and the host row a tensor is built from. Nothing
+//! here depends on Burn: an agent uploads the row itself. All other modules
 //! depend on these primitives.
 
-#[cfg(feature = "burn")]
-use burn::tensor::{Device, Tensor, TensorData};
 use std::fmt::Debug;
 
 /// The `Observation` trait defines how an agent perceives the world. It
@@ -94,11 +91,12 @@ pub trait Action: Debug + Clone + Sized {
 /// [`DiscreteAction::to_index`](crate::action::DiscreteAction::to_index) and
 /// [`ContinuousAction::as_slice`](crate::action::ContinuousAction::as_slice).
 ///
-/// Implementing it is all a type does for tensor conversion. With this crate's
-/// `burn` feature on, `TensorConvertible` is implemented for every `HostRow`
-/// type and uploads the row; without it, nothing here depends on Burn. A batch
-/// is staged by calling [`write_host_row`] once per item into one buffer,
-/// because staging never touches a device.
+/// Implementing it is all a type does for tensor conversion. The upload
+/// belongs to the agent that holds a device: it stages a batch by calling
+/// [`write_host_row`] once per item into one buffer, because staging never
+/// touches a device, and uploads the buffer once in the shape
+/// `[n, ..SHAPE]`. One row is a batch of one. The `rlevo` crate's
+/// documentation shows the upload with Burn (ADR 0102).
 ///
 /// # Invariants
 ///
@@ -108,10 +106,9 @@ pub trait Action: Debug + Clone + Sized {
 pub trait HostRow: Observation {
     /// Appends the row-major `f32` payload of `self` to `buf`.
     ///
-    /// This is the primitive from which both single-item conversion
-    /// (`TensorConvertible::to_tensor`) and whole-batch staging (one call per
-    /// item into one buffer) are built, so the two can never disagree on
-    /// element order.
+    /// This is the primitive every upload is built from, one item or a whole
+    /// batch (one call per item into one buffer), so the two can never
+    /// disagree on element order.
     ///
     /// # Contract
     ///
@@ -215,48 +212,6 @@ fn row_slice_is_finite(buf: &[f32]) -> bool {
         != EXPONENT_MASK
 }
 
-/// Conversion from a domain type to a Burn tensor, behind the `burn` feature.
-///
-/// The backend-independent half of the conversion — the row layout — lives on
-/// the [`HostRow`] supertrait; this trait adds only the device-facing half.
-/// It is implemented for every [`HostRow`] type by a blanket impl, so no type
-/// writes it, or overrides [`to_tensor`](Self::to_tensor), by hand.
-///
-/// Conversion runs one way: nothing in the workspace turns a tensor back into
-/// a domain value. The decoders in use read a host value directly
-/// (`DiscreteAction::from_index`, `ContinuousAction::from_slice`).
-///
-#[cfg(feature = "burn")]
-pub trait TensorConvertible: HostRow {
-    /// Converts `self` into a tensor on `device`.
-    ///
-    /// Stages one row into a host `Vec<f32>` with [`write_host_row`] and uploads
-    /// it with a single [`Tensor::from_data`], in the shape [`SHAPE`] states.
-    /// A batch staged with the same row writer therefore has the same element
-    /// order.
-    ///
-    /// # Rank
-    ///
-    /// `R` is the rank of the tensor returned and must equal `SHAPE.len()`.
-    /// The relation is asserted when the call is instantiated, so a mismatch
-    /// fails `cargo build` and `cargo test`; `cargo check` does not report it
-    /// (ADR 0101).
-    ///
-    /// [`SHAPE`]: Observation::SHAPE
-    /// [`write_host_row`]: HostRow::write_host_row
-    fn to_tensor<const R: usize>(&self, device: &Device) -> Tensor<R> {
-        const { assert!(Self::SHAPE.len() == R) };
-        let row: &[usize] = Self::SHAPE;
-        let mut buf: Vec<f32> = Vec::with_capacity(row.iter().product());
-        self.write_host_row(&mut buf);
-        debug_assert_eq!(buf.len(), row.iter().product::<usize>());
-        Tensor::from_data(TensorData::new(buf, row), device)
-    }
-}
-
-#[cfg(feature = "burn")]
-impl<T: HostRow> TensorConvertible for T {}
-
 #[cfg(test)]
 mod tests {
     // These tests assert exact round-trip of values that are stored and read
@@ -292,90 +247,6 @@ mod tests {
             pixels: [[1, 0], [0, 1]],
         };
         assert_eq!(obs.clone(), obs);
-    }
-
-    // ========================================================================
-    // TensorConvertible: the derived `to_tensor`, through the blanket impl
-    // ========================================================================
-
-    #[cfg(feature = "burn")]
-    mod to_tensor {
-        use super::*;
-
-        /// Rank-1 test row: three scalar features, shape `[3]`.
-        #[derive(Clone, Debug)]
-        struct Vec3(f32, f32, f32);
-
-        impl Observation for Vec3 {
-            const SHAPE: &'static [usize] = &[3];
-        }
-
-        impl HostRow for Vec3 {
-            fn write_host_row(&self, buf: &mut Vec<f32>) {
-                buf.extend_from_slice(&[self.0, self.1, self.2]);
-            }
-        }
-
-        /// Rank-3 test row: a `[2, 2, 1]` image-like payload.
-        #[derive(Clone, Debug)]
-        struct Img([f32; 4]);
-
-        impl Observation for Img {
-            const SHAPE: &'static [usize] = &[2, 2, 1];
-        }
-
-        impl HostRow for Img {
-            fn write_host_row(&self, buf: &mut Vec<f32>) {
-                buf.extend_from_slice(&self.0);
-            }
-        }
-
-        /// The derived `to_tensor` produces the same data/shape as the old manual
-        /// `Tensor::from_floats` path for a rank-1 row.
-        #[test]
-        fn test_derived_to_tensor_rank1_matches_manual() {
-            let device: Device = Device::flex();
-            let item: Vec3 = Vec3(1.5, -2.5, 3.5);
-
-            let derived: Tensor<1> = <Vec3 as TensorConvertible>::to_tensor::<1>(&item, &device);
-            let manual: Tensor<1> = Tensor::from_floats([1.5_f32, -2.5, 3.5], &device);
-
-            assert_eq!(derived.dims(), manual.dims());
-            let derived_v: Vec<f32> = derived
-                .into_data()
-                .try_into_vec::<f32>()
-                .expect("f32 host read of a tensor this test just built");
-            let manual_v: Vec<f32> = manual
-                .into_data()
-                .try_into_vec::<f32>()
-                .expect("f32 host read of a tensor this test just built");
-            assert_eq!(derived_v, manual_v);
-        }
-
-        /// The derived `to_tensor` produces the same data/shape as the old manual
-        /// `TensorData::new` path for a rank-3 row.
-        #[test]
-        fn test_derived_to_tensor_rank3_matches_manual() {
-            let device: Device = Device::flex();
-            let item: Img = Img([0.1, 0.2, 0.3, 0.4]);
-
-            let derived: Tensor<3> = <Img as TensorConvertible>::to_tensor::<3>(&item, &device);
-            let manual: Tensor<3> = Tensor::from_data(
-                TensorData::new(vec![0.1_f32, 0.2, 0.3, 0.4], [2, 2, 1]),
-                &device,
-            );
-
-            assert_eq!(derived.dims(), manual.dims());
-            let derived_v: Vec<f32> = derived
-                .into_data()
-                .try_into_vec::<f32>()
-                .expect("f32 host read of a tensor this test just built");
-            let manual_v: Vec<f32> = manual
-                .into_data()
-                .try_into_vec::<f32>()
-                .expect("f32 host read of a tensor this test just built");
-            assert_eq!(derived_v, manual_v);
-        }
     }
 
     // ===== `row_is_finite` / `row_slice_is_finite` =====

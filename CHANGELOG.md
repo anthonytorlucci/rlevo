@@ -11,6 +11,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking changes
 
+- **`TensorConvertible` is deleted, and `rlevo-core` does not depend on
+  Burn** (ADR 0102). Nothing in the workspace's own code, the probes or the
+  `rlevo-algo` template called it: every agent stages a batch of rows and
+  uploads it once. With it goes the core's `burn` feature, the only thing
+  behind it, so `rlevo-core` no longer has a Burn dependency under any
+  feature, and `rlevo::prelude` no longer re-exports it.
+  - **Uploading one observation.** Write the row with `HostRow` and upload
+    it yourself; the `rlevo` crate docs ("Uploading observations") show a
+    batch version, of which one row is a batch of one:
+
+    ```rust
+    // before
+    let t: Tensor<1> = obs.to_tensor(&device);
+
+    // after
+    let mut row = Vec::with_capacity(O::SHAPE.iter().product());
+    obs.write_host_row(&mut row);
+    let t: Tensor<1> = Tensor::from_data(TensorData::new(row, O::SHAPE), &device);
+    ```
+  - **Manifests.** Remove `features = ["burn"]` from an `rlevo-core`
+    dependency; the feature no longer exists.
+
 - **An action carries no rank, and an observation states its shape as a
   constant** (ADR 0100, ADR 0101). No domain trait takes a const rank any
   more. `Action::shape` is removed, not replaced: the size of a discrete
@@ -48,8 +70,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ```
 
   - **Arity changes.** `Action`, `DiscreteAction`, `ContinuousAction`,
-    `BoundedAction`, `Observation`, `HostRow`, `TensorConvertible` and
-    `Environment` lose every const parameter, so each is named bare:
+    `BoundedAction`, `Observation`, `HostRow` and `Environment` lose every
+    const parameter, so each is named bare:
     `A: BoundedAction`, `O: HostRow`, `E: Environment`. Delete `fn shape`
     from every `Action` impl and the rank from every `impl` header. Replace
     `fn shape() -> [usize; N] { [..] }` on an observation with
@@ -59,9 +81,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     `write_host_row` pushes exactly `SHAPE.iter().product()` values. The
     rule that a type implements `HostRow` at one rank is gone, and so is the
     turbofish (`<T as Observation<3>>::shape()`) it forced.
-  - **`TensorConvertible::to_tensor` takes its rank on the method:**
-    `obs.to_tensor::<R>(&device)`, or `let t: Tensor<R> = obs.to_tensor(&device)`.
-    It asserts `Self::SHAPE.len() == R` when it is built.
   - **An agent keeps one rank, `BOR`, the rank of its model's input.**
     `DqnAgent<M, O, A, BOR>` replaces `DqnAgent<M, O, A, OR, BOR>`, and the
     same drop applies to `QrDqnAgent`, `C51Agent`, `PpoAgent`, `PpgAgent`,

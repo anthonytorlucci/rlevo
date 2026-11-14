@@ -1,5 +1,5 @@
 //! A/B micro-bench of the minibatch observation-staging seam: the device
-//! round trip (`obs.to_tensor(device)` then immediately `.into_data()`,
+//! round trip (one row uploaded by `row_to_tensor` then immediately `.into_data()`,
 //! upload-then-download-unchanged) vs. `HostRow::write_host_row`
 //! (pure host staging, one batched upload). Answers the open question of how
 //! much the host-side staging fix (below) actually saves versus the round
@@ -32,7 +32,7 @@
 //!   `HostRow::write_host_row(&mut flat)` (no device touched), then the same
 //!   batched `Tensor::from_data`.
 //!
-//! Both are generic over the row type `T: TensorConvertible` and take the
+//! Both are generic over the row type `T: HostRow` and take the
 //! device as a value, so one implementation covers `CartPoleObservation` (`R = 1`,
 //! 4 floats/row) and `PixelObservation` (`R = 3`, 1200 floats/row) and both
 //! `Flex` and `Wgpu`, so the sweep covers both axes that matter: sync count
@@ -88,7 +88,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_core::base::TensorConvertible;
+use rlevo_core::base::HostRow;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
 use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObservation};
 
@@ -105,6 +105,16 @@ const BATCH_SIZES: [usize; 3] = [32, 64, 256];
 // The two staging strategies under test
 // ---------------------------------------------------------------------------
 
+/// One row uploaded as its own rank-`R` tensor: what `rlevo-core`'s
+/// `TensorConvertible::to_tensor` did before ADR 0102 deleted it, kept here
+/// because the retired round-trip baseline is built from it.
+fn row_to_tensor<O: HostRow, const R: usize>(obs: &O, device: &Device) -> Tensor<R> {
+    const { assert!(O::SHAPE.len() == R) };
+    let mut buf: Vec<f32> = Vec::with_capacity(O::SHAPE.iter().product());
+    obs.write_host_row(&mut buf);
+    Tensor::from_data(TensorData::new(buf, O::SHAPE), device)
+}
+
 /// The retired round-trip path: per row, upload then immediately read back,
 /// purely to obtain a host `f32` slice to append. Reproduced verbatim from the
 /// minibatch loop in `57dd565`'s parent `dqn_agent.rs::learn_step`
@@ -112,14 +122,14 @@ const BATCH_SIZES: [usize; 3] = [32, 64, 256];
 /// `extend_from_slice(..as_slice::<f32>()..)`), which no agent runs any more.
 fn stage_roundtrip<const R: usize, const BR: usize, T>(items: &[T], device: &DeviceOf) -> Tensor<BR>
 where
-    T: TensorConvertible,
+    T: HostRow,
 {
     debug_assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
     let row_shape = T::SHAPE;
     let row_len: usize = row_shape.iter().product();
     let mut flat: Vec<f32> = Vec::with_capacity(items.len() * row_len);
     for item in items {
-        let row_tensor: Tensor<R> = item.to_tensor(device);
+        let row_tensor: Tensor<R> = row_to_tensor(item, device);
         let row_data = row_tensor.into_data().convert::<f32>();
         flat.extend_from_slice(row_data.as_slice::<f32>().expect("float data"));
     }
@@ -135,7 +145,7 @@ where
 /// minibatch loop calls since `57dd565` (see the module-level note).
 fn stage_host_row<const R: usize, const BR: usize, T>(items: &[T], device: &DeviceOf) -> Tensor<BR>
 where
-    T: TensorConvertible,
+    T: HostRow,
 {
     debug_assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
     let row_shape = T::SHAPE;
@@ -154,7 +164,7 @@ where
 /// are bit-identical. Call **once**, outside any timed region.
 fn assert_bit_identical<const R: usize, const BR: usize, T>(items: &[T], device: &DeviceOf)
 where
-    T: TensorConvertible,
+    T: HostRow,
 {
     let rt: Tensor<BR> = stage_roundtrip::<R, BR, T>(items, device);
     let hr: Tensor<BR> = stage_host_row::<R, BR, T>(items, device);
@@ -210,7 +220,7 @@ fn bench_stage<const R: usize, const BR: usize, T>(
     bench: BenchDevice,
     make_batch: impl Fn(usize, &mut StdRng) -> Vec<T>,
 ) where
-    T: TensorConvertible,
+    T: HostRow,
 {
     let device = bench.device();
     let mut rng = StdRng::seed_from_u64(365);

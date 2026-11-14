@@ -17,7 +17,7 @@ rand_distr = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-rlevo-core = { path = "../rlevo-core", version = "0.6.1", features = ["burn"] }
+rlevo-core = { path = "../rlevo-core", version = "0.6.1" }
 
 [dev-dependencies]
 approx = { workspace = true }
