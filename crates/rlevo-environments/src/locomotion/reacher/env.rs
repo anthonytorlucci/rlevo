@@ -278,7 +278,7 @@ impl Default for Reacher {
     }
 }
 
-impl Environment<1, 1> for Reacher {
+impl Environment for Reacher {
     type ObservationType = ReacherObservation;
     type ActionType = ReacherAction;
 
@@ -635,8 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn action_shape_and_validity() {
-        assert_eq!(ReacherAction::shape(), [2]);
+    fn action_validity() {
         assert!(ReacherAction::new(0.0, 0.0).is_valid());
         assert!(ReacherAction::new(1.0, -1.0).is_valid());
         assert!(!ReacherAction::new(1.5, 0.0).is_valid());
@@ -645,7 +644,7 @@ mod tests {
 
     #[test]
     fn observation_shape() {
-        assert_eq!(ReacherObservation::shape(), [10]);
+        assert_eq!(ReacherObservation::SHAPE, [10]);
     }
 
     /// A **narrowed** `action_clip` must still accept a boundary action of the

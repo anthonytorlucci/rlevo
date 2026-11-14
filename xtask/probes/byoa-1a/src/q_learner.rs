@@ -43,7 +43,7 @@ pub struct QLearner<O, A> {
     action: PhantomData<A>,
 }
 
-impl<O, A: DiscreteAction<1>> QLearner<O, A> {
+impl<O, A: DiscreteAction> QLearner<O, A> {
     /// A learner for `states` states, every value optimistic, set to train.
     pub fn new(states: usize, state_of: fn(&O) -> usize, schedule: usize) -> Self {
         assert!(schedule > 0, "the ε schedule needs at least one episode");
@@ -97,7 +97,7 @@ impl<O, A: DiscreteAction<1>> QLearner<O, A> {
     }
 }
 
-impl<O, A: DiscreteAction<1>> Agent<O, A> for QLearner<O, A> {
+impl<O, A: DiscreteAction> Agent<O, A> for QLearner<O, A> {
     /// ε-greedy, every draw from the driver's `rng`.
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         let index = if rng.random_bool(self.epsilon()) {

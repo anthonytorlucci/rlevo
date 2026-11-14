@@ -11,7 +11,8 @@
 //! (ADR 0065); [`FiniteObsGuard`], its observation-side counterpart, which
 //! drops and counts at `remember` and detects and reports at `act` (ADR 0067);
 //! and the three pieces every default network is built from
-//! ([`hidden_layers`], [`run_hidden`], [`flatten_batch`]). [`rl_counter`]
+//! ([`hidden_layers`], [`run_hidden`], [`flatten_batch`]); and
+//! [`upload_rows`], the one place an agent lays out a batch of observations. [`rl_counter`]
 //! names each counter an agent reports through `Agent::emit_metrics`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,6 +23,7 @@ use burn::optim::{GradientsParams, LearningRate, ModuleOptimizer};
 use burn::tensor::{Device, Tensor, TensorData};
 
 use rlevo_core::action::BoundedAction;
+use rlevo_core::base::{HostRow, Observation};
 use rlevo_core::config::{self, ConfigError};
 use rlevo_core::fitness::Metric;
 
@@ -197,7 +199,7 @@ pub(crate) fn rl_counter(name: &str, count: u64) -> Metric {
 ///
 /// Panics if `A::low().len()` or `A::high().len()` differs from
 /// `A::COMPONENTS`, or if `A::low()[i] >= A::high()[i]` for any component `i`.
-pub(crate) fn assert_bounds_match_components<const AR: usize, A: BoundedAction<AR>>() {
+pub(crate) fn assert_bounds_match_components<A: BoundedAction>() {
     assert_eq!(
         A::low().len(),
         A::COMPONENTS,
@@ -221,49 +223,25 @@ pub(crate) fn assert_bounds_match_components<const AR: usize, A: BoundedAction<A
     }
 }
 
-/// Builds the `[1, ..action_shape]` per-component lower/upper bound tensors used
+/// Builds the `[1, COMPONENTS]` per-component lower/upper bound tensors used
 /// by the DDPG and TD3 target-action clip.
 ///
 /// TD3 Eq. 14 (Fujimoto et al. 2018) clips the target action against the
-/// `Box(low, high)` **vectors**, one limit per component. Burn 0.21's `clamp`
+/// `Box(low, high)` **vectors**, one limit per component. Burn's `clamp`
 /// family takes a scalar and cannot express that, so the clip goes through
 /// `max_pair`/`min_pair`, which need a tensor operand broadcastable to the
-/// `[batch, ..action_shape]` action tensor. Leading dim `1` broadcasts across
+/// `[batch, COMPONENTS]` action tensor. Leading dim `1` broadcasts across
 /// the batch.
 ///
 /// Built once per agent, at construction: the bounds are `&'static` (ADR 0053
 /// §2) and the device is already in hand, so nothing here belongs on the
 /// per-`learn_step` path.
-///
-/// # Panics
-///
-/// Panics if `A::shape()` does not describe exactly `A::COMPONENTS` scalars.
-/// The learn path already assumes this — it lays out the batched action tensor
-/// as `[batch, ..A::shape()]` and fills it from `A::as_slice()`, which is
-/// `COMPONENTS` long — so an action using ADR 0053 §8's Convention B (rank > 1
-/// with a non-matching `shape()` product) is unusable with these agents, and
-/// says so here rather than as a `TensorData` shape error.
-pub(crate) fn action_bound_tensors<A, const AR: usize, const BAR: usize>(
-    device: &Device,
-) -> (Tensor<BAR>, Tensor<BAR>)
+pub(crate) fn action_bound_tensors<A>(device: &Device) -> (Tensor<2>, Tensor<2>)
 where
-    A: BoundedAction<AR>,
+    A: BoundedAction,
 {
-    let action_shape = A::shape();
-    let numel: usize = action_shape.iter().product();
-    assert_eq!(
-        numel,
-        A::COMPONENTS,
-        "action shape {action_shape:?} describes {numel} scalars but COMPONENTS is {}; \
-         the continuous-control agents require shape().product() == COMPONENTS",
-        A::COMPONENTS,
-    );
-
-    let mut shape: Vec<usize> = Vec::with_capacity(BAR);
-    shape.push(1);
-    shape.extend_from_slice(&action_shape);
-
-    let low = Tensor::from_data(TensorData::new(A::low().to_vec(), shape.clone()), device);
+    let shape = [1, A::COMPONENTS];
+    let low = Tensor::from_data(TensorData::new(A::low().to_vec(), shape), device);
     let high = Tensor::from_data(TensorData::new(A::high().to_vec(), shape), device);
     (low, high)
 }
@@ -272,18 +250,18 @@ where
 ///
 /// This is TD3 Eq. 14's outer clip, shared by DDPG's target path (which is the
 /// same clip without the smoothing noise). `low` and `high` come from
-/// [`action_bound_tensors`] and are shaped `[1, ..action_shape]`, so they
+/// [`action_bound_tensors`] and are shaped `[1, COMPONENTS]`, so they
 /// broadcast across the batch dimension of `actions`.
 ///
 /// Burn 0.21's `clamp` / `clamp_min` / `clamp_max` take a scalar
 /// `E: ElementConversion` and cannot express one limit per component, so this
 /// is `max_pair` followed by `min_pair` — two broadcast elementwise ops rather
-/// than one fused scalar clamp, over the same `[batch, ..action_shape]` data.
-pub(crate) fn clip_to_action_bounds<const BAR: usize>(
-    actions: Tensor<BAR>,
-    low: Tensor<BAR>,
-    high: Tensor<BAR>,
-) -> Tensor<BAR> {
+/// than one fused scalar clamp, over the same `[batch, COMPONENTS]` data.
+pub(crate) fn clip_to_action_bounds(
+    actions: Tensor<2>,
+    low: Tensor<2>,
+    high: Tensor<2>,
+) -> Tensor<2> {
     actions.max_pair(low).min_pair(high)
 }
 
@@ -356,6 +334,55 @@ pub(crate) fn run_hidden(
     layers
         .iter()
         .fold(x, |x, layer| activation(layer.forward(x)))
+}
+
+/// The number of `f32` values one row of `O` stages: the product of
+/// [`Observation::SHAPE`].
+pub(crate) fn row_len<O: Observation>() -> usize {
+    O::SHAPE.iter().product()
+}
+
+/// States, at build time, that a model taking rank-`BOR` input suits `O`:
+/// `BOR` is the observation's rank plus the batch axis (ADR 0101).
+///
+/// Evaluated when the calling function is instantiated, so a mismatch fails
+/// `cargo build` and `cargo test`, naming the instantiation; `cargo check`
+/// does not instantiate and does not report it.
+pub(crate) fn assert_batch_rank<O: Observation, const BOR: usize>() {
+    const {
+        assert!(
+            O::SHAPE.len() + 1 == BOR,
+            "the model's input rank must be the observation's rank plus one"
+        );
+    }
+}
+
+/// Uploads `n` staged rows of `O` as one `[n, ..O::SHAPE]` tensor of rank
+/// `BOR` on `device`.
+///
+/// The one place an agent lays out a batch of observations (ADR 0028
+/// Decision 2, restored by ADR 0101). `buf` holds the rows as
+/// [`HostRow::write_host_row`] pushed them, `n * row_len::<O>()` values.
+pub(crate) fn upload_rows<O: Observation, const BOR: usize>(
+    buf: Vec<f32>,
+    n: usize,
+    device: &Device,
+) -> Tensor<BOR> {
+    assert_batch_rank::<O, BOR>();
+    debug_assert_eq!(buf.len(), n * row_len::<O>());
+    let mut shape: Vec<usize> = Vec::with_capacity(BOR);
+    shape.push(n);
+    shape.extend_from_slice(O::SHAPE);
+    Tensor::from_data(TensorData::new(buf, shape), device)
+}
+
+/// Stages one observation and uploads it as a batch of one, `[1, ..O::SHAPE]`.
+///
+/// The act and value paths' entry to [`upload_rows`].
+pub(crate) fn upload_one<O: HostRow, const BOR: usize>(obs: &O, device: &Device) -> Tensor<BOR> {
+    let mut buf: Vec<f32> = Vec::with_capacity(row_len::<O>());
+    obs.write_host_row(&mut buf);
+    upload_rows::<O, BOR>(buf, 1, device)
 }
 
 /// Flattens a batch of observations of rank `BOR` to `(batch, features)`.
@@ -1441,16 +1468,13 @@ mod tests {
             #[derive(Debug, Clone, Copy)]
             struct $name([f32; 2]);
 
-            impl Action<1> for $name {
-                fn shape() -> [usize; 1] {
-                    [2]
-                }
+            impl Action for $name {
                 fn is_valid(&self) -> bool {
                     self.0.iter().all(|v| v.is_finite())
                 }
             }
 
-            impl ContinuousAction<1> for $name {
+            impl ContinuousAction for $name {
                 const COMPONENTS: usize = 2;
 
                 fn as_slice(&self) -> &[f32] {
@@ -1462,7 +1486,7 @@ mod tests {
                 }
             }
 
-            impl BoundedAction<1> for $name {
+            impl BoundedAction for $name {
                 fn low() -> &'static [f32] {
                     $low
                 }
@@ -1480,13 +1504,13 @@ mod tests {
 
     #[test]
     fn test_assert_bounds_match_components_accepts_a_conforming_impl() {
-        assert_bounds_match_components::<1, ConformingBounds>();
+        assert_bounds_match_components::<ConformingBounds>();
     }
 
     #[test]
     #[should_panic(expected = "low() has 3 elements but COMPONENTS is 2")]
     fn test_assert_bounds_match_components_rejects_a_wrong_length() {
-        assert_bounds_match_components::<1, OverLongLowBounds>();
+        assert_bounds_match_components::<OverLongLowBounds>();
     }
 
     #[test]
@@ -1496,7 +1520,7 @@ mod tests {
         // `low()[i] < high()[i]`. Left unchecked, an inverted pair reaches
         // `rng.random_range(low..=high)` (empty-range panic) and `f32::clamp`
         // (`min > max` panic) mid-episode, naming the agent instead of the impl.
-        assert_bounds_match_components::<1, InvertedBounds>();
+        assert_bounds_match_components::<InvertedBounds>();
     }
 
     #[test]
@@ -1505,7 +1529,7 @@ mod tests {
         // `low == high` is the quieter half: `random_range` is happy with a
         // one-point inclusive range, so a degenerate action space would train
         // silently forever rather than reporting anything.
-        assert_bounds_match_components::<1, DegenerateBounds>();
+        assert_bounds_match_components::<DegenerateBounds>();
     }
 
     // -------- reduce_weighted_loss --------

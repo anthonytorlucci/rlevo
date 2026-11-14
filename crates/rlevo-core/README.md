@@ -15,7 +15,7 @@ Environment ──reset/step──► Snapshot ──observation──► Agent 
                                    └──reward──────────────────────────────────────┘
 ```
 
-The rank (number of tensor axes) of every state, observation and action is enforced at compile time via const generics, so rank mismatches become type errors rather than runtime panics.
+No domain trait carries a rank parameter. An observation states its shape as the constant `SHAPE` (its rank is `SHAPE.len()`), and an action's size is `ACTION_COUNT` or `COMPONENTS`. The one rank an agent names is `BOR`, its model's input rank, and the agent asserts when it is built that it equals the observation's rank plus one.
 
 ## Modules
 
@@ -25,10 +25,10 @@ The primitive building blocks of the RL abstraction.
 
 | Trait | Description |
 |---|---|
-| `Observation<R>` | What the agent perceives (may be a partial view of state) |
-| `Action<R>` | Base action constraint (`is_valid()`) |
-| `HostRow<R>` | An observation's flat `f32` row (`write_host_row`), in the shape `shape()` reports |
-| `TensorConvertible<R, B>` | With the `burn` feature: uploads a `HostRow` as a Burn tensor; implemented for every `HostRow` |
+| `Observation` | What the agent perceives (may be a partial view of state); states its shape as `const SHAPE: &'static [usize]` |
+| `Action` | Base action constraint (`is_valid()`); no shape and no rank |
+| `HostRow` | An observation's flat `f32` row (`write_host_row`), of `SHAPE.iter().product()` values |
+| `TensorConvertible` | With the `burn` feature: `to_tensor::<R>` uploads a `HostRow` as a rank-`R` Burn tensor, asserting `SHAPE.len() == R` when built; implemented for every `HostRow` |
 
 To feed an observation to a neural-network agent, implement `HostRow` on it. `TensorConvertible` comes with the `burn` feature, which `rlevo-reinforcement-learning` turns on, and needs no impl of its own. Without the feature the crate does not depend on Burn.
 
@@ -38,9 +38,9 @@ Layered action abstractions cover the standard taxonomy:
 
 | Trait | Use Case |
 |---|---|
-| `DiscreteAction<R>` | Finite enumerable actions (e.g., 4-directional movement). Provides `from_index` and `to_index`. |
-| `ContinuousAction<R>` | Real-valued vectors with `from_slice` and `as_slice`, of `COMPONENTS` values. |
-| `BoundedAction<R>` | Extends `ContinuousAction<R>` with per-component `low()` / `high()` bounds. |
+| `DiscreteAction` | Finite enumerable actions (e.g., 4-directional movement), `ACTION_COUNT` of them. Provides `from_index` and `to_index`. |
+| `ContinuousAction` | Real-valued vectors with `from_slice` and `as_slice`, of `COMPONENTS` values. |
+| `BoundedAction` | Extends `ContinuousAction` with per-component `low()` / `high()` bounds. |
 
 ### `state` — State Errors
 
@@ -52,7 +52,7 @@ Layered action abstractions cover the standard taxonomy:
 
 | Item | Description |
 |---|---|
-| `Environment<OR, AR>` | Core trait: `reset()`, `step(action)` |
+| `Environment` | Core trait, no parameters: `reset()`, `step(action)` |
 | `Snapshot<O>` | Per-step result returned by `reset` and `step`: observation, `ScalarReward`, status, optional metadata; named constructors `running()`, `terminated()`, `truncated()` |
 | `EpisodeStatus` | `Running \| Terminated \| Truncated` — distinguishes natural episode ends from step-limit truncations (important for value bootstrapping) |
 | `SnapshotMetadata` | Builder for named reward components and 3-D positions (visualization / debugging) |
@@ -67,7 +67,7 @@ Layered action abstractions cover the standard taxonomy:
 
 ### `evaluation` — Drive Seam for Self-Paced Work
 
-The seam a benchmark harness drives when the work is *not* an episodic agent/environment interaction. Episodic work needs nothing here: `rlevo-harness` binds on `Environment` directly and infers its rank parameters from the suite (ADR 0076).
+The seam a benchmark harness drives when the work is *not* an episodic agent/environment interaction. Episodic work needs nothing here: `rlevo-harness` binds on `Environment` directly and takes its types from the suite (ADR 0076).
 
 Lives in core so `rlevo-evolution` (which implements it) and `rlevo-harness` (which drives it) can share it without a cross-crate dependency — the same argument ADR 0004 made for the `BenchEnv` surface that used to live here, and that ADR 0077 removed.
 
@@ -146,15 +146,15 @@ The rendering surface feeds the post-run visualisation product (ADRs 0013, 0096)
 
 ## Design Principles
 
-**Const generics for ranks.** `Observation` and `Action`, and the traits built on them, carry a const rank `R` (`OR` and `AR` where both meet) so that rank mismatches fail at compile time, not at runtime.
+**Shapes as constants, no rank on the contract.** `Observation` states `SHAPE`, and neither `Observation`, `Action` nor `Environment` takes a const rank (ADR 0100, ADR 0101). The rank an agent needs is `BOR`, its model's input rank; the agent asserts `O::SHAPE.len() + 1 == BOR` when built. The error appears at `cargo build` and `cargo test`, not at `cargo check`.
 
-**Separation of state and observation.** An environment's state is its own type, which the contract does not name; `Observation<R>` is what the agent receives. This separation makes POMDPs first-class citizens rather than workarounds.
+**Separation of state and observation.** An environment's state is its own type, which the contract does not name; `Observation` is what the agent receives. This separation makes POMDPs first-class citizens rather than workarounds.
 
 **Terminated vs. Truncated.** `EpisodeStatus` distinguishes a natural terminal state from a step-limit cutoff. Algorithms that bootstrap values (e.g., TD-learning) need this distinction to avoid incorrect target computation.
 
 **Trait-based composition.** No inheritance. New action spaces, state types, and genome kinds are added by implementing the appropriate trait.
 
-**Zero-cost abstractions.** `Copy` reward/state types and const-generic ranks incur no runtime cost.
+**Zero-cost abstractions.** `Copy` reward/state types and constant shapes incur no runtime cost.
 
 ## Usage
 
@@ -165,7 +165,7 @@ Add to your `Cargo.toml`:
 rlevo-core = "0.5"
 ```
 
-The example below is the contract from 0.6.0: an `Environment` has two ranks and two associated types (ADR 0090), and the crate depends on Burn only under its `burn` feature (ADR 0089). In 0.5.0 it had three ranks and five associated types, no `episode` module, and an unconditional Burn dependency.
+The example below is the contract after ADR 0100 and ADR 0101: an `Environment` has two associated types and no const parameters, and the crate depends on Burn only under its `burn` feature (ADR 0089). In 0.6 it had two rank parameters (ADR 0090); in 0.5.0 it had three ranks and five associated types, no `episode` module, and an unconditional Burn dependency.
 
 ### Minimal Environment
 
@@ -179,7 +179,7 @@ use rlevo_core::{
 
 struct MyEnv { guard: EpisodeGuard, /* ... */ }
 
-impl Environment<1, 1> for MyEnv {
+impl Environment for MyEnv {
     type ObservationType = MyObservation;
     type ActionType = MyAction;
 

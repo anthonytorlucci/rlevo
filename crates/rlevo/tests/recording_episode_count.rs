@@ -89,7 +89,7 @@ impl FixedLenEnv {
     }
 }
 
-impl Environment<1, 1> for FixedLenEnv {
+impl Environment for FixedLenEnv {
     type ObservationType = CartPoleObservation;
     type ActionType = CartPoleAction;
 
@@ -152,7 +152,7 @@ fn run_recording(total_steps: usize) -> RecordedRun {
     // --- env + agent ------------------------------------------------------
     // Headless `Ascii` payload: the count invariant is independent of frame
     // contents, so we avoid wiring a family-specific payload source.
-    let mut env: RecordingTap<FixedLenEnv, 1, 1> =
+    let mut env: RecordingTap<FixedLenEnv> =
         RecordingTap::new_headless(FixedLenEnv::new(), sink.clone(), |_| FamilyPayload::Ascii);
 
     let device = Device::flex();
@@ -173,7 +173,7 @@ fn run_recording(total_steps: usize) -> RecordedRun {
         ..Default::default()
     };
     let model = q_network(&device);
-    let mut agent: DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2> =
+    let mut agent: DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 2> =
         DqnAgent::new(model, config, device).expect("valid config");
 
     let mut rng = StdRng::seed_from_u64(seed);

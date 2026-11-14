@@ -154,14 +154,14 @@ impl Evaluator {
     ///
     /// # Panics
     /// Panics if the rayon thread pool cannot be built.
-    pub fn run_suite<E, A, R, FA, const D: usize, const AD: usize>(
+    pub fn run_suite<E, A, R, FA>(
         &self,
         suite: &Suite<E>,
         agent_factory: FA,
         reporter: &mut R,
     ) -> BenchmarkReport
     where
-        E: Environment<D, AD> + Send,
+        E: Environment + Send,
         A: Agent<E::ObservationType, E::ActionType> + Send,
         R: Reporter,
         FA: Fn(u64) -> A + Sync + Send,
@@ -393,20 +393,7 @@ pub trait Trial {
 /// The report holds the evaluation episodes only, so its returns, and every
 /// metric computed from them, measure the trained agent. Wall-clock covers
 /// both phases. An environment error in either phase marks the trial errored.
-///
-/// # Why the const parameters are on the struct
-///
-/// `Trial` carries no rank parameters, so `D`/`AD` would appear in
-/// neither the implemented trait nor the self type and the impl would be
-/// rejected by E0207. Declaring them here constrains them. Const generics need
-/// no `PhantomData` to be left unused by fields.
-///
-/// This is the same constraint that forced `BenchAdapter` to carry three
-/// phantom const parameters, relocated rather than removed: erasing rank at
-/// the `Trial` boundary has the same cost as erasing it at the `BenchEnv`
-/// boundary did. Inference still fills them in from the `Environment` bound,
-/// so callers never write them.
-pub struct EpisodicTrial<E, A, const D: usize, const AD: usize> {
+pub struct EpisodicTrial<E, A> {
     /// The environment under test, already seeded by the suite factory.
     pub env: E,
     /// The agent under test, already seeded by the agent factory.
@@ -415,7 +402,7 @@ pub struct EpisodicTrial<E, A, const D: usize, const AD: usize> {
     pub agent_seed: u64,
 }
 
-impl<E, A, const D: usize, const AD: usize> std::fmt::Debug for EpisodicTrial<E, A, D, AD> {
+impl<E, A> std::fmt::Debug for EpisodicTrial<E, A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EpisodicTrial")
             .field("agent_seed", &self.agent_seed)
@@ -423,9 +410,9 @@ impl<E, A, const D: usize, const AD: usize> std::fmt::Debug for EpisodicTrial<E,
     }
 }
 
-impl<E, A, const D: usize, const AD: usize> Trial for EpisodicTrial<E, A, D, AD>
+impl<E, A> Trial for EpisodicTrial<E, A>
 where
-    E: Environment<D, AD>,
+    E: Environment,
     A: Agent<E::ObservationType, E::ActionType>,
 {
     fn run(
@@ -573,7 +560,7 @@ where
 ///
 /// Returns the environment's error if a `reset` or `step` fails; the agent
 /// keeps whatever it learned before it.
-pub fn train<E, A, const D: usize, const AD: usize>(
+pub fn train<E, A>(
     env: &mut E,
     agent: &mut A,
     steps: usize,
@@ -581,7 +568,7 @@ pub fn train<E, A, const D: usize, const AD: usize>(
     rng: &mut dyn Rng,
 ) -> Result<Vec<EpisodeSummary>, EnvironmentError>
 where
-    E: Environment<D, AD>,
+    E: Environment,
     A: Agent<E::ObservationType, E::ActionType>,
 {
     agent.set_training(true);
@@ -624,7 +611,7 @@ where
 /// [`EpisodicTrial`] go through it, so the status rule holds once: the
 /// transition carries the snapshot's status unchanged, and an episode cut at
 /// `max_steps` ends `Truncated` for the agent only.
-fn play_episode<E, A, const D: usize, const AD: usize>(
+fn play_episode<E, A>(
     env: &mut E,
     agent: &mut A,
     max_steps: usize,
@@ -633,7 +620,7 @@ fn play_episode<E, A, const D: usize, const AD: usize>(
     non_finite_steps: &mut u64,
 ) -> Result<Option<(f64, usize)>, EnvironmentError>
 where
-    E: Environment<D, AD>,
+    E: Environment,
     A: Agent<E::ObservationType, E::ActionType>,
 {
     let mut obs = env.reset()?.observation;
@@ -871,24 +858,19 @@ mod tests {
 
     #[derive(Debug, Clone)]
     struct StubObs;
-    impl Observation<1> for StubObs {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
+    impl Observation for StubObs {
+        const SHAPE: &'static [usize] = &[1];
     }
 
     #[derive(Debug, Clone)]
     struct StubAction;
-    impl Action<1> for StubAction {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
+    impl Action for StubAction {
         fn is_valid(&self) -> bool {
             true
         }
     }
 
-    impl Environment<1, 1> for StubEnv {
+    impl Environment for StubEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
 
@@ -1148,7 +1130,7 @@ mod tests {
         env_name: &str,
     ) -> (TrialReport, Vec<CapturedEvent>)
     where
-        E: Environment<1, 1, ObservationType = StubObs, ActionType = StubAction>,
+        E: Environment<ObservationType = StubObs, ActionType = StubAction>,
         A: Agent<StubObs, StubAction>,
     {
         let info = TrialInfo {
@@ -1289,16 +1271,14 @@ mod tests {
                 Self
             }
         }
-        impl Observation<1> for CountingObs {
-            fn shape() -> [usize; 1] {
-                [1]
-            }
+        impl Observation for CountingObs {
+            const SHAPE: &'static [usize] = &[1];
         }
 
         struct CountingEnv {
             steps: usize,
         }
-        impl Environment<1, 1> for CountingEnv {
+        impl Environment for CountingEnv {
             type ObservationType = CountingObs;
             type ActionType = StubAction;
 
@@ -2105,7 +2085,7 @@ mod tests {
     #[test]
     fn panic_in_env_is_caught_not_propagated() {
         struct PanickingEnv;
-        impl Environment<1, 1> for PanickingEnv {
+        impl Environment for PanickingEnv {
             type ObservationType = StubObs;
             type ActionType = StubAction;
 
@@ -2208,7 +2188,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1> for ScheduleEnv {
+    impl Environment for ScheduleEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
 

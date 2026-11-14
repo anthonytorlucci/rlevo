@@ -47,7 +47,7 @@ use std::fmt::Debug;
 /// \forall i \in [0, \text{ACTION\_COUNT}): i = \text{from\_index}(i).\text{to\_index}()
 /// \forall a: \text{Action}: a = \text{from\_index}(a.\text{to\_index}())
 /// ```
-pub trait DiscreteAction<const R: usize>: Action<R> {
+pub trait DiscreteAction: Action {
     /// The total number of distinct actions in this action space.
     ///
     /// This constant defines the cardinality of the action space. It must be
@@ -83,18 +83,14 @@ pub trait DiscreteAction<const R: usize>: Action<R> {
 ///
 /// Continuous actions typically have bounded ranges (e.g., `[-1, 1]` or `[0, 1]`).
 /// A type whose ranges are fixed declares them with [`BoundedAction`].
-pub trait ContinuousAction<const R: usize>: Action<R> {
+pub trait ContinuousAction: Action {
     /// The number of scalar components in this action's flattened representation —
     /// i.e. the length of the slice returned by [`as_slice`](ContinuousAction::as_slice)
     /// and consumed by [`from_slice`](ContinuousAction::from_slice).
     ///
-    /// This is deliberately distinct from the tensor rank `R` and from
-    /// `shape().iter().product()`: the workspace carries two encodings of component
-    /// count (a rank-1 action with `shape() == [C]`, and a rank-C action with
-    /// `shape() == [1; C]`), and neither derived quantity is universally correct.
-    /// Implementors MUST declare it explicitly; there is intentionally no default
-    /// (a default of `= R` would be wrong for every multi-component rank-1
-    /// action). See ADR 0038.
+    /// It is the one authority for an action's size: a batch of actions is laid
+    /// out as `[batch, COMPONENTS]`. Implementors MUST declare it explicitly;
+    /// there is intentionally no default. See ADR 0038 and ADR 0100.
     const COMPONENTS: usize;
 
     /// Returns a slice view of this action's component values.
@@ -123,9 +119,7 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
 /// target actions, and to sample uniform warm-up actions.
 ///
 /// Bounds are keyed on [`ContinuousAction::COMPONENTS`] — the flattened scalar
-/// count — **not** on the const generic `R`, which is the tensor rank. `R` is
-/// retained only to name the [`ContinuousAction<R>`] supertrait; it does not
-/// appear in any signature. See ADR 0053.
+/// count.
 ///
 /// # Invariants
 ///
@@ -147,11 +141,10 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
 /// use rlevo_core::base::Action;
 /// # #[derive(Debug, Clone)]
 /// # struct Throttle([f32; 2]);
-/// # impl Action<1> for Throttle {
-/// #     fn shape() -> [usize; 1] { [2] }
+/// # impl Action for Throttle {
 /// #     fn is_valid(&self) -> bool { self.0.iter().all(|v| v.is_finite()) }
 /// # }
-/// # impl ContinuousAction<1> for Throttle {
+/// # impl ContinuousAction for Throttle {
 /// #     const COMPONENTS: usize = 2;
 /// #     fn as_slice(&self) -> &[f32] { &self.0 }
 /// #     fn from_slice(values: &[f32]) -> Self {
@@ -159,7 +152,7 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
 /// #         Throttle([values[0], values[1]])
 /// #     }
 /// # }
-/// impl BoundedAction<1> for Throttle {
+/// impl BoundedAction for Throttle {
 ///     fn low() -> &'static [f32] {
 ///         &[-1.0, 0.0]
 ///     }
@@ -193,7 +186,7 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
 /// they cannot observe any instance and therefore cannot derive bounds from a
 /// runtime environment configuration. Per-instance bounds would be a different
 /// seam entirely (ADR 0053 §3).
-pub trait BoundedAction<const R: usize>: ContinuousAction<R> {
+pub trait BoundedAction: ContinuousAction {
     /// Returns the per-component lower bounds of this action space.
     ///
     /// The returned slice must have exactly [`Self::COMPONENTS`] elements and
@@ -261,17 +254,13 @@ mod tests {
         Down,
     }
 
-    impl Action<1> for SimpleDiscreteAction {
-        fn shape() -> [usize; 1] {
-            [4]
-        }
-
+    impl Action for SimpleDiscreteAction {
         fn is_valid(&self) -> bool {
             true // All variants are always valid
         }
     }
 
-    impl DiscreteAction<1> for SimpleDiscreteAction {
+    impl DiscreteAction for SimpleDiscreteAction {
         const ACTION_COUNT: usize = 4;
 
         fn from_index(index: usize) -> Self {
@@ -300,17 +289,13 @@ mod tests {
         values: [f32; 3],
     }
 
-    impl Action<3> for ContinuousActionTest {
-        fn shape() -> [usize; 3] {
-            [1, 1, 1] // Continuous dimensions typically have size 1
-        }
-
+    impl Action for ContinuousActionTest {
         fn is_valid(&self) -> bool {
             self.values.iter().all(|v| v.is_finite())
         }
     }
 
-    impl ContinuousAction<3> for ContinuousActionTest {
+    impl ContinuousAction for ContinuousActionTest {
         const COMPONENTS: usize = 3;
 
         fn as_slice(&self) -> &[f32] {
@@ -325,7 +310,7 @@ mod tests {
         }
     }
 
-    impl BoundedAction<3> for ContinuousActionTest {
+    impl BoundedAction for ContinuousActionTest {
         fn low() -> &'static [f32] {
             &[-1.0, -1.0, -1.0]
         }
@@ -338,11 +323,6 @@ mod tests {
     // ========================================================================
     // DiscreteAction Tests
     // ========================================================================
-
-    #[test]
-    fn test_discrete_action_shape() {
-        assert_eq!(SimpleDiscreteAction::shape(), [4]);
-    }
 
     #[test]
     fn test_discrete_action_count() {
@@ -410,11 +390,6 @@ mod tests {
     // ========================================================================
     // ContinuousAction Tests
     // ========================================================================
-
-    #[test]
-    fn test_continuous_action_shape() {
-        assert_eq!(ContinuousActionTest::shape(), [1, 1, 1]);
-    }
 
     #[test]
     fn test_continuous_action_as_slice() {
@@ -572,17 +547,13 @@ mod tests {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         struct LargeDiscreteAction(u8);
 
-        impl Action<1> for LargeDiscreteAction {
-            fn shape() -> [usize; 1] {
-                [256]
-            }
-
+        impl Action for LargeDiscreteAction {
             fn is_valid(&self) -> bool {
                 true
             }
         }
 
-        impl DiscreteAction<1> for LargeDiscreteAction {
+        impl DiscreteAction for LargeDiscreteAction {
             const ACTION_COUNT: usize = 256;
 
             fn from_index(index: usize) -> Self {
@@ -617,11 +588,8 @@ mod tests {
 
     #[test]
     fn test_bounded_action_bounds_are_component_keyed() {
-        // ADR 0053: bound slices are keyed on COMPONENTS (the flattened scalar
-        // count), not on the rank `R`. For `ContinuousActionTest` these happen to agree
-        // (Convention B: rank 3, 3 components), so assert against COMPONENTS
-        // explicitly — that is the contract a multi-component rank-1 impl must
-        // also satisfy.
+        // ADR 0053: bound slices are keyed on COMPONENTS, the flattened scalar
+        // count.
         assert_eq!(
             ContinuousActionTest::low().len(),
             ContinuousActionTest::COMPONENTS,

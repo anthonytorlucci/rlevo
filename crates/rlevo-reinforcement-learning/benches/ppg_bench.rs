@@ -25,7 +25,7 @@ use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
 
-type CartPoleAgent = PpgAgent<PpgCategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2>;
+type CartPoleAgent = PpgAgent<PpgCategoricalPolicyHead, MlpValue, CartPoleObservation, 2>;
 
 fn build_agent(num_steps: usize) -> CartPoleAgent {
     let device = Device::flex();

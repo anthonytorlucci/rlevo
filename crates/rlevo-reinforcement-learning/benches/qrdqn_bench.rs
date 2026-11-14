@@ -26,7 +26,7 @@ use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
 
-type Agent = QrDqnAgent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = QrDqnAgent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 2>;
 
 fn primed_agent(num_quantiles: usize, batch_size: usize) -> Agent {
     let device = Device::flex();

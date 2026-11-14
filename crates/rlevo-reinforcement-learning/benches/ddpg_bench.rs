@@ -21,7 +21,7 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
     MlpActor, MlpActorConfig, MlpCritic, MlpCriticConfig,
 };
 
-type Agent = DdpgAgent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
+type Agent = DdpgAgent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 2>;
 
 fn build_agent() -> Agent {
     let device = Device::flex();

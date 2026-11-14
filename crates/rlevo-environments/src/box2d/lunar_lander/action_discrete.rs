@@ -19,17 +19,13 @@ pub enum LunarLanderDiscreteAction {
     RightEngine = 3,
 }
 
-impl Action<1> for LunarLanderDiscreteAction {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-
+impl Action for LunarLanderDiscreteAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for LunarLanderDiscreteAction {
+impl DiscreteAction for LunarLanderDiscreteAction {
     const ACTION_COUNT: usize = 4;
 
     /// Convert an index in `0..ACTION_COUNT` to the corresponding variant.
@@ -59,11 +55,6 @@ mod tests {
     #[test]
     fn test_action_count() {
         assert_eq!(LunarLanderDiscreteAction::ACTION_COUNT, 4);
-    }
-
-    #[test]
-    fn test_shape() {
-        assert_eq!(LunarLanderDiscreteAction::shape(), [4]);
     }
 
     #[test]

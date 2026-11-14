@@ -262,12 +262,12 @@ fn squashed_sample_log_prob(
     (action, log_prob)
 }
 
-impl SquashedGaussianPolicy<2, 2> for SquashedGaussianPolicyHead {
+impl SquashedGaussianPolicy<2> for SquashedGaussianPolicyHead {
     fn action_dim(&self) -> usize {
         self.action_dim
     }
 
-    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
+    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput {
         let (mean, log_std) = self.mean_and_log_std(obs);
         let (action, log_prob) =
             squashed_sample_log_prob(mean, log_std, eps, self.action_scale, self.action_bias);

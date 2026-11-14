@@ -26,7 +26,7 @@ use crate::algorithms::shared::{flatten_batch, hidden_layers, nonzero_widths, ru
 /// actor.
 ///
 /// The actor maps a batch of observations of rank `BOR` (including the batch
-/// dimension) to a batch of continuous actions of rank `BAR`. Implementors
+/// dimension) to a `[batch, COMPONENTS]` batch of continuous actions. Implementors
 /// are expected to bake any tanh-squash + action-scale/bias into
 /// [`forward`](Self::forward) so that the emitted tensor is already in the
 /// env-visible action range.
@@ -34,9 +34,9 @@ use crate::algorithms::shared::{flatten_batch, hidden_layers, nonzero_widths, ru
 /// The agent runs [`forward`](Self::forward) on the training actor, where the
 /// autodiff graph is active, and on the frozen target actor during target-Q
 /// computation, where it is not.
-pub trait DeterministicPolicy<const BOR: usize, const BAR: usize>: Module {
+pub trait DeterministicPolicy<const BOR: usize>: Module {
     /// `(batch, ...obs)` → `(batch, ...action)`.
-    fn forward(&self, obs: Tensor<BOR>) -> Tensor<BAR>;
+    fn forward(&self, obs: Tensor<BOR>) -> Tensor<2>;
 }
 
 /// Contract implemented by any network usable as a DDPG continuous Q-critic
@@ -51,9 +51,9 @@ pub trait DeterministicPolicy<const BOR: usize, const BAR: usize>: Module {
 /// the critic and actor gradient steps, where the autodiff graph is active,
 /// and on the target critic for target-Q computation, where no gradients
 /// flow.
-pub trait ContinuousQ<const BOR: usize, const BAR: usize>: Module {
+pub trait ContinuousQ<const BOR: usize>: Module {
     /// A `(batch,)` Q-value tensor.
-    fn forward(&self, obs: Tensor<BOR>, act: Tensor<BAR>) -> Tensor<1>;
+    fn forward(&self, obs: Tensor<BOR>, act: Tensor<2>) -> Tensor<1>;
 }
 
 /// Construction-time knobs for [`MlpActor`].
@@ -119,7 +119,7 @@ pub struct MlpActor {
     action_scale: f32,
 }
 
-impl<const BOR: usize> DeterministicPolicy<BOR, 2> for MlpActor {
+impl<const BOR: usize> DeterministicPolicy<BOR> for MlpActor {
     fn forward(&self, obs: Tensor<BOR>) -> Tensor<2> {
         let x = run_hidden(&self.hidden, flatten_batch(obs), relu);
         tanh(self.head.forward(x)).mul_scalar(self.action_scale)
@@ -180,7 +180,7 @@ pub struct MlpCritic {
     head: Linear,
 }
 
-impl<const BOR: usize> ContinuousQ<BOR, 2> for MlpCritic {
+impl<const BOR: usize> ContinuousQ<BOR> for MlpCritic {
     fn forward(&self, obs: Tensor<BOR>, act: Tensor<2>) -> Tensor<1> {
         let x = Tensor::cat(vec![flatten_batch(obs), act], 1);
         let x = run_hidden(&self.hidden, x, relu);
@@ -207,7 +207,7 @@ mod tests {
         let device = Device::flex();
         let net = actor_config().try_init(&device).unwrap();
         let obs = Tensor::<2>::ones([4, 3], &device).mul_scalar(100.0);
-        let act: Tensor<2> = DeterministicPolicy::<2, 2>::forward(&net, obs);
+        let act: Tensor<2> = DeterministicPolicy::<2>::forward(&net, obs);
         assert_eq!(act.dims(), [4, 2]);
         let max = act.abs().max().into_scalar::<f32>();
         assert!(max <= 2.0, "max |action| {max} exceeds the scale");
@@ -242,9 +242,9 @@ mod tests {
         let net = config.try_init(&device).unwrap();
         let act = Tensor::<2>::zeros([5, 2], &device);
         let flat: Tensor<1> =
-            ContinuousQ::<2, 2>::forward(&net, Tensor::zeros([5, 12], &device), act.clone());
+            ContinuousQ::<2>::forward(&net, Tensor::zeros([5, 12], &device), act.clone());
         let grid: Tensor<1> =
-            ContinuousQ::<4, 2>::forward(&net, Tensor::zeros([5, 2, 3, 2], &device), act);
+            ContinuousQ::<4>::forward(&net, Tensor::zeros([5, 2, 3, 2], &device), act);
         assert_eq!(flat.dims(), [5]);
         assert_eq!(grid.dims(), [5]);
         let err = MlpCriticConfig {

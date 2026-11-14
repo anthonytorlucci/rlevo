@@ -37,7 +37,7 @@ use crate::algorithms::shared::clip_to_action_bounds;
 ///   target may be perturbed, which is a property of the smoothing, not of the
 ///   action space.
 /// - `low` / `high` — the `Box(low, high)` bound tensors, shaped
-///   `[1, ..action_shape]` so they broadcast across the batch. Per-component,
+///   `[1, COMPONENTS]` so they broadcast across the batch. Per-component,
 ///   because Eq. 14's outer clip is against the bound *vectors*: an asymmetric
 ///   space (e.g. `CarRacing`'s `Box([-1,0,0], [1,1,1])`) has no single scalar
 ///   that expresses it, and a scalar collapse would pass impossible actions —
@@ -53,14 +53,14 @@ use crate::algorithms::shared::clip_to_action_bounds;
 // Narrowing to the tensor's own dtype is the intent, and the sample is finite
 // by construction.
 #[allow(clippy::cast_possible_truncation)]
-pub fn smoothed_target_action<const BAR: usize>(
-    target_action: Tensor<BAR>,
+pub fn smoothed_target_action(
+    target_action: Tensor<2>,
     policy_noise: f32,
     noise_clip: f32,
-    low: Tensor<BAR>,
-    high: Tensor<BAR>,
+    low: Tensor<2>,
+    high: Tensor<2>,
     rng: &mut (impl Rng + ?Sized),
-) -> Tensor<BAR> {
+) -> Tensor<2> {
     assert!(
         policy_noise.is_finite() && policy_noise >= 0.0,
         "policy_noise must be finite and non-negative, got {policy_noise}"
@@ -71,7 +71,7 @@ pub fn smoothed_target_action<const BAR: usize>(
     );
 
     let device = target_action.device();
-    let dims: [usize; BAR] = target_action.dims();
+    let dims: [usize; 2] = target_action.dims();
     let numel: usize = dims.iter().product();
 
     let normal = StandardNormal;
@@ -82,7 +82,7 @@ pub fn smoothed_target_action<const BAR: usize>(
             scaled.clamp(-noise_clip, noise_clip)
         })
         .collect();
-    let noise_tensor: Tensor<BAR> =
+    let noise_tensor: Tensor<2> =
         Tensor::from_data(TensorData::new(noise_vec, dims.to_vec()), &device);
 
     clip_to_action_bounds(target_action + noise_tensor, low, high)
@@ -118,7 +118,7 @@ mod tests {
             Tensor::from_data(TensorData::new(vec![0.3_f32, -5.0], vec![1, 2]), &device);
         let mut rng = StdRng::seed_from_u64(42);
         let (low, high) = uniform_bounds(-1.0, 1.0, 2);
-        let out = smoothed_target_action::<2>(action, 0.0, 0.5, low, high, &mut rng);
+        let out = smoothed_target_action(action, 0.0, 0.5, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().unwrap();
         // `0.3` passes through; `-5.0` clips to `-1.0`.
@@ -137,7 +137,7 @@ mod tests {
         for _ in 0..256 {
             let action: Tensor<2> = Tensor::zeros([4, 2], &device);
             let (low, high) = uniform_bounds(-100.0, 100.0, 2);
-            let out = smoothed_target_action::<2>(action, 100.0, noise_clip, low, high, &mut rng);
+            let out = smoothed_target_action(action, 100.0, noise_clip, low, high, &mut rng);
             let data = out.into_data().convert::<f32>();
             for v in data.as_slice::<f32>().unwrap() {
                 assert!(
@@ -158,7 +158,7 @@ mod tests {
         let action: Tensor<2> =
             Tensor::from_data(TensorData::new(vec![10.0_f32; 6], vec![3, 2]), &device);
         let (low, high) = uniform_bounds(-1.0, high_value, 2);
-        let out = smoothed_target_action::<2>(action, 0.1, 0.1, low, high, &mut rng);
+        let out = smoothed_target_action(action, 0.1, 0.1, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         for v in data.as_slice::<f32>().unwrap() {
             assert!(
@@ -187,7 +187,7 @@ mod tests {
             &device,
         );
         // Zero policy noise isolates the outer clip from the smoothing.
-        let out = smoothed_target_action::<2>(action, 0.0, 0.5, low, high, &mut rng);
+        let out = smoothed_target_action(action, 0.0, 0.5, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().unwrap();
 
@@ -219,7 +219,7 @@ mod tests {
         let action: Tensor<2> = Tensor::zeros([1, 1], &device);
         let mut rng = StdRng::seed_from_u64(0);
         let (low, high) = uniform_bounds(-1.0, 1.0, 1);
-        let _ = smoothed_target_action::<2>(action, -0.1, 0.5, low, high, &mut rng);
+        let _ = smoothed_target_action(action, -0.1, 0.5, low, high, &mut rng);
     }
 
     #[test]
@@ -229,6 +229,6 @@ mod tests {
         let action: Tensor<2> = Tensor::zeros([1, 1], &device);
         let mut rng = StdRng::seed_from_u64(0);
         let (low, high) = uniform_bounds(-1.0, 1.0, 1);
-        let _ = smoothed_target_action::<2>(action, 0.2, -0.1, low, high, &mut rng);
+        let _ = smoothed_target_action(action, 0.2, -0.1, low, high, &mut rng);
     }
 }

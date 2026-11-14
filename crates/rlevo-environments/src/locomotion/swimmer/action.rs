@@ -25,17 +25,13 @@ impl SwimmerAction {
     }
 }
 
-impl Action<1> for SwimmerAction {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
+impl Action for SwimmerAction {
     fn is_valid(&self) -> bool {
         self.0.iter().all(|v| v.is_finite() && v.abs() <= 1.0)
     }
 }
 
-impl ContinuousAction<1> for SwimmerAction {
+impl ContinuousAction for SwimmerAction {
     const COMPONENTS: usize = 2;
 
     /// Returns the raw `[joint1, joint2]` slice.
@@ -78,7 +74,7 @@ impl ContinuousAction<1> for SwimmerAction {
 ///
 /// [`Swimmer::joint_torques`]: super::env::Swimmer
 /// [`SwimmerConfig::action_clip`]: super::config::SwimmerConfig::action_clip
-impl BoundedAction<1> for SwimmerAction {
+impl BoundedAction for SwimmerAction {
     fn low() -> &'static [f32] {
         &[-1.0, -1.0]
     }

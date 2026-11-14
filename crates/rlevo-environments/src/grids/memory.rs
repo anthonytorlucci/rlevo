@@ -556,7 +556,7 @@ impl FromStr for MemoryConfig {
 /// the cue, so nothing in the configuration pins the answer to a side — the only
 /// way to score above chance is to remember the cue.
 ///
-/// Implements [`Environment<3, 1>`] with [`GridObservation`] / [`GridAction`]
+/// Implements [`Environment`] with [`GridObservation`] / [`GridAction`]
 /// / [`ScalarReward`](rlevo_core::reward::ScalarReward).
 ///
 /// The episode ends on the first [`GridAction::Done`] (or at the step budget);
@@ -872,7 +872,7 @@ impl MemoryEnv {
     }
 }
 
-impl Environment<3, 1> for MemoryEnv {
+impl Environment for MemoryEnv {
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
 

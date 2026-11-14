@@ -54,7 +54,7 @@ fn my_env(seed: u64) -> TimeLimit<MyEnv> {
 /// An agent that picks uniformly at random: the floor every row must clear.
 struct Random;
 
-impl<O, A: DiscreteAction<1>> Agent<O, A> for Random {
+impl<O, A: DiscreteAction> Agent<O, A> for Random {
     fn act(&mut self, _obs: &O, rng: &mut dyn Rng) -> A {
         A::from_index(rng.random_range(0..A::ACTION_COUNT))
     }
@@ -62,11 +62,11 @@ impl<O, A: DiscreteAction<1>> Agent<O, A> for Random {
 
 /// The shipped DQN over its default network, seeded by the trial. It reads
 /// the observation through `Cell`'s `HostRow`.
-fn dqn(seed: u64) -> DqnAgent<MlpQNetwork, Cell, Move, 1, 2> {
+fn dqn(seed: u64) -> DqnAgent<MlpQNetwork, Cell, Move, 2> {
     let device = Device::flex();
     device.seed(seed);
     let network = MlpQNetworkConfig {
-        obs_dim: Cell::shape()[0],
+        obs_dim: Cell::SHAPE[0],
         hidden: vec![32, 32],
         num_actions: Move::ACTION_COUNT,
     }

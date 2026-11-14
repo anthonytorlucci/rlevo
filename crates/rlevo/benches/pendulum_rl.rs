@@ -71,19 +71,11 @@ const EVAL_EPISODES: usize = 100;
 
 type Env = TimeLimit<Pendulum>;
 
-type PpoAgent_ = PpoAgent<TanhGaussianPolicyHead, MlpValue, PendulumObservation, 1, 2>;
-type DdpgAgent_ = DdpgAgent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
-type Td3Agent_ = Td3Agent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
-type SacAgent_ = SacAgent<
-    SquashedGaussianPolicyHead,
-    MlpCritic,
-    PendulumObservation,
-    PendulumAction,
-    1,
-    2,
-    1,
-    2,
->;
+type PpoAgent_ = PpoAgent<TanhGaussianPolicyHead, MlpValue, PendulumObservation, 2>;
+type DdpgAgent_ = DdpgAgent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 2>;
+type Td3Agent_ = Td3Agent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 2>;
+type SacAgent_ =
+    SacAgent<SquashedGaussianPolicyHead, MlpCritic, PendulumObservation, PendulumAction, 2>;
 
 // ---------------------------------------------------------------------------
 // Environment factory

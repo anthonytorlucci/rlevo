@@ -16,9 +16,10 @@ use burn::optim::{GradientsParams, ModuleOptimizer};
 use burn::tensor::{Device, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
+use crate::algorithms::shared::{assert_batch_rank, row_len, upload_one, upload_rows};
 use crate::replay::{DiscreteTransition, ReplayKind, ReplayStrategy, UniformReplayConfig};
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::base::HostRow;
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 
@@ -72,11 +73,11 @@ pub struct LearnOutcome {
 ///   `train_frequency`; `gradient_updates` counts **optimizer** steps and
 ///   drives the target-update cadence. The two units are deliberately distinct
 ///   (ADR 0059) — see [`gradient_updates`](Self::gradient_updates).
-pub struct DqnAgent<M, O, A, const OR: usize, const BOR: usize>
+pub struct DqnAgent<M, O, A, const BOR: usize>
 where
     M: DqnModel<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     policy_net: Slot<M>,
     target_net: M,
@@ -127,11 +128,11 @@ where
     training: bool,
 }
 
-impl<M, O, A, const OR: usize, const BOR: usize> std::fmt::Debug for DqnAgent<M, O, A, OR, BOR>
+impl<M, O, A, const BOR: usize> std::fmt::Debug for DqnAgent<M, O, A, BOR>
 where
     M: DqnModel<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DqnAgent")
@@ -144,11 +145,11 @@ where
     }
 }
 
-impl<M, O, A, const OR: usize, const BOR: usize> DqnAgent<M, O, A, OR, BOR>
+impl<M, O, A, const BOR: usize> DqnAgent<M, O, A, BOR>
 where
     M: DqnModel<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     /// Constructs a new agent from a pre-built policy network and training config.
     ///
@@ -166,12 +167,45 @@ where
     ///
     /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
     /// fails [`DqnTrainingConfig::validate`](rlevo_core::config::Validate::validate).
+    ///
+    /// # Build errors
+    ///
+    /// `BOR` must be the observation's rank plus one, `O::SHAPE.len() + 1`
+    /// (ADR 0101). A mismatch is an error when the crate is built, naming the
+    /// instantiation; `cargo check` does not report it. `CartPoleObservation`
+    /// is rank 1, so a model taking rank-3 input does not build:
+    ///
+    /// ```compile_fail,E0080
+    /// use burn::tensor::Device;
+    /// use rlevo_core::action::DiscreteAction;
+    /// use rlevo_environments::classic::{CartPoleAction, CartPoleObservation};
+    /// use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
+    /// use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
+    /// use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
+    ///     MlpQNetwork, MlpQNetworkConfig,
+    /// };
+    ///
+    /// let device = Device::flex();
+    /// let network = MlpQNetworkConfig {
+    ///     obs_dim: 4,
+    ///     hidden: vec![8],
+    ///     num_actions: CartPoleAction::ACTION_COUNT,
+    /// }
+    /// .try_init(&device)
+    /// .unwrap();
+    /// let _agent = DqnAgent::<MlpQNetwork, CartPoleObservation, CartPoleAction, 3>::new(
+    ///     network,
+    ///     DqnTrainingConfig::default(),
+    ///     device,
+    /// );
+    /// ```
     pub fn new(
         policy_net: M,
         config: DqnTrainingConfig,
         device: Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        assert_batch_rank::<O, BOR>();
         let device = device.autodiff();
         let plain_device = device.clone().without_autodiff();
         let policy_net = policy_net.train();
@@ -401,8 +435,7 @@ where
         // (ADR 0067 §Decision 2).
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
         let q_values: Tensor<2> = self.policy().forward(batched);
         let idx = q_values.argmax(1).into_scalar::<i64>();
         A::from_index(idx as usize)
@@ -447,8 +480,7 @@ where
         // integer-backed observation types.
         let mut scratch = Vec::new();
         self.act_obs_guard.report(obs.row_is_finite(&mut scratch));
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.plain_device);
         let q_values: Tensor<2> = net.forward(batched);
         let idx = q_values.argmax(1).into_scalar::<i64>();
         A::from_index(idx as usize)
@@ -727,8 +759,7 @@ where
             return Ok(None);
         };
 
-        let obs_shape = O::shape();
-        let numel_per_obs: usize = obs_shape.iter().product();
+        let numel_per_obs: usize = row_len::<O>();
 
         let mut obs_flat: Vec<f32> = Vec::with_capacity(batch_size * numel_per_obs);
         let mut next_flat: Vec<f32> = Vec::with_capacity(batch_size * numel_per_obs);
@@ -747,16 +778,10 @@ where
             terminated.push(if t.status.is_terminated() { 1.0 } else { 0.0 });
         }
 
-        let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
-        batched_shape.push(batch_size);
-        batched_shape.extend_from_slice(&obs_shape);
-
         let device = self.device.clone();
         let plain = self.plain_device.clone();
-        let obs_tensor: Tensor<BOR> =
-            Tensor::from_data(TensorData::new(obs_flat, batched_shape.clone()), &device);
-        let next_tensor_inner: Tensor<BOR> =
-            Tensor::from_data(TensorData::new(next_flat, batched_shape), &plain);
+        let obs_tensor: Tensor<BOR> = upload_rows::<O, BOR>(obs_flat, batch_size, &device);
+        let next_tensor_inner: Tensor<BOR> = upload_rows::<O, BOR>(next_flat, batch_size, &plain);
 
         let action_tensor_1: Tensor<1, Int> =
             Tensor::from_data(TensorData::new(action_idxs, vec![batch_size]), &device);
@@ -890,11 +915,11 @@ where
 /// `rl/skipped_updates`, `rl/dropped_transitions`,
 /// `rl/dropped_observations` and `rl/degenerate_action_selections`, each
 /// what the accessor of that name returns.
-impl<M, O, A, const OR: usize, const BOR: usize> Agent<O, A> for DqnAgent<M, O, A, OR, BOR>
+impl<M, O, A, const BOR: usize> Agent<O, A> for DqnAgent<M, O, A, BOR>
 where
     M: DqnModel<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         if self.training {
@@ -959,13 +984,13 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rlevo_core::base::Action;
-    use rlevo_core::base::HostRow;
+    use rlevo_core::base::Observation;
     use serde::{Deserialize, Serialize};
 
     use crate::replay::PrioritizedReplaySettings;
     use crate::target::TargetUpdate;
 
-    type TestAgent = DqnAgent<TestNet, TestObs, TestAction, 1, 2>;
+    type TestAgent = DqnAgent<TestNet, TestObs, TestAction, 2>;
 
     /// Minimal two-in/two-out linear Q-network used by the target-sync tests.
     ///
@@ -1011,13 +1036,11 @@ mod tests {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestObs([f32; 2]);
 
-    impl Observation<1> for TestObs {
-        fn shape() -> [usize; 1] {
-            [2]
-        }
+    impl Observation for TestObs {
+        const SHAPE: &'static [usize] = &[2];
     }
 
-    impl HostRow<1> for TestObs {
+    impl HostRow for TestObs {
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }
@@ -1026,17 +1049,13 @@ mod tests {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct TestAction(usize);
 
-    impl Action<1> for TestAction {
-        fn shape() -> [usize; 1] {
-            [2]
-        }
-
+    impl Action for TestAction {
         fn is_valid(&self) -> bool {
             self.0 < 2
         }
     }
 
-    impl DiscreteAction<1> for TestAction {
+    impl DiscreteAction for TestAction {
         const ACTION_COUNT: usize = 2;
 
         fn from_index(index: usize) -> Self {
@@ -1859,7 +1878,7 @@ mod driven_tests {
             ..DqnTrainingConfig::default()
         };
         let net = flat_net(&device);
-        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 2>::new(
             net, config, device,
         )
         .expect("default config is valid");
@@ -1929,7 +1948,7 @@ mod driven_tests {
             ..DqnTrainingConfig::default()
         };
         let net = flat_net(&device);
-        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 2>::new(
             net, config, device,
         )
         .expect("default config is valid");
@@ -1974,7 +1993,7 @@ mod driven_tests {
         let device = Device::flex();
         let config = DqnTrainingConfig::default();
         let net = flat_net(&device);
-        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 2>::new(
             net, config, device,
         )
         .expect("default config is valid");
@@ -2011,7 +2030,7 @@ mod driven_tests {
             replay_buffer_capacity: 64,
             ..DqnTrainingConfig::default()
         };
-        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 1, 2>::new(
+        let mut agent = DqnAgent::<MlpQNetwork, MaskObservation, MaskDiscreteAction, 2>::new(
             flat_net(&device),
             config,
             device,

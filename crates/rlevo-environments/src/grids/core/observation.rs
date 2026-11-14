@@ -181,13 +181,11 @@ impl GridObservation {
     }
 }
 
-impl Observation<3> for GridObservation {
-    fn shape() -> [usize; 3] {
-        [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]
-    }
+impl Observation for GridObservation {
+    const SHAPE: &'static [usize] = &[VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS];
 }
 
-impl HostRow<3> for GridObservation {
+impl HostRow for GridObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         for row in &self.view {
             for cell in row {
@@ -227,7 +225,7 @@ mod tests {
     #[test]
     fn shape_is_7x7x3() {
         assert_eq!(
-            <GridObservation as Observation<3>>::shape(),
+            <GridObservation as Observation>::SHAPE,
             [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]
         );
     }
@@ -299,10 +297,7 @@ mod tests {
         let mut row = Vec::new();
         obs.write_host_row(&mut row);
 
-        assert_eq!(
-            row.len(),
-            GridObservation::shape().iter().product::<usize>()
-        );
+        assert_eq!(row.len(), GridObservation::SHAPE.iter().product::<usize>());
         for r in 0..VIEW_SIZE {
             for c in 0..VIEW_SIZE {
                 for ch in 0..OBS_CHANNELS {

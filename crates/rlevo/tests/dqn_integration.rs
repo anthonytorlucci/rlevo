@@ -44,7 +44,7 @@ fn q_network(device: &Device) -> MlpQNetwork {
     .expect("valid Q-network config")
 }
 
-type Agent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 2>;
 
 /// Constructs a deterministic [`DqnAgent`] for `CartPole`.
 ///

@@ -32,7 +32,8 @@ use rlevo_core::agent::{Agent, Transition};
 use rlevo_core::fitness::Metric;
 
 use crate::algorithms::shared::{FiniteLossGuard, Slot, rl_counter};
-use rlevo_core::base::{Observation, TensorConvertible};
+use crate::algorithms::shared::{assert_batch_rank, row_len, upload_one, upload_rows};
+use rlevo_core::base::HostRow;
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 
@@ -88,10 +89,12 @@ pub struct AuxPhaseStats {
 /// - `P` — Policy network module implementing both `PpoPolicy<BOR>` and
 ///   `PpgAuxValueHead<BOR>`.
 /// - `V` — Main value network implementing `PpoValue<BOR>`.
-/// - `O` — Observation type; must be convertible to a rank-`OR` tensor.
-/// - `OR` — Rank of the observation tensor (e.g. `1` for flat vectors).
-/// - `BOR` — Rank of the batched observation tensor (`OR + 1`; e.g. `2` for a
-///   batch of flat vectors).
+/// - `O` — Observation type; its [`HostRow`] is the row a batch is staged from.
+/// - `BOR` — the rank of the batch of observations the model takes: the
+///   observation's rank, `O::SHAPE.len()`, plus the batch axis. The
+///   constructor asserts the relation when the crate is built (ADR 0101), so a
+///   mismatch fails `cargo build` and `cargo test`; `cargo check` does not
+///   report it.
 ///
 /// # Usage
 ///
@@ -107,11 +110,11 @@ pub struct AuxPhaseStats {
 /// runs on a borrow, so a panic there leaves both networks intact and the agent
 /// usable. Only a panic *inside* the optimizer step itself poisons a slot; that
 /// window is irreducible and terminal for the agent (see `Slot`).
-pub struct PpgAgent<P, V, O, const OR: usize, const BOR: usize>
+pub struct PpgAgent<P, V, O, const BOR: usize>
 where
     P: PpoPolicy<BOR> + PpgAuxValueHead<BOR>,
     V: PpoValue<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
+    O: HostRow,
 {
     policy: Slot<P>,
     value: Slot<V>,
@@ -162,11 +165,11 @@ where
     continuation: Option<O>,
 }
 
-impl<P, V, O, const OR: usize, const BOR: usize> std::fmt::Debug for PpgAgent<P, V, O, OR, BOR>
+impl<P, V, O, const BOR: usize> std::fmt::Debug for PpgAgent<P, V, O, BOR>
 where
     P: PpoPolicy<BOR> + PpgAuxValueHead<BOR>,
     V: PpoValue<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
+    O: HostRow,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PpgAgent")
@@ -180,11 +183,11 @@ where
     }
 }
 
-impl<P, V, O, const OR: usize, const BOR: usize> PpgAgent<P, V, O, OR, BOR>
+impl<P, V, O, const BOR: usize> PpgAgent<P, V, O, BOR>
 where
     P: PpoPolicy<BOR> + PpgAuxValueHead<BOR>,
     V: PpoValue<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
+    O: HostRow,
 {
     /// Snapshots the policy without autodiff ([`valid`](burn::module::Module::valid)) for
     /// repeated greedy inference.
@@ -213,17 +216,16 @@ where
     /// discrete head) but skips per-step autodiff-graph construction, which
     /// dominates cost at batch size 1. Use this for evaluation and throughput.
     pub fn act_greedy_env_row_with(&self, net: &P, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.plain_device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.plain_device);
         net.deterministic_env_row(batched)
     }
 }
 
-impl<P, V, O, const OR: usize, const BOR: usize> PpgAgent<P, V, O, OR, BOR>
+impl<P, V, O, const BOR: usize> PpgAgent<P, V, O, BOR>
 where
     P: PpoPolicy<BOR> + PpgAuxValueHead<BOR>,
     V: PpoValue<BOR>,
-    O: Observation<OR> + TensorConvertible<OR>,
+    O: HostRow,
 {
     /// Construct a new agent from a pre-built policy and value network.
     ///
@@ -250,6 +252,7 @@ where
         total_iterations: usize,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        assert_batch_rank::<O, BOR>();
         let device = device.autodiff();
         let plain_device = device.clone().without_autodiff();
         let policy = policy.train();
@@ -539,8 +542,7 @@ where
     /// earlier optimizer step. Such an agent is poisoned and must be rebuilt —
     /// see [`Slot`].
     fn sample(&self, obs: &O, rng: &mut (impl Rng + ?Sized)) -> ActOutcome {
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
 
         let sample = self.policy().sample_with_logprob(batched.clone(), rng);
         let raw_row = P::action_row_from_tensor(&sample.action, 0);
@@ -548,8 +550,7 @@ where
 
         let log_prob = sample.log_prob.into_scalar::<f32>();
 
-        let value_raw: Tensor<OR> = obs.to_tensor(&self.device);
-        let value_t: Tensor<BOR> = value_raw.unsqueeze::<BOR>();
+        let value_t: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
         let value = self.value().forward(value_t).into_scalar::<f32>();
 
         ActOutcome {
@@ -607,8 +608,7 @@ where
     /// [`Slot`].
     #[allow(clippy::cast_precision_loss)]
     fn act_greedy(&self, obs: &O) -> Vec<f32> {
-        let obs_t: Tensor<OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<BOR> = obs_t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
         let logits: Tensor<2> = PpgAuxValueHead::logits(self.policy(), batched); // (1, A)
         let idx = logits.argmax(1).into_scalar::<i64>();
         let action = P::action_tensor_from_flat(&[idx as f32], 1, &self.device);
@@ -658,8 +658,7 @@ where
 
     /// One main-value-network forward on a single observation.
     fn value_of(&self, obs: &O) -> f32 {
-        let t: Tensor<OR> = obs.to_tensor(&self.device);
-        let batched: Tensor<BOR> = t.unsqueeze::<BOR>();
+        let batched: Tensor<BOR> = upload_one::<O, BOR>(obs, &self.device);
         self.value().forward(batched).into_scalar::<f32>()
     }
 
@@ -760,8 +759,7 @@ where
         let mut policy_healthy = 0_usize;
         let mut value_healthy = 0_usize;
 
-        let obs_shape = O::shape();
-        let numel_per_obs: usize = obs_shape.iter().product();
+        let numel_per_obs: usize = row_len::<O>();
 
         'epochs: for _epoch in 0..cfg.update_epochs {
             epochs_run += 1;
@@ -779,11 +777,7 @@ where
                 for &i in chunk {
                     self.buffer.obs()[i].write_host_row(&mut obs_flat);
                 }
-                let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
-                batched_shape.push(n);
-                batched_shape.extend_from_slice(&obs_shape);
-                let obs_batch: Tensor<BOR> =
-                    Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
+                let obs_batch: Tensor<BOR> = upload_rows::<O, BOR>(obs_flat, n, &self.device);
 
                 let action_flat = self.buffer.gather_action_flat(chunk);
                 let actions: P::ActionTensor =
@@ -987,9 +981,8 @@ where
                 if chunk.is_empty() {
                     continue;
                 }
-                let (obs_t, returns_t) = self
-                    .aux_buffer
-                    .gather_minibatch::<OR, BOR>(chunk, &self.device);
+                let (obs_t, returns_t) =
+                    self.aux_buffer.gather_minibatch::<BOR>(chunk, &self.device);
 
                 let mut old_logits_mb: Vec<f32> = Vec::with_capacity(chunk.len() * num_actions);
                 for &global in chunk {
@@ -1086,8 +1079,7 @@ where
     /// converted to CPU data, so the graph is discarded between chunks.
     fn compute_old_logits_flat(&self, total_steps: usize) -> Vec<f32> {
         const CHUNK: usize = 1024;
-        let obs_shape = O::shape();
-        let numel_per_obs: usize = obs_shape.iter().product();
+        let numel_per_obs: usize = row_len::<O>();
         let mut out: Vec<f32> = Vec::new();
 
         let mut start = 0_usize;
@@ -1098,11 +1090,7 @@ where
             for g in start..end {
                 self.aux_buffer.obs_at(g).write_host_row(&mut obs_flat);
             }
-            let mut batched_shape: Vec<usize> = Vec::with_capacity(BOR);
-            batched_shape.push(n);
-            batched_shape.extend_from_slice(&obs_shape);
-            let obs_batch: Tensor<BOR> =
-                Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
+            let obs_batch: Tensor<BOR> = upload_rows::<O, BOR>(obs_flat, n, &self.device);
             let logits = PpgAuxValueHead::logits(self.policy(), obs_batch);
             let logits_data = logits.into_data().convert::<f32>();
             out.extend_from_slice(logits_data.as_slice::<f32>().expect("f32 logits"));
@@ -1150,24 +1138,23 @@ where
 ///
 /// `on_transition` panics, while training, when no [`act`](Agent::act)
 /// preceded it: there is no sample to record.
-impl<V, O, A, const OR: usize> Agent<O, A>
-    for PpgAgent<crate::algorithms::ppg::policies::PpgCategoricalPolicyHead, V, O, OR, 2>
+impl<V, O, A> Agent<O, A>
+    for PpgAgent<crate::algorithms::ppg::policies::PpgCategoricalPolicyHead, V, O, 2>
 where
     V: PpoValue<2>,
-    O: Observation<OR> + TensorConvertible<OR>,
-    A: DiscreteAction<1>,
+    O: HostRow,
+    A: DiscreteAction,
 {
     fn act(&mut self, obs: &O, rng: &mut dyn Rng) -> A {
         if self.training {
             let sample = self.sample(obs, rng);
-            let action = crate::algorithms::ppo::policies::categorical::discrete_action_from_row::<
-                1,
-                A,
-            >(&sample.env_row);
+            let action = crate::algorithms::ppo::policies::categorical::discrete_action_from_row::<A>(
+                &sample.env_row,
+            );
             self.pending = Some(sample);
             action
         } else {
-            crate::algorithms::ppo::policies::categorical::discrete_action_from_row::<1, A>(
+            crate::algorithms::ppo::policies::categorical::discrete_action_from_row::<A>(
                 &self.act_greedy(obs),
             )
         }
@@ -1216,7 +1203,7 @@ mod tests {
     use burn::nn::{Linear, LinearConfig};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rlevo_core::base::HostRow;
+    use rlevo_core::base::Observation;
     use rlevo_core::config::ConstraintKind;
     use serde::{Deserialize, Serialize};
 
@@ -1225,7 +1212,7 @@ mod tests {
     };
     use crate::algorithms::ppo::ppo_config::PpoTrainingConfig;
 
-    type TestAgent = PpgAgent<PpgCategoricalPolicyHead, TestValue, TestObs, 1, 2>;
+    type TestAgent = PpgAgent<PpgCategoricalPolicyHead, TestValue, TestObs, 2>;
 
     /// Minimal scalar main-value head, one linear layer. Not the crate's
     /// `MlpValue`: the tests below read its `head` field.
@@ -1251,13 +1238,11 @@ mod tests {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestObs([f32; 2]);
 
-    impl Observation<1> for TestObs {
-        fn shape() -> [usize; 1] {
-            [2]
-        }
+    impl Observation for TestObs {
+        const SHAPE: &'static [usize] = &[2];
     }
 
-    impl HostRow<1> for TestObs {
+    impl HostRow for TestObs {
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }

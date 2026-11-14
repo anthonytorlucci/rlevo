@@ -229,7 +229,7 @@ impl Default for InvertedPendulum {
     }
 }
 
-impl Environment<1, 1> for InvertedPendulum {
+impl Environment for InvertedPendulum {
     type ObservationType = InvertedPendulumObservation;
     type ActionType = InvertedPendulumAction;
 
@@ -429,8 +429,7 @@ mod tests {
     use rlevo_core::base::Observation;
 
     #[test]
-    fn action_shape_and_validity() {
-        assert_eq!(InvertedPendulumAction::shape(), [1]);
+    fn action_validity() {
         assert!(InvertedPendulumAction::new(0.0).is_valid());
         assert!(InvertedPendulumAction::new(3.0).is_valid());
         assert!(!InvertedPendulumAction::new(3.5).is_valid());
@@ -439,7 +438,7 @@ mod tests {
 
     #[test]
     fn observation_shape() {
-        assert_eq!(InvertedPendulumObservation::shape(), [4]);
+        assert_eq!(InvertedPendulumObservation::SHAPE, [4]);
     }
 
     #[test]

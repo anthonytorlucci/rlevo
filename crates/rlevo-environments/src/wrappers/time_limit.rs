@@ -91,9 +91,9 @@ where
 /// `reset` clears the step counter and re-opens the wrapper's [`EpisodeGuard`];
 /// `step` consults that guard *before* delegating, then records the status of
 /// the snapshot it actually returns — truncation included.
-impl<const D: usize, const AD: usize, E> Environment<D, AD> for TimeLimit<E>
+impl<E> Environment for TimeLimit<E>
 where
-    E: Environment<D, AD>,
+    E: Environment,
 {
     type ObservationType = E::ObservationType;
     type ActionType = E::ActionType;
@@ -172,20 +172,14 @@ mod tests {
         pos: i32,
     }
 
-    impl rlevo_core::base::Observation<1> for StubObs {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
+    impl rlevo_core::base::Observation for StubObs {
+        const SHAPE: &'static [usize] = &[1];
     }
 
     #[derive(Debug, Clone, Copy)]
     struct StubAction;
 
-    impl Action<1> for StubAction {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
-
+    impl Action for StubAction {
         fn is_valid(&self) -> bool {
             true
         }
@@ -243,7 +237,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1> for StubEnv {
+    impl Environment for StubEnv {
         type ObservationType = StubObs;
         type ActionType = StubAction;
 
@@ -340,7 +334,7 @@ mod tests {
         // Goal unreachable within the cap: the episode can only end by truncation.
         let mut timed = TimeLimit::new(StubEnv::new_at_goal(100), 3);
 
-        assert_rejects_post_terminal_step::<1, 1, _, _>(
+        assert_rejects_post_terminal_step(
             &mut timed,
             |env| {
                 env.reset().expect("reset must succeed");
@@ -368,7 +362,7 @@ mod tests {
         // Inner env terminates at step 2, well inside the cap of 10.
         let mut timed = TimeLimit::new(StubEnv::new_at_goal(2), 10);
 
-        assert_rejects_post_terminal_step::<1, 1, _, _>(
+        assert_rejects_post_terminal_step(
             &mut timed,
             |env| {
                 env.reset().expect("reset must succeed");

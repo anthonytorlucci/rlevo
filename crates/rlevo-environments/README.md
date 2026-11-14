@@ -76,7 +76,7 @@ Since the leak zone is fixed while the corridor grows, the **recall horizon scal
 
 ### Pixel Grid (modality-changing POMDP)
 
-`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a $5 \times 5$ grid, but whose observation is a rendered $20 \times 20 \times 3$ RGB image — `Environment<3, 1>`, a rank-3 observation of a rank-1 latent. Every observation is `PixelGridState::project` of the latent, a method of the state type (ADR 0020). Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
+`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a $5 \times 5$ grid, but whose observation is a rendered $20 \times 20 \times 3$ RGB image — a rank-3 observation (`SHAPE == [20, 20, 3]`) of a rank-1 latent. Every observation is `PixelGridState::project` of the latent, a method of the state type (ADR 0020). Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
 
 ---
 
@@ -254,9 +254,9 @@ To replay one specific episode bit-for-bit, call the inherent `reset_with_seed(s
 
 A `step` after `Terminated` or `Truncated` returns `EnvironmentError::StepAfterEpisodeEnd` and changes nothing; call `reset` first. Every environment here, and `TimeLimit`, holds a `rlevo_core::episode::EpisodeGuard` for this.
 
-### Const Generics
+### Shapes and Ranks
 
-Tensor ranks (the number of axes, not their sizes) are encoded as const generics: `Observation<R>` and `Action<R>`, with an environment declaring both as `Environment<OR, AR>` (observation and action rank). A rank mismatch produces a compile-time error rather than a runtime panic; the size of each axis is a runtime value, returned by `shape()`.
+No trait here carries a const rank. An observation states its shape as the constant `Observation::SHAPE` (its rank is `SHAPE.len()`), an action has no shape (a discrete action's size is `ACTION_COUNT`, a continuous one's is `COMPONENTS`), and an environment is declared as `impl Environment for MyEnv`. The rank a model takes, `BOR`, is named on the agent, which asserts `O::SHAPE.len() + 1 == BOR` when it is built; a mismatch fails `cargo build` or `cargo test`, not `cargo check` (ADR 0100, ADR 0101).
 
 ---
 

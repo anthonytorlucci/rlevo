@@ -37,7 +37,7 @@ fn reset_yields_rank3_observation_over_rank1_state() {
 
     assert_eq!(snap.status, EpisodeStatus::Running);
     assert_eq!(
-        <PixelObservation as Observation<3>>::shape(),
+        <PixelObservation as Observation>::SHAPE,
         [20, 20, 3],
         "observation is rank 3"
     );

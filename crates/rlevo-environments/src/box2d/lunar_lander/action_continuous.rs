@@ -20,11 +20,7 @@ impl LunarLanderContinuousAction {
     pub const BOUND: f32 = 1.0;
 }
 
-impl Action<1> for LunarLanderContinuousAction {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
+impl Action for LunarLanderContinuousAction {
     fn is_valid(&self) -> bool {
         self.0
             .iter()
@@ -32,7 +28,7 @@ impl Action<1> for LunarLanderContinuousAction {
     }
 }
 
-impl ContinuousAction<1> for LunarLanderContinuousAction {
+impl ContinuousAction for LunarLanderContinuousAction {
     const COMPONENTS: usize = 2;
 
     fn as_slice(&self) -> &[f32] {
@@ -67,7 +63,7 @@ impl ContinuousAction<1> for LunarLanderContinuousAction {
 /// component 0, not of the action space: `-1` is a legal (engine-off) command, so the lower bound
 /// is `-1`, not `0`. This is why the space is symmetric despite one component behaving one-sidedly
 /// — unlike `CarRacing`, whose gas and brake are genuinely floored at `0`.
-impl BoundedAction<1> for LunarLanderContinuousAction {
+impl BoundedAction for LunarLanderContinuousAction {
     fn low() -> &'static [f32] {
         &[-1.0, -1.0]
     }
@@ -86,11 +82,6 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
-
-    #[test]
-    fn test_shape() {
-        assert_eq!(LunarLanderContinuousAction::shape(), [2]);
-    }
 
     #[test]
     fn test_bounds_match_components_and_is_valid() {

@@ -311,7 +311,7 @@ impl Default for InvertedDoublePendulum {
     }
 }
 
-impl Environment<1, 1> for InvertedDoublePendulum {
+impl Environment for InvertedDoublePendulum {
     type ObservationType = InvertedDoublePendulumObservation;
     type ActionType = InvertedDoublePendulumAction;
 
@@ -514,8 +514,7 @@ mod tests {
     }
 
     #[test]
-    fn action_shape_and_validity() {
-        assert_eq!(InvertedDoublePendulumAction::shape(), [1]);
+    fn action_validity() {
         assert!(InvertedDoublePendulumAction::new(0.0).is_valid());
         assert!(InvertedDoublePendulumAction::new(1.0).is_valid());
         assert!(!InvertedDoublePendulumAction::new(1.5).is_valid());
@@ -524,7 +523,7 @@ mod tests {
 
     #[test]
     fn observation_shape() {
-        assert_eq!(InvertedDoublePendulumObservation::shape(), [9]);
+        assert_eq!(InvertedDoublePendulumObservation::SHAPE, [9]);
     }
 
     #[test]

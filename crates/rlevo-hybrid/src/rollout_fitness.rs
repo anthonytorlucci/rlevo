@@ -27,12 +27,14 @@
 //! first-class**. A memoryless classic-control policy is the `Hidden = ()`
 //! case.
 //!
-//! # Rank fixing
+//! # Observation shape
 //!
-//! `E: Environment<1, 1>` — weight-only policy neuroevolution v1 targets
-//! vector-observation, scalar/discrete-action classic-control environments
-//! (`CartPole`, `MountainCar`, Pendulum, Acrobot), all rank-1. Higher-rank
-//! observation/action spaces are a future generalization.
+//! `E: Environment` places no constraint on the observation's shape: the
+//! policy maps an observation to an action through [`StatefulPolicy::act`],
+//! so laying the observation out for its network is the policy's job.
+//! Weight-only policy neuroevolution v1 is exercised on vector-observation
+//! classic-control environments (`CartPole`, `MountainCar`, Pendulum,
+//! Acrobot).
 //!
 //! # Gradient isolation
 //!
@@ -72,7 +74,7 @@ type RolloutScorer<M> = Box<dyn Fn(&M) -> f32 + Send>;
 fn rollout_once<M, E>(module: &M, env_factory: &EnvFactory<E>, max_steps: usize) -> f32
 where
     M: StatefulPolicy<E::ObservationType, E::ActionType>,
-    E: Environment<1, 1>,
+    E: Environment,
 {
     let mut env = env_factory();
     let mut snapshot = env.reset().expect("environment reset failed");
@@ -98,11 +100,11 @@ where
 /// - `M`: the policy network module; must implement [`StatefulPolicy`] over
 ///   `E`'s observation and action types (a reactive module with
 ///   `Hidden = ()`).
-/// - `E`: a rank-1 [`Environment`].
+/// - `E`: the [`Environment`] each rollout runs in.
 pub struct RolloutFitness<M, E>
 where
     M: Module + StatefulPolicy<E::ObservationType, E::ActionType>,
-    E: Environment<1, 1>,
+    E: Environment,
 {
     inner: ModuleEvalFn<M, RolloutScorer<M>>,
     episodes_per_eval: usize,
@@ -113,7 +115,7 @@ where
 impl<M, E> std::fmt::Debug for RolloutFitness<M, E>
 where
     M: Module + StatefulPolicy<E::ObservationType, E::ActionType>,
-    E: Environment<1, 1>,
+    E: Environment,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RolloutFitness")
@@ -126,7 +128,7 @@ where
 impl<M, E> RolloutFitness<M, E>
 where
     M: Module + StatefulPolicy<E::ObservationType, E::ActionType>,
-    E: Environment<1, 1>,
+    E: Environment,
 {
     /// Build a rollout-based fitness function.
     ///
@@ -193,7 +195,7 @@ where
 impl<M, E> BatchFitnessFn<Tensor<2>> for RolloutFitness<M, E>
 where
     M: Module + StatefulPolicy<E::ObservationType, E::ActionType>,
-    E: Environment<1, 1> + Send,
+    E: Environment + Send,
 {
     fn evaluate_batch(&mut self, population: &Tensor<2>, device: &Device) -> Tensor<1> {
         self.inner.evaluate_batch(population, device)

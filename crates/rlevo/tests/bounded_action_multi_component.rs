@@ -1,7 +1,7 @@
 //! Regression witness for ADR 0053: a **multi-component rank-1**
 //! `BoundedAction` must survive the continuous-control agents' action paths.
 //!
-//! `BoundedAction<R>::low()`/`high()` used to return `[f32; R]` — one bound
+//! `BoundedAction::low()`/`high()` used to return `[f32; R]` — one bound
 //! value per **rank** dimension, not per flattened **component**. Every
 //! `BoundedAction` impl in the workspace happened to satisfy
 //! `RANK == COMPONENTS`, which is exactly what kept the conflation latent:
@@ -55,22 +55,18 @@ use rlevo_test_support::env::LinearObservation;
 use rlevo_test_support::flex::{flex_guard, seeded_device};
 
 // ---------------------------------------------------------------------------
-// The fixture: rank 1, three components, asymmetric bounds.
+// The fixture: three components, asymmetric bounds.
 // ---------------------------------------------------------------------------
 
 /// `CarRacing`-shaped action: `$\text{steer} \in [-1, 1]$`, `$\text{gas} \in [0, 1]$`,
 /// `$\text{brake} \in [0, 1]$`.
 ///
-/// Rank **1** with **3** components — the combination that makes the rank/
-/// component distinction observable.
+/// **3** components with bounds that differ per component — the combination
+/// that makes a collapse to one shared bound observable.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct CarLikeAction([f32; 3]);
 
-impl Action<1> for CarLikeAction {
-    fn shape() -> [usize; 1] {
-        [3]
-    }
-
+impl Action for CarLikeAction {
     fn is_valid(&self) -> bool {
         let (low, high) = (Self::low(), Self::high());
         self.0
@@ -80,7 +76,7 @@ impl Action<1> for CarLikeAction {
     }
 }
 
-impl ContinuousAction<1> for CarLikeAction {
+impl ContinuousAction for CarLikeAction {
     const COMPONENTS: usize = 3;
 
     fn as_slice(&self) -> &[f32] {
@@ -101,7 +97,7 @@ impl ContinuousAction<1> for CarLikeAction {
     }
 }
 
-impl BoundedAction<1> for CarLikeAction {
+impl BoundedAction for CarLikeAction {
     fn low() -> &'static [f32] {
         &[-1.0, 0.0, 0.0]
     }
@@ -145,13 +141,13 @@ impl Critic {
     }
 }
 
-impl ContinuousQ<2, 2> for Critic {
+impl ContinuousQ<2> for Critic {
     fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         self.forward_impl(obs, act)
     }
 }
 
-type CarAgent = DdpgAgent<MlpActor, Critic, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
+type CarAgent = DdpgAgent<MlpActor, Critic, LinearObservation, CarLikeAction, 2>;
 
 /// Builds a DDPG agent whose action type has 3 components and a warm-up window
 /// long enough that `act(.., training = true)` takes the uniform-sample branch.
@@ -191,20 +187,12 @@ fn assert_within_per_component_bounds(action: &CarLikeAction) {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// The trait's own contract, on a fixture whose rank is not its `COMPONENTS`.
-///
-/// This is the assertion that distinguishes ADR 0053's design from the one it
-/// replaced: `low()` has three entries because the action has three
-/// *components*, not because it has rank 3 (it has rank 1).
+/// The trait's own contract: `low()` has three entries because the action
+/// has three *components* (ADR 0053). Since ADR 0100 an action has no rank
+/// left to be confused with that count.
 #[test]
-fn bounds_are_keyed_on_components_not_rank() {
-    assert_eq!(CarLikeAction::shape().len(), 1);
+fn bounds_are_keyed_on_components() {
     assert_eq!(CarLikeAction::COMPONENTS, 3);
-    assert_ne!(
-        CarLikeAction::shape().len(),
-        CarLikeAction::COMPONENTS,
-        "fixture is pointless unless rank and component count disagree"
-    );
 
     assert_eq!(CarLikeAction::low().len(), CarLikeAction::COMPONENTS);
     assert_eq!(CarLikeAction::high().len(), CarLikeAction::COMPONENTS);
@@ -297,7 +285,7 @@ fn noisy_action_stays_within_per_component_bounds() {
 // sampler and the per-component clamp on the policy path. Both were `A::RANK`
 // before ADR 0053 §5. Every `BoundedAction` impl reachable from
 // `sac_integration.rs` is 1/1, so nothing there can tell the two apart; this
-// fixture (rank 1, 3 components, asymmetric bounds) can.
+// fixture (3 components, asymmetric bounds) can.
 // ===========================================================================
 
 /// Test-local SAC actor with a **controllable saturation direction**.
@@ -343,12 +331,12 @@ impl SquashedActor {
     }
 }
 
-impl SquashedGaussianPolicy<2, 2> for SquashedActor {
+impl SquashedGaussianPolicy<2> for SquashedActor {
     fn action_dim(&self) -> usize {
         self.action_dim
     }
 
-    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput<2> {
+    fn forward_sample(&self, obs: Tensor<2>, eps: Tensor<2>) -> SampleOutput {
         let (action, log_prob) = self.sample_impl(obs, eps);
         SampleOutput { action, log_prob }
     }
@@ -358,7 +346,7 @@ impl SquashedGaussianPolicy<2, 2> for SquashedActor {
     }
 }
 
-type CarSacAgent = SacAgent<SquashedActor, Critic, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
+type CarSacAgent = SacAgent<SquashedActor, Critic, LinearObservation, CarLikeAction, 2>;
 
 /// Builds a SAC agent over the 3-component fixture. `gain` sets how hard the
 /// policy saturates; the sign of the observation then picks the direction.
@@ -436,7 +424,7 @@ fn sac_policy_action_clamps_each_component_against_its_own_bound() {
 //
 // `clip_to_action_bounds` is unit-tested in `shared.rs`, but in isolation:
 // nothing there exercises DDPG's *wiring* of `low_t`/`high_t` through
-// `action_bound_tensors::<A, DA, DAB>` at construction. A
+// `action_bound_tensors::<A>` at construction. A
 // swapped pair, or a wrong generic at that call site, would pass every
 // existing test. These two tests observe the tensor the target critic is
 // actually handed.
@@ -478,7 +466,7 @@ impl RecordingCritic {
     }
 }
 
-impl ContinuousQ<2, 2> for RecordingCritic {
+impl ContinuousQ<2> for RecordingCritic {
     fn forward(&self, obs: Tensor<2>, act: Tensor<2>) -> Tensor<1> {
         if !act.device().is_autodiff() {
             let row = act
@@ -517,14 +505,14 @@ impl SaturatingActor {
     }
 }
 
-impl DeterministicPolicy<2, 2> for SaturatingActor {
+impl DeterministicPolicy<2> for SaturatingActor {
     fn forward(&self, obs: Tensor<2>) -> Tensor<2> {
         self.forward_impl(obs)
     }
 }
 
 type SaturatingAgent =
-    DdpgAgent<SaturatingActor, RecordingCritic, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
+    DdpgAgent<SaturatingActor, RecordingCritic, LinearObservation, CarLikeAction, 2>;
 
 const LEARN_BATCH: usize = 4;
 
@@ -600,8 +588,8 @@ fn assert_every_target_row(rows: &[Vec<f32>], expected: [f32; 3], why: &str) {
 /// "values of impossible actions" TD3 Eq. 14's clip exists to suppress.
 ///
 /// Unlike the `shared.rs` unit tests, this observes the tensor DDPG actually
-/// builds, so it also covers `action_bound_tensors::<A, DA,
-/// DAB>` being called with the right generics at the right place.
+/// builds, so it also covers `action_bound_tensors::<A>` being called with
+/// the right generic at the right place.
 #[test]
 fn ddpg_learn_step_clips_the_target_action_per_component() {
     let _guard = flex_guard();

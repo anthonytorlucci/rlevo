@@ -36,12 +36,12 @@ use rlevo_core::environment::Snapshot;
 /// Panics (as a test assertion) if the driven snapshot is not done, if the
 /// post-terminal `step` succeeds, or if it fails with any other
 /// [`EnvironmentError`] variant.
-pub(crate) fn assert_rejects_post_terminal_step<const R: usize, const AR: usize, E, F>(
+pub(crate) fn assert_rejects_post_terminal_step<E, F>(
     env: &mut E,
     drive_to_done: F,
     replay_action: E::ActionType,
 ) where
-    E: rlevo_core::environment::Environment<R, AR>,
+    E: rlevo_core::environment::Environment,
     F: FnOnce(&mut E) -> Snapshot<E::ObservationType>,
 {
     let terminal = drive_to_done(env);
@@ -83,10 +83,8 @@ mod tests {
         steps: u8,
     }
 
-    impl Observation<1> for MockObservation {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
+    impl Observation for MockObservation {
+        const SHAPE: &'static [usize] = &[1];
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,17 +95,13 @@ mod tests {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct MockAction;
 
-    impl Action<1> for MockAction {
+    impl Action for MockAction {
         fn is_valid(&self) -> bool {
             true
         }
-
-        fn shape() -> [usize; 1] {
-            [1]
-        }
     }
 
-    impl DiscreteAction<1> for MockAction {
+    impl DiscreteAction for MockAction {
         const ACTION_COUNT: usize = 1;
 
         fn from_index(index: usize) -> Self {
@@ -146,7 +140,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1> for MockGuardedEnv {
+    impl Environment for MockGuardedEnv {
         type ObservationType = MockObservation;
         type ActionType = MockAction;
 

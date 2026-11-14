@@ -9,6 +9,83 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **An action carries no rank, and an observation states its shape as a
+  constant** (ADR 0100, ADR 0101). No domain trait takes a const rank any
+  more. `Action::shape` is removed, not replaced: the size of a discrete
+  action space is `DiscreteAction::ACTION_COUNT` and of a continuous one
+  `ContinuousAction::COMPONENTS`, as before. `Observation::shape()` is
+  replaced by the constant `Observation::SHAPE`, and an observation's rank
+  is `SHAPE.len()`. The rank-per-component action form ("Convention B" of
+  ADR 0053) is retired. An environment author now writes:
+
+  ```rust
+  // before
+  impl Observation<2> for TankObs {
+      fn shape() -> [usize; 2] { [TANKS, FEATURES] }
+  }
+  impl HostRow<2> for TankObs { /* ... */ }
+  impl Action<1> for PumpCommand {
+      fn shape() -> [usize; 1] { [2] }
+      fn is_valid(&self) -> bool { /* ... */ }
+  }
+  impl ContinuousAction<1> for PumpCommand { /* ... */ }
+  impl Environment<2, 1> for TankFarm { /* ... */ }
+  type Agent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2>;
+
+  // after
+  impl Observation for TankObs {
+      const SHAPE: &'static [usize] = &[TANKS, FEATURES];
+  }
+  impl HostRow for TankObs { /* ... */ }
+  impl Action for PumpCommand {
+      fn is_valid(&self) -> bool { /* ... */ }
+  }
+  impl ContinuousAction for PumpCommand { /* ... */ }
+  impl Environment for TankFarm { /* ... */ }
+  type Agent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 2>;
+  ```
+
+  - **Arity changes.** `Action`, `DiscreteAction`, `ContinuousAction`,
+    `BoundedAction`, `Observation`, `HostRow`, `TensorConvertible` and
+    `Environment` lose every const parameter, so each is named bare:
+    `A: BoundedAction`, `O: HostRow`, `E: Environment`. Delete `fn shape`
+    from every `Action` impl and the rank from every `impl` header. Replace
+    `fn shape() -> [usize; N] { [..] }` on an observation with
+    `const SHAPE: &'static [usize] = &[..];`, and `O::shape()` at a call
+    site with `O::SHAPE`.
+  - **`HostRow` no longer has a rank.** `HostRow: Observation`, and
+    `write_host_row` pushes exactly `SHAPE.iter().product()` values. The
+    rule that a type implements `HostRow` at one rank is gone, and so is the
+    turbofish (`<T as Observation<3>>::shape()`) it forced.
+  - **`TensorConvertible::to_tensor` takes its rank on the method:**
+    `obs.to_tensor::<R>(&device)`, or `let t: Tensor<R> = obs.to_tensor(&device)`.
+    It asserts `Self::SHAPE.len() == R` when it is built.
+  - **An agent keeps one rank, `BOR`, the rank of its model's input.**
+    `DqnAgent<M, O, A, BOR>` replaces `DqnAgent<M, O, A, OR, BOR>`, and the
+    same drop applies to `QrDqnAgent`, `C51Agent`, `PpoAgent`, `PpgAgent`,
+    `DdpgAgent`, `Td3Agent` and `SacAgent`. Agent bounds are `O: HostRow`.
+    `AuxRolloutBuffer::gather_minibatch<R, BR>` drops the row rank `R` and keeps `BR`,
+    the batch rank; call it as `gather_minibatch::<BOR>(..)`.
+  - **A batch of continuous actions is `Tensor<2>`, `[batch, COMPONENTS]`.**
+    `DeterministicPolicy`, `ContinuousQ` and `SquashedGaussianPolicy` lose
+    `BAR` and keep `BOR`; `SampleOutput` loses its parameter; `DdpgAgent`,
+    `Td3Agent` and `SacAgent` lose `AR` and `BAR`. A network that wants its
+    action in another layout reshapes inside `forward`.
+  - **`rlevo-test-support` baselines.** `uniform_discrete::<A>`,
+    `uniform_bounded::<A>` and `random_return::<E>` lose their rank
+    parameters.
+  - **`rlevo-hybrid`'s `RolloutFitness` accepts any `Environment`.** It no
+    longer documents "rank fixing", because a bound can no longer require a
+    rank.
+  - **A mismatched `BOR` is a build error, not a runtime panic.** Each agent
+    constructor asserts `O::SHAPE.len() + 1 == BOR` in a `const` block, so a
+    model whose input rank does not fit the observation fails with an error
+    naming the instantiation. It appears at `cargo build` and `cargo test`.
+    `cargo check` does not instantiate the function and does not report it,
+    so an editor that runs `cargo check` shows nothing until a build.
+
 ## [0.6.1] – 2026-11-01
 
 A documentation release. Every crate moves to 0.6.1 so the workspace keeps

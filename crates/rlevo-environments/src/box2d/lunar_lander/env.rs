@@ -437,7 +437,7 @@ impl Default for LunarLanderDiscrete {
     }
 }
 
-impl Environment<1, 1> for LunarLanderDiscrete {
+impl Environment for LunarLanderDiscrete {
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderDiscreteAction;
 
@@ -550,7 +550,7 @@ impl Default for LunarLanderContinuous {
     }
 }
 
-impl Environment<1, 1> for LunarLanderContinuous {
+impl Environment for LunarLanderContinuous {
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderContinuousAction;
 
@@ -839,7 +839,7 @@ mod tests {
 
     #[test]
     fn test_obs_shape() {
-        assert_eq!(LunarLanderObservation::shape(), [8]);
+        assert_eq!(LunarLanderObservation::SHAPE, [8]);
     }
 
     #[test]

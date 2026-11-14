@@ -60,14 +60,14 @@ fn cartpole(seed: u64) -> TimeLimit<CartPole> {
 /// An agent that picks uniformly at random: the floor every row must clear.
 struct Random;
 
-impl<O, A: DiscreteAction<1>> Agent<O, A> for Random {
+impl<O, A: DiscreteAction> Agent<O, A> for Random {
     fn act(&mut self, _obs: &O, rng: &mut dyn Rng) -> A {
         A::from_index(rng.random_range(0..A::ACTION_COUNT))
     }
 }
 
 /// The shipped DQN over its default network, seeded by the trial.
-fn dqn(seed: u64) -> DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2> {
+fn dqn(seed: u64) -> DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 2> {
     let device = Device::flex();
     device.seed(seed);
     let network = MlpQNetworkConfig {

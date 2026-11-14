@@ -38,7 +38,7 @@ Steps 1, 2, 3 and 5 hold as they do for the thermostat, for
 
 | # | Step | Holds when |
 |---|------|------------|
-| 3 | `implement-environment` | as for the thermostat, and the base level's assertion that `TimeLimit<TankFarm>` implements `Environment<2, 1>` compiles. An observation flattened to rank 1 fails here |
+| 3 | `implement-environment` | as for the thermostat, and the base level's compile-time assertion that `TimeLimit<TankFarm>`'s observation has `SHAPE.len() == 2` and its action has `COMPONENTS == 2` holds. An observation flattened to rank 1 fails here |
 | 4 | `post-terminal` | the shapes are `[2, 4]` and `[2]`; the commands `[1.5, 0.0]` and `[NaN, 0.0]` each return `EnvironmentError::InvalidAction`, and the next valid step equals the same step on a fresh farm; with both pumps full on, the bare farm overflows and a further step returns `StepAfterEpisodeEnd` carrying `Terminated` from the farm's guard; with both pumps off, `TimeLimit` truncates at 60 steps and a further step returns it carrying `Truncated` from the wrapper's guard; each environment is usable again after a `reset` |
 | 6 | `run-suite` | `Evaluator::run_suite` over `TimeLimit::new(TankFarm::with_seed(seed), 60)`, with the evaluator's cap at 64, returns 2 trials, none errored, each named `tank-farm`, each with 3 episodes of exactly 60 steps and a finite `return/mean`. A shorter episode means the policy overflowed a tank; a longer one, that the cap ended it and not the wrapper |
 

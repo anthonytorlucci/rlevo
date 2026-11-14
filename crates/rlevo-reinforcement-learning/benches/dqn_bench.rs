@@ -23,7 +23,7 @@ use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{MlpQNetwork, MlpQNetworkConfig};
 
-type Agent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = DqnAgent<MlpQNetwork, CartPoleObservation, CartPoleAction, 2>;
 
 fn build_agent() -> Agent {
     let device = Device::flex();

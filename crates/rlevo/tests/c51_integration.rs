@@ -45,7 +45,7 @@ fn c51_network(num_atoms: usize, device: &Device) -> MlpDistributionalQ {
     .expect("valid network config")
 }
 
-type Agent = C51Agent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = C51Agent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 2>;
 
 /// Constructs a deterministic [`C51Agent`] for `CartPole`.
 ///
@@ -136,8 +136,7 @@ fn c51_agent_new_rejects_degenerate_support() {
         ..C51TrainingConfig::default()
     };
     let model = c51_network(config.num_atoms, &device);
-    let result =
-        C51Agent::<_, CartPoleObservation, CartPoleAction, 1, 2>::new(model, config, device);
+    let result = C51Agent::<_, CartPoleObservation, CartPoleAction, 2>::new(model, config, device);
     let err = result.unwrap_err();
     assert_eq!(err.field, "v_max");
 }

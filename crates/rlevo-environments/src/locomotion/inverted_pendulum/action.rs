@@ -17,17 +17,13 @@ impl InvertedPendulumAction {
     }
 }
 
-impl Action<1> for InvertedPendulumAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
+impl Action for InvertedPendulumAction {
     fn is_valid(&self) -> bool {
         self.0[0].is_finite() && self.0[0].abs() <= 3.0
     }
 }
 
-impl ContinuousAction<1> for InvertedPendulumAction {
+impl ContinuousAction for InvertedPendulumAction {
     const COMPONENTS: usize = 1;
 
     /// Returns the raw force value as a single-element slice.

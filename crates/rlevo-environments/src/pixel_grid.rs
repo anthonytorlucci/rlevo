@@ -65,6 +65,8 @@ use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
+use rlevo_core::action::DiscreteAction;
+use rlevo_core::base::Action;
 use rlevo_core::episode::EpisodeGuard;
 
 /// Grid side length in cells; the grid is [`GRID_SIDE`]`$^2$` cells.
@@ -335,7 +337,7 @@ fn paint_cell(pixels: &mut [u8], cell: usize, color: [u8; CHANNELS]) {
 /// use rlevo_environments::pixel_grid::{PixelGridState, PixelObservation, PIXEL_COUNT};
 /// use rlevo_core::base::Observation;
 ///
-/// assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
+/// assert_eq!(<PixelObservation as Observation>::SHAPE, [20, 20, 3]);
 /// let state = PixelGridState::new(0, 24).expect("both indices are in range");
 /// let obs = state.project();
 /// assert_eq!(obs.pixels().len(), PIXEL_COUNT);
@@ -353,13 +355,11 @@ impl PixelObservation {
     }
 }
 
-impl Observation<3> for PixelObservation {
-    fn shape() -> [usize; 3] {
-        [IMG_SIDE, IMG_SIDE, CHANNELS]
-    }
+impl Observation for PixelObservation {
+    const SHAPE: &'static [usize] = &[IMG_SIDE, IMG_SIDE, CHANNELS];
 }
 
-impl HostRow<3> for PixelObservation {
+impl HostRow for PixelObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         // Normalize bytes to [0, 1] so a Burn policy can consume the frame directly.
         buf.extend(self.pixels.iter().map(|&b| f32::from(b) / 255.0));
@@ -413,17 +413,13 @@ pub enum PixelGridAction {
     Right,
 }
 
-impl rlevo_core::base::Action<1> for PixelGridAction {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-
+impl Action for PixelGridAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl rlevo_core::action::DiscreteAction<1> for PixelGridAction {
+impl DiscreteAction for PixelGridAction {
     const ACTION_COUNT: usize = 4;
 
     /// Construct an action from its index.
@@ -719,7 +715,7 @@ impl Default for PixelGridEnv {
     }
 }
 
-impl Environment<3, 1> for PixelGridEnv {
+impl Environment for PixelGridEnv {
     type ObservationType = PixelObservation;
     type ActionType = PixelGridAction;
 
@@ -823,7 +819,6 @@ mod tests {
 
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::action::DiscreteAction;
     use rlevo_core::environment::EpisodeStatus;
 
     // ── post-terminal step guard (ADR 0044) ──────────────────────────────────
@@ -1247,7 +1242,7 @@ mod tests {
 
     #[test]
     fn observation_ranks_and_shapes() {
-        assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
+        assert_eq!(<PixelObservation as Observation>::SHAPE, [20, 20, 3]);
     }
 
     #[test]
@@ -1316,10 +1311,7 @@ mod tests {
         let mut row = Vec::new();
         obs.write_host_row(&mut row);
 
-        assert_eq!(
-            row.len(),
-            PixelObservation::shape().iter().product::<usize>()
-        );
+        assert_eq!(row.len(), PixelObservation::SHAPE.iter().product::<usize>());
         assert_eq!(row.len(), PIXEL_COUNT);
         for (i, (&value, &byte)) in row.iter().zip(obs.pixels()).enumerate() {
             assert_eq!(value, f32::from(byte) / 255.0, "element {i}");
@@ -1411,7 +1403,7 @@ mod tests {
         let mut env = PixelGridEnv::with_config(cfg, false).expect("valid config");
         let snap = env.reset().unwrap();
         assert_eq!(snap.observation.pixels().len(), PIXEL_COUNT);
-        assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
+        assert_eq!(<PixelObservation as Observation>::SHAPE, &[20, 20, 3]);
     }
 
     #[test]

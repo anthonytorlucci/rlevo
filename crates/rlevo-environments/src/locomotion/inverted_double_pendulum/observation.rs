@@ -75,13 +75,11 @@ impl Default for InvertedDoublePendulumObservation {
     }
 }
 
-impl Observation<1> for InvertedDoublePendulumObservation {
-    fn shape() -> [usize; 1] {
-        [9]
-    }
+impl Observation for InvertedDoublePendulumObservation {
+    const SHAPE: &'static [usize] = &[9];
 }
 
-impl HostRow<1> for InvertedDoublePendulumObservation {
+impl HostRow for InvertedDoublePendulumObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.0);
     }

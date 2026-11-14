@@ -34,6 +34,7 @@ mod policy;
 #[cfg(feature = "harness")]
 mod harness;
 
+use rlevo::core::action::ContinuousAction;
 use rlevo::core::base::{Action, Observation};
 use rlevo::core::environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot};
 use rlevo::envs::wrappers::TimeLimit;
@@ -46,12 +47,16 @@ const TIME_LIMIT: usize = 60;
 /// The seed every check here builds its farm from.
 const SEED: u64 = 2026;
 
-// The ranks are written out and checked when the base level compiles: a
-// rank-2 observation and a rank-1 action, through the wrapper the harness
-// runs. Flattening the observation to rank 1 to make
-// something compile breaks this line, at step 3, and not a later step.
-const fn has_ranks<E: Environment<2, 1>>() {}
-const _: () = has_ranks::<TimeLimit<TankFarm>>();
+// The rank is checked when the base level compiles: a rank-2 observation
+// and a two-component action, through the wrapper the harness runs.
+// Flattening the observation to rank 1 breaks this line, at step 3, and not
+// a later step.
+const _: () = {
+    type Obs = <TimeLimit<TankFarm> as Environment>::ObservationType;
+    type Act = <TimeLimit<TankFarm> as Environment>::ActionType;
+    assert!(<Obs as Observation>::SHAPE.len() == 2);
+    assert!(<Act as ContinuousAction>::COMPONENTS == 2);
+};
 
 fn main() {
     report("post-terminal", contract());
@@ -66,14 +71,15 @@ fn report(label: &str, outcome: Result<String, String>) {
     }
 }
 
-/// Step 4: the shapes are the declared ones; an invalid command and a step
+/// Step 4: the observation shape and action width are the declared ones; an invalid command and a step
 /// after either ending are the errors the contract names, and change
 /// nothing.
 fn contract() -> Result<String, String> {
-    let shapes = (TankObs::shape(), PumpCommand::shape());
-    if shapes != ([2, HISTORY], [2]) {
+    let shapes = (TankObs::SHAPE, PumpCommand::COMPONENTS);
+    if shapes != (&[2, HISTORY][..], 2) {
         return Err(format!(
-            "observation and action shapes are {shapes:?}; expected ([2, {HISTORY}], [2])"
+            "observation shape and action components are {shapes:?}; \
+             expected ([2, {HISTORY}], 2)"
         ));
     }
 
@@ -160,7 +166,7 @@ fn run_to_end<E>(
     bound: usize,
 ) -> Result<(usize, EpisodeStatus), String>
 where
-    E: Environment<2, 1, ActionType = PumpCommand>,
+    E: Environment<ActionType = PumpCommand>,
 {
     env.reset().map_err(|e| format!("reset failed: {e}"))?;
     // Bounded: an episode that never ends fails here, it does not hang.
@@ -187,7 +193,7 @@ fn rejects_after_end<E>(
     state: impl Fn(&E) -> TankState,
 ) -> Result<(), String>
 where
-    E: Environment<2, 1, ActionType = PumpCommand>,
+    E: Environment<ActionType = PumpCommand>,
 {
     let before = state(env);
     match env.step(command) {

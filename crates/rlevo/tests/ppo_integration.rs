@@ -68,7 +68,7 @@ fn make_cart_pole_agent(
     seed: u64,
     num_steps: usize,
     total_timesteps: usize,
-) -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 1, 2> {
+) -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 2> {
     let device = seeded_device(seed);
 
     let policy = CategoricalPolicyHeadConfig {
@@ -148,7 +148,7 @@ fn ppo_agent_new_rejects_multiple_envs() {
         num_envs: 2,
         ..PpoTrainingConfig::default()
     };
-    let result = PpoAgent::<_, _, CartPoleObservation, 1, 2>::new(policy, value, config, device, 1);
+    let result = PpoAgent::<_, _, CartPoleObservation, 2>::new(policy, value, config, device, 1);
     let err = result.unwrap_err();
     assert_eq!(err.field, "num_envs");
 }
@@ -190,7 +190,7 @@ fn make_pendulum_agent(
     seed: u64,
     num_steps: usize,
     total_timesteps: usize,
-) -> PpoAgent<TanhGaussianPolicyHead, MlpValue, PendulumObservation, 1, 2> {
+) -> PpoAgent<TanhGaussianPolicyHead, MlpValue, PendulumObservation, 2> {
     let device = seeded_device(seed);
 
     let policy = TanhGaussianPolicyHeadConfig {
@@ -263,7 +263,7 @@ fn random_pendulum(seed: u64) -> f32 {
         100,
         200,
         &mut rng,
-        uniform_bounded::<1, PendulumAction>,
+        uniform_bounded::<PendulumAction>,
     )
 }
 

@@ -71,7 +71,7 @@ fn critic(obs_dim: usize, action_dim: usize, hidden: usize, device: &Device) -> 
 }
 
 // Concrete TD3 agent over the shared 1-D continuous fixture.
-type LinearAgent = Td3Agent<MlpActor, MlpCritic, LinearObservation, LinearAction, 1, 2, 1, 2>;
+type LinearAgent = Td3Agent<MlpActor, MlpCritic, LinearObservation, LinearAction, 2>;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -115,13 +115,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
 fn random_linear(seed: u64) -> f32 {
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
-    random_return(
-        &mut env,
-        200,
-        20,
-        &mut rng,
-        uniform_bounded::<1, LinearAction>,
-    )
+    random_return(&mut env, 200, 20, &mut rng, uniform_bounded::<LinearAction>)
 }
 
 /// Mean episode return of a uniform-random torque policy on the `TimeLimit`ed
@@ -140,7 +134,7 @@ fn random_pendulum(seed: u64) -> f32 {
         100,
         200,
         &mut rng,
-        uniform_bounded::<1, PendulumAction>,
+        uniform_bounded::<PendulumAction>,
     )
 }
 
@@ -315,7 +309,7 @@ fn td3_pendulum_improves_over_random() {
         policy_frequency: 2,
         ..Default::default()
     };
-    let mut agent: Td3Agent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2> =
+    let mut agent: Td3Agent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 2> =
         Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     let episodes = train(&mut env, &mut agent, 500_000, usize::MAX, &mut rng).expect("training");

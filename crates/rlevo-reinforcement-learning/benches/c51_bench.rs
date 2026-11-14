@@ -24,7 +24,7 @@ use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
     MlpDistributionalQ, MlpDistributionalQConfig,
 };
 
-type Agent = C51Agent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 1, 2>;
+type Agent = C51Agent<MlpDistributionalQ, CartPoleObservation, CartPoleAction, 2>;
 
 fn primed_agent(num_atoms: usize, batch_size: usize) -> Agent {
     let device = Device::flex();

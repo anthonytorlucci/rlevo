@@ -155,7 +155,7 @@ use rlevo_core::{
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
-// Strategy trait (spec B4)
+// Strategy trait
 // ---------------------------------------------------------------------------
 
 /// Computes the time derivative of the Acrobot state vector.
@@ -259,7 +259,7 @@ impl AcrobotDynamicsFn for NipsDynamics {
 }
 
 // ---------------------------------------------------------------------------
-// RK4 integrator
+// Fourth-Order Runge-Kutta (RK4) integrator
 // ---------------------------------------------------------------------------
 
 /// Advances `s` by one step of size `dt` using the classic RK4 method.
@@ -452,10 +452,8 @@ impl AcrobotObservation {
     }
 }
 
-impl Observation<1> for AcrobotObservation {
-    fn shape() -> [usize; 1] {
-        [6]
-    }
+impl Observation for AcrobotObservation {
+    const SHAPE: &'static [usize] = &[6];
 }
 
 // ---------------------------------------------------------------------------
@@ -484,16 +482,13 @@ impl AcrobotAction {
     }
 }
 
-impl Action<1> for AcrobotAction {
-    fn shape() -> [usize; 1] {
-        [3]
-    }
+impl Action for AcrobotAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for AcrobotAction {
+impl DiscreteAction for AcrobotAction {
     const ACTION_COUNT: usize = 3;
 
     /// Constructs an action from its integer index.
@@ -691,7 +686,7 @@ fn acrobot_observation(state: &AcrobotState) -> AcrobotObservation {
     }
 }
 
-impl<D: AcrobotDynamicsFn + Default> Environment<1, 1> for Acrobot<D> {
+impl<D: AcrobotDynamicsFn + Default> Environment for Acrobot<D> {
     type ObservationType = AcrobotObservation;
     type ActionType = AcrobotAction;
 
@@ -769,7 +764,7 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1> for Acrobot<D> {
 // Host rows
 // ---------------------------------------------------------------------------
 
-impl HostRow<1> for AcrobotObservation {
+impl HostRow for AcrobotObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
     }
@@ -931,7 +926,7 @@ mod tests {
 
     #[test]
     fn observation_shape() {
-        assert_eq!(AcrobotObservation::shape(), [6]);
+        assert_eq!(AcrobotObservation::SHAPE, &[6]);
     }
 
     #[test]

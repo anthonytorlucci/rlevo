@@ -40,7 +40,7 @@ Suite<E>
 
 ### Environments and trials
 
-`Evaluator::run_suite` binds directly on `rlevo_core::environment::Environment`, inferring its rank parameters from the `Suite<E>` it is given, so environments are registered as themselves with no adapter (ADR 0077). Evolutionary generation loops, which are not `Environment`s, go through `GenerationProbe` and `GenerationTrial` instead. This crate has no environment module of its own; the trial types live in `evaluator`.
+`Evaluator::run_suite` binds directly on `rlevo_core::environment::Environment`, taking its types from the `Suite<E>` it is given, so environments are registered as themselves with no adapter (ADR 0077). Evolutionary generation loops, which are not `Environment`s, go through `GenerationProbe` and `GenerationTrial` instead. This crate has no environment module of its own; the trial types live in `evaluator`.
 
 | Item | Description |
 |------|-------------|
@@ -246,10 +246,10 @@ use rlevo_core::environment::Environment;
 use rlevo_core::agent::Agent;
 
 // 1. Implement `rlevo_core::environment::Environment` for your env. The
-//    evaluator infers the rank parameters
+//    evaluator takes its observation and action types
 //    from the `Suite<MyEnv>` you hand it — no adapter, no turbofish.
 struct MyEnv { /* ... */ }
-impl Environment<1, 1> for MyEnv {
+impl Environment for MyEnv {
     type ObservationType = MyObs;
     type ActionType = MyAction;
 

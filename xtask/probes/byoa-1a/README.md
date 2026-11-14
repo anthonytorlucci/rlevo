@@ -68,7 +68,7 @@ not walked yet, and the note line says so on every run.
 ## The submission
 
 `src/q_learner.rs` is tabular Q-learning, written from scratch; nothing in
-`rlevo` implements it. It is generic over any `DiscreteAction<1>` and reads
+`rlevo` implements it. It is generic over any `DiscreteAction` and reads
 a state's index through a function it is built with, so the file names
 nothing outside the agent seam.
 

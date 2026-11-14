@@ -25,10 +25,10 @@
 //!     ..NonStationaryBanditConfig::default()
 //! };
 //! let mut env = NonStationaryBandit::<10>::with_config(cfg).expect("valid config");
-//! let _ = <NonStationaryBandit<10> as Environment<1, 1>>::reset(&mut env)
+//! let _ = <NonStationaryBandit<10> as Environment>::reset(&mut env)
 //!     .expect("reset succeeds");
 //! let action = KArmedBanditAction::<10>::new(3).expect("arm in range");
-//! let _ = <NonStationaryBandit<10> as Environment<1, 1>>::step(&mut env, action)
+//! let _ = <NonStationaryBandit<10> as Environment>::step(&mut env, action)
 //!     .expect("step");
 //! ```
 
@@ -266,7 +266,7 @@ impl<const K: usize> Default for NonStationaryBandit<K> {
     }
 }
 
-impl<const K: usize> Environment<1, 1> for NonStationaryBandit<K> {
+impl<const K: usize> Environment for NonStationaryBandit<K> {
     type ObservationType = KArmedBanditObservation;
     type ActionType = KArmedBanditAction<K>;
 
@@ -376,7 +376,7 @@ mod tests {
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
         let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig::default())
             .expect("valid config");
-        let snap = <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).expect("reset");
+        let snap = <NonStationaryBandit<K> as Environment>::reset(&mut env).expect("reset");
         assert!(!snap.status.is_done());
         assert_eq!(f32::from(snap.reward), 0.0);
     }
@@ -390,10 +390,10 @@ mod tests {
         })
         .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
-        let s1 = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        let s1 = <NonStationaryBandit<K> as Environment>::step(&mut env, action).unwrap();
         assert!(!s1.status.is_done());
-        let _ = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
-        let s3 = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        let _ = <NonStationaryBandit<K> as Environment>::step(&mut env, action).unwrap();
+        let s3 = <NonStationaryBandit<K> as Environment>::step(&mut env, action).unwrap();
         assert!(s3.status.is_truncated());
     }
 
@@ -428,12 +428,12 @@ mod tests {
 
     /// Resets, then steps arm 0 until the step budget truncates the episode.
     fn drive_to_end(env: &mut NonStationaryBandit<K>) -> Snapshot<KArmedBanditObservation> {
-        <NonStationaryBandit<K> as Environment<1, 1>>::reset(env).expect("reset must succeed");
+        <NonStationaryBandit<K> as Environment>::reset(env).expect("reset must succeed");
         let action = KArmedBanditAction::<K>::from_index(0);
-        let mut snap = <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
+        let mut snap = <NonStationaryBandit<K> as Environment>::step(env, action)
             .expect("first step must succeed");
         while !snap.status.is_done() {
-            snap = <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
+            snap = <NonStationaryBandit<K> as Environment>::step(env, action)
                 .expect("step must succeed while the episode is running");
         }
         snap
@@ -459,7 +459,7 @@ mod tests {
         let malformed = KArmedBanditAction::<K>::out_of_range_for_tests();
         assert!(!malformed.is_valid(), "the replayed action is out of range");
 
-        let err = <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, malformed)
+        let err = <NonStationaryBandit<K> as Environment>::step(&mut env, malformed)
             .expect_err("a step after the episode ended must be rejected");
         match err {
             EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
@@ -477,7 +477,7 @@ mod tests {
         let steps_at_end = env.steps;
         let means_at_end = *env.arm_means();
 
-        let _ = <NonStationaryBandit<K> as Environment<1, 1>>::step(
+        let _ = <NonStationaryBandit<K> as Environment>::step(
             &mut env,
             KArmedBanditAction::<K>::from_index(0),
         )
@@ -510,19 +510,19 @@ mod tests {
         drive_to_end(&mut rejected);
         drive_to_end(&mut untouched);
 
-        let _ = <NonStationaryBandit<K> as Environment<1, 1>>::step(
+        let _ = <NonStationaryBandit<K> as Environment>::step(
             &mut rejected,
             KArmedBanditAction::<K>::from_index(0),
         )
         .expect_err("a step after the episode ended must be rejected");
 
         let replay = |env: &mut NonStationaryBandit<K>| -> Vec<f32> {
-            <NonStationaryBandit<K> as Environment<1, 1>>::reset(env).unwrap();
+            <NonStationaryBandit<K> as Environment>::reset(env).unwrap();
             let action = KArmedBanditAction::<K>::from_index(0);
             (0..GUARD_MAX_STEPS)
                 .map(|_| {
                     f32::from(
-                        <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
+                        <NonStationaryBandit<K> as Environment>::step(env, action)
                             .unwrap()
                             .reward,
                     )
@@ -542,18 +542,18 @@ mod tests {
         drive_to_end(&mut env);
         let action = KArmedBanditAction::<K>::from_index(0);
         assert!(
-            <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).is_err(),
+            <NonStationaryBandit<K> as Environment>::step(&mut env, action).is_err(),
             "the episode has ended; a step must be rejected before reset()"
         );
 
-        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).expect("reset must succeed");
+        <NonStationaryBandit<K> as Environment>::reset(&mut env).expect("reset must succeed");
         assert_eq!(
             env.guard.status(),
             EpisodeStatus::Running,
             "reset() must return the guard to Running"
         );
         assert!(
-            !<NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action)
+            !<NonStationaryBandit<K> as Environment>::step(&mut env, action)
                 .expect("reset() must re-open the environment")
                 .status
                 .is_done(),
@@ -569,10 +569,10 @@ mod tests {
             sigma_walk: 0.1, // large enough to make drift overwhelmingly likely
         })
         .expect("valid config");
-        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).unwrap();
+        <NonStationaryBandit<K> as Environment>::reset(&mut env).unwrap();
         let before = *env.arm_means();
         let action = KArmedBanditAction::<K>::from_index(0);
-        <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+        <NonStationaryBandit<K> as Environment>::step(&mut env, action).unwrap();
         let after = *env.arm_means();
         // With sigma_walk = 0.1 the probability that *every* arm's drift
         // sample is exactly zero is effectively nil; require at least one
@@ -591,11 +591,11 @@ mod tests {
             sigma_walk: 0.0,
         })
         .expect("valid config");
-        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).unwrap();
+        <NonStationaryBandit<K> as Environment>::reset(&mut env).unwrap();
         let before = *env.arm_means();
         let action = KArmedBanditAction::<K>::from_index(0);
         for _ in 0..10 {
-            <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+            <NonStationaryBandit<K> as Environment>::step(&mut env, action).unwrap();
         }
         let after = *env.arm_means();
         assert_eq!(before, after);
@@ -610,14 +610,12 @@ mod tests {
         };
         let mut a = NonStationaryBandit::<K>::with_config(cfg.clone()).expect("valid config");
         let mut b = NonStationaryBandit::<K>::with_config(cfg).expect("valid config");
-        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut a).unwrap();
-        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut b).unwrap();
+        <NonStationaryBandit<K> as Environment>::reset(&mut a).unwrap();
+        <NonStationaryBandit<K> as Environment>::reset(&mut b).unwrap();
         for step in 0..32 {
             let action = KArmedBanditAction::<K>::from_index(step % K);
-            let snap_a =
-                <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut a, action).unwrap();
-            let snap_b =
-                <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut b, action).unwrap();
+            let snap_a = <NonStationaryBandit<K> as Environment>::step(&mut a, action).unwrap();
+            let snap_b = <NonStationaryBandit<K> as Environment>::step(&mut b, action).unwrap();
             assert_eq!(f32::from(snap_a.reward), f32::from(snap_b.reward));
         }
         assert_eq!(a.arm_means(), b.arm_means());
@@ -636,10 +634,10 @@ mod tests {
         let baseline = *env.arm_means();
         let action = KArmedBanditAction::<K>::from_index(0);
         for _ in 0..10 {
-            <NonStationaryBandit<K> as Environment<1, 1>>::step(&mut env, action).unwrap();
+            <NonStationaryBandit<K> as Environment>::step(&mut env, action).unwrap();
         }
         assert_ne!(baseline, *env.arm_means(), "means should have drifted");
-        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).unwrap();
+        <NonStationaryBandit<K> as Environment>::reset(&mut env).unwrap();
         assert_eq!(
             baseline,
             *env.arm_means(),
@@ -662,7 +660,7 @@ mod tests {
             (0..16)
                 .map(|_| {
                     f32::from(
-                        <NonStationaryBandit<K> as Environment<1, 1>>::step(env, action)
+                        <NonStationaryBandit<K> as Environment>::step(env, action)
                             .unwrap()
                             .reward,
                     )
@@ -670,7 +668,7 @@ mod tests {
                 .collect()
         };
         let episode1 = episode(&mut env);
-        <NonStationaryBandit<K> as Environment<1, 1>>::reset(&mut env).unwrap();
+        <NonStationaryBandit<K> as Environment>::reset(&mut env).unwrap();
         let episode2 = episode(&mut env);
         assert_ne!(
             episode1, episode2,

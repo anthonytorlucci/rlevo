@@ -32,17 +32,13 @@ impl BipedalWalkerAction {
     }
 }
 
-impl Action<1> for BipedalWalkerAction {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-
+impl Action for BipedalWalkerAction {
     fn is_valid(&self) -> bool {
         Self::all_valid(&self.0)
     }
 }
 
-impl ContinuousAction<1> for BipedalWalkerAction {
+impl ContinuousAction for BipedalWalkerAction {
     const COMPONENTS: usize = 4;
 
     /// Returns the four motor targets as a contiguous `f32` slice.
@@ -79,7 +75,7 @@ impl ContinuousAction<1> for BipedalWalkerAction {
 /// The bound is on the **pre-gear** motor target: `apply_motors` scales each
 /// component by `speed_hip` / `speed_knee` afterwards, so the torque limits
 /// live in the environment config, not here.
-impl BoundedAction<1> for BipedalWalkerAction {
+impl BoundedAction for BipedalWalkerAction {
     fn low() -> &'static [f32] {
         &[-1.0, -1.0, -1.0, -1.0]
     }
@@ -97,11 +93,6 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
-
-    #[test]
-    fn test_shape() {
-        assert_eq!(BipedalWalkerAction::shape(), [4]);
-    }
 
     #[test]
     fn test_bounds_match_components_and_is_valid() {

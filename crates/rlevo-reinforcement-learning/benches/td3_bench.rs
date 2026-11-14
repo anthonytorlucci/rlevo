@@ -22,7 +22,7 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfig;
 
-type Agent = Td3Agent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
+type Agent = Td3Agent<MlpActor, MlpCritic, PendulumObservation, PendulumAction, 2>;
 
 fn build_agent() -> Agent {
     let device = Device::flex();

@@ -84,17 +84,13 @@ impl CarRacingAction {
     }
 }
 
-impl Action<1> for CarRacingAction {
-    fn shape() -> [usize; 1] {
-        [3]
-    }
-
+impl Action for CarRacingAction {
     fn is_valid(&self) -> bool {
         Self::components_valid(&self.components)
     }
 }
 
-impl ContinuousAction<1> for CarRacingAction {
+impl ContinuousAction for CarRacingAction {
     const COMPONENTS: usize = 3;
 
     /// Returns all three components as a contiguous `[steer, gas, brake]` slice.
@@ -133,7 +129,7 @@ impl ContinuousAction<1> for CarRacingAction {
 /// their bounds, which makes it the regression witness for the per-component
 /// target clip in DDPG/TD3 (ADR 0053 §6/§7): under a scalar `low[0]`/`high[0]`
 /// collapse, gas and brake would inherit steering's `-1` floor.
-impl BoundedAction<1> for CarRacingAction {
+impl BoundedAction for CarRacingAction {
     fn low() -> &'static [f32] {
         &[-1.0, 0.0, 0.0]
     }
@@ -146,11 +142,6 @@ impl BoundedAction<1> for CarRacingAction {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_shape() {
-        assert_eq!(CarRacingAction::shape(), [3]);
-    }
 
     #[test]
     fn test_bounds_are_per_component_and_asymmetric() {

@@ -62,7 +62,7 @@ impl AlternatingEnv {
     }
 }
 
-impl Environment<1, 1> for AlternatingEnv {
+impl Environment for AlternatingEnv {
     type ObservationType = SantaFeAntObservation;
     type ActionType = SantaFeAntAction;
 

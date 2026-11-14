@@ -303,10 +303,8 @@ impl CartPoleObservation {
     }
 }
 
-impl Observation<1> for CartPoleObservation {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
+impl Observation for CartPoleObservation {
+    const SHAPE: &'static [usize] = &[4];
 }
 
 // ---------------------------------------------------------------------------
@@ -322,16 +320,13 @@ pub enum CartPoleAction {
     Right,
 }
 
-impl Action<1> for CartPoleAction {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
+impl Action for CartPoleAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for CartPoleAction {
+impl DiscreteAction for CartPoleAction {
     const ACTION_COUNT: usize = 2;
 
     /// Constructs an action from its integer index.
@@ -536,7 +531,7 @@ fn cartpole_observation(state: &CartPoleState) -> CartPoleObservation {
     }
 }
 
-impl Environment<1, 1> for CartPole {
+impl Environment for CartPole {
     type ObservationType = CartPoleObservation;
     type ActionType = CartPoleAction;
 
@@ -725,7 +720,7 @@ impl CartPole {
 // Host rows
 // ---------------------------------------------------------------------------
 
-impl HostRow<1> for CartPoleObservation {
+impl HostRow for CartPoleObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
     }
@@ -893,7 +888,7 @@ mod tests {
 
     #[test]
     fn observation_shape() {
-        assert_eq!(CartPoleObservation::shape(), [4]);
+        assert_eq!(CartPoleObservation::SHAPE, &[4]);
     }
 
     #[test]

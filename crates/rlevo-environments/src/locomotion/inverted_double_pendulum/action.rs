@@ -21,17 +21,13 @@ impl InvertedDoublePendulumAction {
     }
 }
 
-impl Action<1> for InvertedDoublePendulumAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
+impl Action for InvertedDoublePendulumAction {
     fn is_valid(&self) -> bool {
         self.0[0].is_finite() && self.0[0].abs() <= 1.0
     }
 }
 
-impl ContinuousAction<1> for InvertedDoublePendulumAction {
+impl ContinuousAction for InvertedDoublePendulumAction {
     const COMPONENTS: usize = 1;
 
     fn as_slice(&self) -> &[f32] {

@@ -183,10 +183,8 @@ pub struct TaxiObservation {
     pub state_id: u16,
 }
 
-impl Observation<1> for TaxiObservation {
-    fn shape() -> [usize; 1] {
-        [500]
-    }
+impl Observation for TaxiObservation {
+    const SHAPE: &'static [usize] = &[500];
 }
 
 // ── action ────────────────────────────────────────────────────────────────────
@@ -213,16 +211,13 @@ pub enum TaxiAction {
     Dropoff = 5,
 }
 
-impl Action<1> for TaxiAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
+impl Action for TaxiAction {
     fn is_valid(&self) -> bool {
         true
     }
 }
 
-impl DiscreteAction<1> for TaxiAction {
+impl DiscreteAction for TaxiAction {
     const ACTION_COUNT: usize = 6;
 
     /// Constructs an action from its zero-based index.
@@ -426,7 +421,7 @@ impl Taxi {
     }
 }
 
-impl Environment<1, 1> for Taxi {
+impl Environment for Taxi {
     type ObservationType = TaxiObservation;
     type ActionType = TaxiAction;
 
@@ -853,7 +848,7 @@ mod tests {
     #[test]
     /// Verifies the observation shape matches the 500-state space.
     fn obs_shape() {
-        assert_eq!(TaxiObservation::shape(), [500]);
+        assert_eq!(TaxiObservation::SHAPE, [500]);
     }
 
     #[test]

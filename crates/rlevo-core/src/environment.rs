@@ -224,11 +224,6 @@ impl<O> Snapshot<O> {
 /// returning observations (snapshots) along with rewards. Environments are responsible
 /// for managing state, computing rewards, and determining episode termination.
 ///
-/// # Type Parameters
-///
-/// * `OR` - Rank of the observation tensor (matches `Observation<OR>`).
-/// * `AR` - Rank of the action tensor (matches `Action<AR>`).
-///
 /// # Associated Types
 ///
 /// * `ObservationType` - The observation type exposed to the agent.
@@ -262,12 +257,12 @@ impl<O> Snapshot<O> {
 /// the evaluation harness through an `EnvFactory`, a closure from a trial's
 /// seed to a fresh environment. The workspace's own environments also
 /// implement `Default`.
-pub trait Environment<const OR: usize, const AR: usize> {
+pub trait Environment {
     /// The observation type exposed to the agent.
-    type ObservationType: Observation<OR>;
+    type ObservationType: Observation;
 
     /// The concrete action type this environment accepts.
-    type ActionType: Action<AR>;
+    type ActionType: Action;
 
     /// Reset the environment to its initial state and return the first snapshot.
     ///
@@ -339,10 +334,8 @@ mod tests {
         position: i32,
     }
 
-    impl Observation<1> for MockObservation {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
+    impl Observation for MockObservation {
+        const SHAPE: &'static [usize] = &[1];
     }
 
     // Mock types for testing using Random Walk (1D) environment with 7 states
@@ -366,17 +359,13 @@ mod tests {
         MoveRight, // position +=1
     }
 
-    impl Action<1> for MockAction {
+    impl Action for MockAction {
         fn is_valid(&self) -> bool {
             true // any instance of the enum is a valid action
         }
-
-        fn shape() -> [usize; 1] {
-            [1]
-        }
     }
 
-    impl DiscreteAction<1> for MockAction {
+    impl DiscreteAction for MockAction {
         const ACTION_COUNT: usize = 2;
         fn from_index(index: usize) -> Self {
             match index {
@@ -426,7 +415,7 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1> for MockEnvironment {
+    impl Environment for MockEnvironment {
         type ObservationType = MockObservation;
         type ActionType = MockAction;
 

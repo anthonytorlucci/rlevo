@@ -32,7 +32,7 @@
 //!   `HostRow::write_host_row(&mut flat)` (no device touched), then the same
 //!   batched `Tensor::from_data`.
 //!
-//! Both are generic over the row type `T: TensorConvertible<R>` and take the
+//! Both are generic over the row type `T: TensorConvertible` and take the
 //! device as a value, so one implementation covers `CartPoleObservation` (`R = 1`,
 //! 4 floats/row) and `PixelObservation` (`R = 3`, 1200 floats/row) and both
 //! `Flex` and `Wgpu`, so the sweep covers both axes that matter: sync count
@@ -112,10 +112,10 @@ const BATCH_SIZES: [usize; 3] = [32, 64, 256];
 /// `extend_from_slice(..as_slice::<f32>()..)`), which no agent runs any more.
 fn stage_roundtrip<const R: usize, const BR: usize, T>(items: &[T], device: &DeviceOf) -> Tensor<BR>
 where
-    T: TensorConvertible<R>,
+    T: TensorConvertible,
 {
     debug_assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
-    let row_shape = T::shape();
+    let row_shape = T::SHAPE;
     let row_len: usize = row_shape.iter().product();
     let mut flat: Vec<f32> = Vec::with_capacity(items.len() * row_len);
     for item in items {
@@ -125,7 +125,7 @@ where
     }
     let mut shape = [0usize; BR];
     shape[0] = items.len();
-    shape[1..].copy_from_slice(&row_shape);
+    shape[1..].copy_from_slice(row_shape);
     Tensor::from_data(TensorData::new(flat, shape), device)
 }
 
@@ -135,10 +135,10 @@ where
 /// minibatch loop calls since `57dd565` (see the module-level note).
 fn stage_host_row<const R: usize, const BR: usize, T>(items: &[T], device: &DeviceOf) -> Tensor<BR>
 where
-    T: TensorConvertible<R>,
+    T: TensorConvertible,
 {
     debug_assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
-    let row_shape = T::shape();
+    let row_shape = T::SHAPE;
     let row_len: usize = row_shape.iter().product();
     let mut flat: Vec<f32> = Vec::with_capacity(items.len() * row_len);
     for item in items {
@@ -146,7 +146,7 @@ where
     }
     let mut shape = [0usize; BR];
     shape[0] = items.len();
-    shape[1..].copy_from_slice(&row_shape);
+    shape[1..].copy_from_slice(row_shape);
     Tensor::from_data(TensorData::new(flat, shape), device)
 }
 
@@ -154,7 +154,7 @@ where
 /// are bit-identical. Call **once**, outside any timed region.
 fn assert_bit_identical<const R: usize, const BR: usize, T>(items: &[T], device: &DeviceOf)
 where
-    T: TensorConvertible<R>,
+    T: TensorConvertible,
 {
     let rt: Tensor<BR> = stage_roundtrip::<R, BR, T>(items, device);
     let hr: Tensor<BR> = stage_host_row::<R, BR, T>(items, device);
@@ -210,7 +210,7 @@ fn bench_stage<const R: usize, const BR: usize, T>(
     bench: BenchDevice,
     make_batch: impl Fn(usize, &mut StdRng) -> Vec<T>,
 ) where
-    T: TensorConvertible<R>,
+    T: TensorConvertible,
 {
     let device = bench.device();
     let mut rng = StdRng::seed_from_u64(365);
