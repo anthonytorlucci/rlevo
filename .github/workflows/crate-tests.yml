@@ -234,11 +234,9 @@ jobs:
   #
   # The list is derived, not written down: every publishable member with a
   # normal dependency on `burn`, except the `rlevo` umbrella, which is the
-  # leaf that selects the backend. A crate whose `burn` dependency is optional
-  # (`rlevo-core`, ADR 0089) is checked twice: alone, where it must build and
-  # document with no Burn at all, and with its `burn` feature on, where the
-  # three checks apply as to any other library. A last step fails if
-  # `rlevo-core` reaches any Burn package at its default features.
+  # leaf that selects the backend. A last step fails if `rlevo-core`, the
+  # contract an environment author implements, reaches any Burn package with
+  # any of its features on (ADRs 0089, 0102).
   libraries-select-no-backend:
     name: library crates select no Burn backend
     runs-on: ubuntu-latest
@@ -254,27 +252,20 @@ jobs:
       - name: Check each library crate alone
         run: |
           set -euo pipefail
-          # One line per crate: its name, and whether `burn` is optional.
+          # One line per crate: its name.
           crates=$(cargo metadata --no-deps --format-version 1 | jq -r '
             .packages[]
             | select(.publish == null and .name != "rlevo")
             | .name as $name
             | [.dependencies[] | select(.name == "burn" and .kind == null)]
             | select(length > 0)
-            | "\($name) \(.[0].optional)"')
+            | $name')
           if [ -z "$crates" ]; then
             echo "::error::no publishable crate depends on burn; this job checks nothing"
             exit 1
           fi
-          while read -r crate optional; do
-            flags=""
-            if [ "$optional" = "true" ]; then
-              # Alone, with no Burn: the configuration a consumer gets by default.
-              cargo check -p "$crate" --lib
-              cargo doc -p "$crate" --no-deps
-              flags="--features burn"
-            fi
-            features=$(cargo tree -p "$crate" $flags -e normal -f '{p} [{f}]' --prefix none \
+          while read -r crate; do
+            features=$(cargo tree -p "$crate" -e normal -f '{p} [{f}]' --prefix none \
               | grep '^burn v' | sed -E 's/^burn v[^ ]+ \[(.*)\].*/\1/' | sort -u)
             expected="std"
             # The RL crate trains, and Burn 0.22 puts its optimizers behind
@@ -287,8 +278,8 @@ jobs:
               echo "::error::$crate resolves burn with features [$features]; expected [$expected] (ADRs 0080, 0093)"
               exit 1
             fi
-            cargo check -p "$crate" --lib $flags
-            cargo doc -p "$crate" --no-deps $flags
+            cargo check -p "$crate" --lib
+            cargo doc -p "$crate" --no-deps
           done <<< "$crates"
 
       - name: No default device
@@ -296,17 +287,17 @@ jobs:
         # wgpu device, which aborts on this GPU-less runner (ADR 0093).
         run: tools/no-default-device.sh
 
-      - name: rlevo-core depends on no Burn by default
+      - name: rlevo-core depends on no Burn
         run: |
           set -euo pipefail
           # Two lines, not one pipeline: `|| true` must forgive only grep's
           # no-match exit. Inside one pipeline it would also forgive a failed
           # `cargo tree`, whose empty output counts as zero and passes.
-          tree=$(cargo tree -p rlevo-core -e normal -f '{p}' --prefix none)
+          tree=$(cargo tree -p rlevo-core --all-features -e normal -f '{p}' --prefix none)
           count=$(printf '%s\n' "$tree" | grep -c '^burn' || true)
           if [ "$count" != "0" ]; then
-            echo "::error::rlevo-core reaches $count burn packages at its default features; it depends on Burn only under its burn feature (ADR 0089)"
-            cargo tree -p rlevo-core -e normal -i burn
+            echo "::error::rlevo-core reaches $count burn packages; it depends on no Burn under any feature (ADR 0102)"
+            cargo tree -p rlevo-core --all-features -e normal -i burn
             exit 1
           fi
 

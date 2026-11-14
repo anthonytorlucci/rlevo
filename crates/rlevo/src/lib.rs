@@ -2,7 +2,7 @@
 //!
 //! # Modules
 //!
-//! - [`core`] — foundational traits and types: `Environment`, `Observation`, `Action`, `Snapshot`, `ScalarReward`, `TensorConvertible`
+//! - [`core`] — foundational traits and types: `Environment`, `Observation`, `Action`, `Snapshot`, `ScalarReward`, `HostRow`
 //! - [`envs`] — benchmark environments: classic control, gridworlds, `Box2D` physics, locomotion
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay and metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, CMA-ES, DE, EP, GP, swarm metaheuristics, EDAs, memetic, neuroevolution, co-evolution
@@ -71,6 +71,51 @@
 //! let value: Tensor<2> = critic.head.forward(Tensor::zeros([1, 4], &device));
 //! assert_eq!(value.dims(), [1, 1]);
 //! ```
+//!
+//! # Uploading observations
+//!
+//! An observation reaches a network through [`HostRow`](core::base::HostRow):
+//! it writes itself as a row-major `f32` row in the shape its
+//! [`SHAPE`](core::base::Observation::SHAPE) states. `rlevo-core` names no
+//! Burn type, so the upload is the agent's, a few lines over Burn (ADR
+//! 0102). Stage every row of a batch into one buffer and upload it once, as
+//! `[n, ..SHAPE]`; a single observation is a batch of one. The `const` block
+//! checks that the tensor's rank is the observation's rank plus one, as the
+//! shipped agents do, and fails `cargo build`, not `cargo check`.
+//!
+//! ```rust
+//! use rlevo::burn::tensor::{Device, Tensor, TensorData};
+//! use rlevo::prelude::*;
+//!
+//! fn upload<O: HostRow, const BOR: usize>(batch: &[O], device: &Device) -> Tensor<BOR> {
+//!     const { assert!(O::SHAPE.len() + 1 == BOR) };
+//!     let mut buf = Vec::with_capacity(batch.len() * O::SHAPE.iter().product::<usize>());
+//!     for obs in batch {
+//!         obs.write_host_row(&mut buf);
+//!     }
+//!     let mut shape = vec![batch.len()];
+//!     shape.extend_from_slice(O::SHAPE);
+//!     Tensor::from_data(TensorData::new(buf, shape), device)
+//! }
+//!
+//! #[derive(Debug, Clone)]
+//! struct Position([f32; 2]);
+//!
+//! impl Observation for Position {
+//!     const SHAPE: &'static [usize] = &[2];
+//! }
+//!
+//! impl HostRow for Position {
+//!     fn write_host_row(&self, buf: &mut Vec<f32>) {
+//!         buf.extend_from_slice(&self.0);
+//!     }
+//! }
+//!
+//! let device = Device::flex();
+//! let batch = [Position([0.0, 1.0]), Position([2.0, 3.0]), Position([4.0, 5.0])];
+//! let tensor: Tensor<2> = upload(&batch, &device);
+//! assert_eq!(tensor.dims(), [3, 2]);
+//! ```
 
 pub use rlevo_core as core;
 pub use rlevo_environments as envs;
@@ -101,8 +146,7 @@ pub use burn;
 /// **Core base traits** (`rlevo::core::base`):
 /// [`Observation`](core::base::Observation),
 /// [`Action`](core::base::Action),
-/// [`HostRow`](core::base::HostRow),
-/// [`TensorConvertible`](core::base::TensorConvertible)
+/// [`HostRow`](core::base::HostRow)
 ///
 /// **Agent** (`rlevo::core::agent`):
 /// [`Agent`](core::agent::Agent),
@@ -138,7 +182,7 @@ pub use burn;
 /// [`RngExt`](core::rand::RngExt)
 pub mod prelude {
     // Base traits
-    pub use rlevo_core::base::{Action, HostRow, Observation, TensorConvertible};
+    pub use rlevo_core::base::{Action, HostRow, Observation};
 
     // Agent seam, and the metric an agent or a generation loop reports
     pub use rlevo_core::agent::{Agent, Transition};

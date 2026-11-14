@@ -7028,7 +7028,6 @@ name = "rlevo-core"
 version = "0.6.1"
 dependencies = [
  "approx",
- "burn",
  "rand 0.10.3",
  "serde",
  "thiserror 2.0.21",

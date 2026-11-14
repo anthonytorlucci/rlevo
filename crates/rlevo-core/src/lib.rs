@@ -9,7 +9,7 @@
 //!
 //! | Module | What it provides |
 //! |---|---|
-//! | [`base`] | [`Observation`], [`Action`], [`HostRow`] — the primitive trait vocabulary; `TensorConvertible` with the `burn` feature |
+//! | [`base`] | [`Observation`], [`Action`], [`HostRow`] — the primitive trait vocabulary |
 //! | [`action`] | [`DiscreteAction`], [`ContinuousAction`], [`BoundedAction`] — layered action-space extensions |
 //! | [`state`] | [`StateError`] — why a value is not a legal state |
 //! | [`environment`] | [`Environment`], [`Snapshot`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
@@ -26,11 +26,11 @@
 //! | [`agent`] | [`Agent`], [`Transition`] — the seam a driver steps a policy or a learner through |
 //! | [`util`] | Shared utility helpers |
 //!
-//! # Features
+//! # Dependencies
 //!
-//! | Feature | Default | What it adds |
-//! |---|---|---|
-//! | `burn` | off | `base::TensorConvertible`, implemented for every [`HostRow`] type, which uploads the row as a Burn tensor. Without it the crate does not depend on Burn |
+//! The crate does not depend on Burn, under any feature (ADR 0102). An
+//! environment author implements [`HostRow`] and writes no Burn code; the
+//! agent that holds a device uploads the rows.
 //!
 //! # Shapes and ranks
 //!

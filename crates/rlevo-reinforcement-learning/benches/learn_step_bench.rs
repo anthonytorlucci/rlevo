@@ -142,7 +142,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_core::base::TensorConvertible;
+use rlevo_core::base::HostRow;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
 use rlevo_environments::pixel_grid::{CELL_COUNT_U32, PixelGridState, PixelObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::{
@@ -252,6 +252,16 @@ impl Staging {
     }
 }
 
+/// One row uploaded as its own rank-`R` tensor: what `rlevo-core`'s
+/// `TensorConvertible::to_tensor` did before ADR 0102 deleted it, kept here
+/// because the retired round-trip baseline is built from it.
+fn row_to_tensor<O: HostRow, const R: usize>(obs: &O, device: &Device) -> Tensor<R> {
+    const { assert!(O::SHAPE.len() == R) };
+    let mut buf: Vec<f32> = Vec::with_capacity(O::SHAPE.iter().product());
+    obs.write_host_row(&mut buf);
+    Tensor::from_data(TensorData::new(buf, O::SHAPE), device)
+}
+
 /// Stages one sampled minibatch's observations and next-observations into two
 /// batched tensors, using `staging` to fill the host buffers. Mirrors
 /// `dqn_agent.rs::learn_step`'s staging loop: `obs` ends up on `device` (the
@@ -264,7 +274,7 @@ fn stage_batch<O, const DO: usize, const DB: usize>(
     staging: Staging,
 ) -> (Tensor<DB>, Tensor<DB>)
 where
-    O: TensorConvertible,
+    O: HostRow,
 {
     debug_assert_eq!(DB, DO + 1, "batched rank DB must equal row rank DO + 1");
     let row_shape = O::SHAPE;
@@ -274,10 +284,10 @@ where
     match staging {
         Staging::Roundtrip => {
             for t in batch {
-                let obs_row: Tensor<DO> = t.obs.to_tensor(device);
+                let obs_row: Tensor<DO> = row_to_tensor(&t.obs, device);
                 let obs_data = obs_row.into_data().convert::<f32>();
                 obs_flat.extend_from_slice(obs_data.as_slice::<f32>().expect("float data"));
-                let next_row: Tensor<DO> = t.next_obs.to_tensor(device);
+                let next_row: Tensor<DO> = row_to_tensor(&t.next_obs, device);
                 let next_data = next_row.into_data().convert::<f32>();
                 next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
             }
@@ -304,7 +314,7 @@ fn assert_stage_bit_identical<O, const DO: usize, const DB: usize>(
     batch: &[SynthTransition<O>],
     device: &Device,
 ) where
-    O: TensorConvertible,
+    O: HostRow,
 {
     let (rt_obs, rt_next) = stage_batch::<O, DO, DB>(batch, device, device, Staging::Roundtrip);
     let (hr_obs, hr_next) = stage_batch::<O, DO, DB>(batch, device, device, Staging::HostRow);
@@ -518,7 +528,7 @@ fn run_learn_step<M, O, const DO: usize, const DB: usize>(
 ) -> (M, M, LearnStepProbe)
 where
     M: DqnModel<DB>,
-    O: TensorConvertible,
+    O: HostRow,
 {
     let batch_size = batch.len();
 
@@ -624,7 +634,7 @@ fn bench_learn_step<M, O, const DO: usize, const DB: usize>(
     make_batch: impl Fn(usize, &mut StdRng) -> Vec<SynthTransition<O>>,
 ) where
     M: DqnModel<DB>,
-    O: TensorConvertible,
+    O: HostRow,
 {
     // As the agent does: train on the device with autodiff on, run the
     // target path without it.

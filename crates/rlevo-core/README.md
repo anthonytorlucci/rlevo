@@ -28,9 +28,8 @@ The primitive building blocks of the RL abstraction.
 | `Observation` | What the agent perceives (may be a partial view of state); states its shape as `const SHAPE: &'static [usize]` |
 | `Action` | Base action constraint (`is_valid()`); no shape and no rank |
 | `HostRow` | An observation's flat `f32` row (`write_host_row`), of `SHAPE.iter().product()` values |
-| `TensorConvertible` | With the `burn` feature: `to_tensor::<R>` uploads a `HostRow` as a rank-`R` Burn tensor, asserting `SHAPE.len() == R` when built; implemented for every `HostRow` |
 
-To feed an observation to a neural-network agent, implement `HostRow` on it. `TensorConvertible` comes with the `burn` feature, which `rlevo-reinforcement-learning` turns on, and needs no impl of its own. Without the feature the crate does not depend on Burn.
+To feed an observation to a neural-network agent, implement `HostRow` on it. The agent stages the rows and uploads them; this crate does not depend on Burn (ADR 0102). The `rlevo` crate's documentation shows the upload.
 
 ### `action` — Action Spaces
 
@@ -165,7 +164,7 @@ Add to your `Cargo.toml`:
 rlevo-core = "0.5"
 ```
 
-The example below is the contract after ADR 0100 and ADR 0101: an `Environment` has two associated types and no const parameters, and the crate depends on Burn only under its `burn` feature (ADR 0089). In 0.6 it had two rank parameters (ADR 0090); in 0.5.0 it had three ranks and five associated types, no `episode` module, and an unconditional Burn dependency.
+The example below is the contract after ADR 0100 and ADR 0101: an `Environment` has two associated types and no const parameters, and the crate does not depend on Burn (ADR 0102). In 0.6 it had two rank parameters (ADR 0090) and depended on Burn under a `burn` feature (ADR 0089); in 0.5.0 it had three ranks and five associated types, no `episode` module, and an unconditional Burn dependency.
 
 ### Minimal Environment
 

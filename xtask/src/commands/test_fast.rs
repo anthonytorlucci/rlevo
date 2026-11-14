@@ -44,12 +44,9 @@ struct FastCrate {
 /// The tier. Keep total over the workspace members — `assert_tier_is_total`
 /// enforces it.
 const FAST_CRATES: &[FastCrate] = &[
-    // The `to_tensor` tests and the `TensorConvertible` doctest sit behind
-    // `burn`, which is not among this crate's defaults. Every other test runs
-    // the same with the feature on.
     FastCrate {
         name: "rlevo-core",
-        features: &["burn"],
+        features: &[],
     },
     // The `record` module and its unit tests are behind `record`, which is
     // not among this crate's defaults (`json` only). Without the override

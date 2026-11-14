@@ -44,9 +44,9 @@ consumer, `[dev-dependencies]` for a crate's own tests, benches and doctests,
 which name their device (`Device::flex()`, never `Device::default()`, which is
 wgpu in a build that compiles it; `tools/no-default-device.sh` checks). A workspace-wide build hides a
 violation, so check a library alone: `cargo check -p <crate> --lib`.
-`rlevo-core` goes further and depends on Burn only under its `burn` feature
-(ADR 0089): an environment author implements `HostRow` and writes no Burn
-code, and `TensorConvertible` comes with the feature, for every `HostRow`.
+`rlevo-core` goes further and does not depend on Burn at all (ADR 0102):
+an environment author implements `HostRow` and writes no Burn code, and the
+agent that holds a device uploads the rows.
 
 ## Architectural Decisions
 
@@ -190,7 +190,7 @@ verbatim quotes, or a plain `→` used as flow/rename shorthand.
 ### Critical Trait Definitions
 - `crates/rlevo-core/src/action.rs`: Action trait hierarchy
 - `crates/rlevo-core/src/environment.rs`: the `Environment` trait, the `Snapshot<O>` struct every `reset` and `step` returns (read through its fields), `EpisodeStatus`, `EnvironmentError`; the emission model and construction are documented there as patterns, not traits (ADR 0090)
-- `crates/rlevo-core/src/base.rs`: `Observation`, `Action`, `HostRow` (the row a tensor is built from), `TensorConvertible` (behind the `burn` feature)
+- `crates/rlevo-core/src/base.rs`: `Observation`, `Action`, `HostRow` (the row a tensor is built from)
 - `crates/rlevo-core/src/reward.rs`: `ScalarReward`, the one reward type, and its finiteness obligation
 - `crates/rlevo-core/src/agent.rs`: `Agent`, the one agent seam: `act`, and four hooks that default to doing nothing (`on_transition`, `on_episode_end`, `set_training`, `emit_metrics`), so a frozen policy is one method long; and `Transition`, the step a learner is shown and the replay stores (ADR 0095)
 - `crates/rlevo-harness/src/evaluator.rs`: `EpisodicTrial` and `train`, the one loop that drives an `Agent`. Its private `play_episode` holds the status rule for both phases: a transition carries the snapshot's status unchanged, and an episode cut at `max_steps` ends `Truncated` for the agent while its last transition stays `Running`
