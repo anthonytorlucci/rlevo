@@ -1,0 +1,27 @@
+[package]
+name = "rlevo-rerun"
+# Its own release line, not the workspace's: rerun guarantees a recording
+# opens only across adjacent minor versions, so this crate releases when
+# rerun moves a minor. The number is chosen at its first release.
+version = "0.1.0"
+authors.workspace = true
+description = "Rerun recording sink for the rlevo evaluation harness"
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+keywords = ["rerun", "reinforcement-learning", "evolution", "visualization"]
+categories.workspace = true
+
+[dependencies]
+rlevo-harness = { path = "../rlevo-harness", version = "0.6.1" }
+# A caret within one minor, not an exact pin: patch fixes reach users, and a
+# researcher's own `rerun` in the same minor resolves beside this one. `sdk`
+# alone: no viewer, no server.
+rerun = { version = "0.43.2", default-features = false, features = ["sdk"] }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lints]
+workspace = true

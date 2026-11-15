@@ -12,9 +12,9 @@
 //! | Guard | Rule | Reads |
 //! |---|---|---|
 //! | `evolution-names-no-environment` | `rlevo-evolution` never names the environment contract (ADR 0002) | its manifest and every `.rs` file under it |
-//! | `harness-edge-is-record-only` | no published crate depends on `rlevo-harness` but the umbrella, and `rlevo-environments` under `record` (`docs/rules.md` section 10, ADR 0084) | `cargo metadata` |
+//! | `harness-edge-is-record-only` | no published crate depends on `rlevo-harness` but the umbrella, the rerun adapter `rlevo-rerun`, and `rlevo-environments` under `record` (`docs/rules.md` section 10, ADR 0084) | `cargo metadata` |
 //! | `umbrella-defaults-carry-no-viz` | `rlevo`'s default features turn on no viz, recording or `rerun` feature (ADR 0084) | `cargo metadata` |
-//! | `published-graphs-reach-no-viz` | no published crate reaches a viz package at its default features, in its build or its test build (`docs/rules.md` section 10) | `cargo tree` |
+//! | `published-graphs-reach-no-viz` | no published crate reaches a viz package at its default features, in its build or its test build; `rlevo-rerun` alone may reach `rerun`, and a viz package only through it (`docs/rules.md` section 10) | `cargo tree` |
 //! | `no-manifest-names-a-terminal-ui` | no workspace member names `ratatui` or `crossterm`, in any dependency section or behind any feature (ADR 0096) | `cargo metadata` |
 //! | `katex-headers-identical` | the `katex-header.html` copies stay byte-identical (`CLAUDE.md`) | the files |
 //!
@@ -47,7 +47,8 @@ use tracel_xtask::prelude::*;
 
 /// Packages that are viz or viewer stacks. No published crate reaches one at
 /// its default features: the harness's are behind `report` and `record`, and
-/// `rerun` belongs to an adapter crate that is never a default.
+/// `rerun` belongs to [`RERUN_ADAPTER`], which no other crate's defaults
+/// reach.
 const VIZ_PACKAGES: &[&str] = &[
     "ratatui",
     "crossterm",
@@ -70,6 +71,14 @@ const EVOLUTION: &str = "rlevo-evolution";
 const HARNESS: &str = "rlevo-harness";
 const UMBRELLA: &str = "rlevo";
 const ENVIRONMENTS: &str = "rlevo-environments";
+
+/// The rerun adapter: a sink for the harness's reports, so it depends on the
+/// harness, and the one published crate that links [`RERUN`].
+const RERUN_ADAPTER: &str = "rlevo-rerun";
+/// The package the adapter exists to link. Its own tree holds packages in
+/// [`VIZ_PACKAGES`] that draw nothing there: `axum` is the transport under
+/// its gRPC client, and `crossterm` sits under a table printer.
+const RERUN: &str = "rerun";
 
 /// The one feature of `rlevo-environments` that may enable its harness edge.
 const RECORD: &str = "record";
@@ -287,7 +296,7 @@ fn harness_edge_is_record_only(metadata: &Value) -> Verdict {
         {
             edges += 1;
             match pkg_name {
-                UMBRELLA => {}
+                UMBRELLA | RERUN_ADAPTER => {}
                 ENVIRONMENTS => {
                     if dep["optional"] != true {
                         violations.push(format!(
@@ -320,7 +329,7 @@ fn harness_edge_is_record_only(metadata: &Value) -> Verdict {
                     }
                 }
                 other => violations.push(format!(
-                    "{other} depends on {HARNESS}; no production crate does but {UMBRELLA} and {ENVIRONMENTS} under `{RECORD}`"
+                    "{other} depends on {HARNESS}; no production crate does but {UMBRELLA}, {RERUN_ADAPTER} and {ENVIRONMENTS} under `{RECORD}`"
                 )),
             }
         }
@@ -369,12 +378,18 @@ fn umbrella_defaults_carry_no_viz(metadata: &Value) -> Result<Verdict> {
 
 /// The package names in one crate's resolved graph at its default features,
 /// normal and dev edges: what a consumer builds, and what its own tests build.
-fn resolved_names(crate_name: &str) -> Result<BTreeSet<String>> {
-    let output = Command::new("cargo")
+///
+/// With `prune`, that package and everything reached only through it are
+/// left out, so what remains is what the crate reaches some other way.
+fn resolved_names(crate_name: &str, prune: Option<&str>) -> Result<BTreeSet<String>> {
+    let mut command = Command::new("cargo");
+    command
         .args(["tree", "-e", "normal,dev", "-p", crate_name])
-        .args(["--prefix", "none", "-f", "{p}"])
-        .output()
-        .context("could not run cargo tree")?;
+        .args(["--prefix", "none", "-f", "{p}"]);
+    if let Some(package) = prune {
+        command.args(["--prune", package]);
+    }
+    let output = command.output().context("could not run cargo tree")?;
     if !output.status.success() {
         // An empty tree would pass; a failed one must not.
         bail!(
@@ -389,15 +404,63 @@ fn resolved_names(crate_name: &str) -> Result<BTreeSet<String>> {
         .collect())
 }
 
+/// The viz packages among `names`.
+fn viz_in(names: &BTreeSet<String>) -> Vec<&'static str> {
+    VIZ_PACKAGES
+        .iter()
+        .copied()
+        .filter(|viz| names.contains(*viz))
+        .collect()
+}
+
+/// The adapter's two lists: the viz packages it reaches by a path that
+/// avoids [`RERUN`], each a violation, and the ones it reaches only through
+/// it, which are allowed and named in the pass line so a new one shows.
+///
+/// `full` is its whole graph and `without_rerun` the graph with [`RERUN`]
+/// pruned.
+fn adapter_viz(
+    full: &BTreeSet<String>,
+    without_rerun: &BTreeSet<String>,
+) -> (Vec<&'static str>, Vec<&'static str>) {
+    let beside: Vec<&'static str> = viz_in(without_rerun)
+        .into_iter()
+        .filter(|viz| *viz != RERUN)
+        .collect();
+    let through = viz_in(full)
+        .into_iter()
+        .filter(|viz| *viz != RERUN && !beside.contains(viz))
+        .collect();
+    (beside, through)
+}
+
 fn published_graphs_reach_no_viz(metadata: &Value) -> Result<Verdict> {
     let name = "published-graphs-reach-no-viz";
     let mut violations = Vec::new();
     let mut crates = 0;
+    let mut adapter = String::new();
     for pkg in packages(metadata).filter(|p| is_published(p)) {
         let crate_name = pkg["name"].as_str().unwrap_or_default();
         crates += 1;
-        let names = resolved_names(crate_name)?;
-        for viz in VIZ_PACKAGES.iter().filter(|viz| names.contains(**viz)) {
+        let names = resolved_names(crate_name, None)?;
+        if crate_name == RERUN_ADAPTER {
+            let (beside, through) = adapter_viz(&names, &resolved_names(crate_name, Some(RERUN))?);
+            for viz in beside {
+                violations.push(format!(
+                    "{crate_name} reaches {viz} by a path that avoids {RERUN} (`cargo tree -e normal,dev -p {crate_name} --prune {RERUN} -i {viz}`)"
+                ));
+            }
+            adapter = format!(
+                "; {RERUN_ADAPTER} reaches {RERUN}, and only through it: {}",
+                if through.is_empty() {
+                    "nothing else".to_string()
+                } else {
+                    through.join(", ")
+                }
+            );
+            continue;
+        }
+        for viz in viz_in(&names) {
             violations.push(format!(
                 "{crate_name} reaches {viz} at its default features (`cargo tree -e normal,dev -p {crate_name} -i {viz}`)"
             ));
@@ -410,7 +473,7 @@ fn published_graphs_reach_no_viz(metadata: &Value) -> Result<Verdict> {
         name,
         violations,
         checked: format!(
-            "{crates} published crates, none reaches {}",
+            "{crates} published crates, none reaches {}{adapter}",
             VIZ_PACKAGES.join(", ")
         ),
     })
@@ -567,6 +630,7 @@ mod tests {
                 true,
                 &json!({ "default": ["box2d"], "box2d": [], "record": ["dep:rlevo-harness", "rlevo-harness/record"] }),
             ),
+            package_with("rlevo-rerun", &json!([harness_dep(false)]), &json!({})),
             // A dev-dependency never reaches a consumer.
             package_with(
                 "rlevo-core",
@@ -656,6 +720,36 @@ mod tests {
                 "{default}"
             );
         }
+    }
+
+    fn names(list: &[&str]) -> BTreeSet<String> {
+        list.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn the_adapter_may_reach_a_viz_package_only_through_rerun() {
+        let full = names(&[
+            "rlevo-rerun",
+            "rerun",
+            "tonic",
+            "axum",
+            "crossterm",
+            "serde",
+        ]);
+
+        // Pruning `rerun` removes both: allowed, and named.
+        let (beside, through) = adapter_viz(&full, &names(&["rlevo-rerun", "serde"]));
+        assert_eq!(beside, Vec::<&str>::new());
+        assert_eq!(through, vec!["crossterm", "axum"]);
+
+        // `axum` survives the pruning, so some path to it avoids `rerun`.
+        let (beside, through) = adapter_viz(&full, &names(&["rlevo-rerun", "serde", "axum"]));
+        assert_eq!(beside, vec!["axum"]);
+        assert_eq!(through, vec!["crossterm"]);
+
+        // A second edge to `rerun` itself is not what this list reports.
+        let (beside, through) = adapter_viz(&names(&["rerun"]), &names(&["rerun"]));
+        assert_eq!((beside, through), (Vec::new(), Vec::new()));
     }
 
     #[test]

@@ -91,6 +91,10 @@ const FAST_CRATES: &[FastCrate] = &[
         features: &[],
     },
     FastCrate {
+        name: "rlevo-rerun",
+        features: &[],
+    },
+    FastCrate {
         name: "rlevo-test-support",
         features: &[],
     },

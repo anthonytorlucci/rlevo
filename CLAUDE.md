@@ -29,8 +29,9 @@ crates, ...); `rlevo-harness` is the sole exception, and only behind its
 `rlevo-harness` at its default features, which link no visualization
 crate, and re-exports it as `rlevo::harness` (ADR 0084). No other
 production crate depends on it, except `rlevo-environments` under its
-off-by-default `record` feature. The benchmark/viz layer consumes production
-types, never constrains them.
+off-by-default `record` feature and the rerun adapter `rlevo-rerun`, the one
+crate that links `rerun` and a member no default build includes. The
+benchmark/viz layer consumes production types, never constrains them.
 
 The second: **library crates select no Burn backend** (ADR 0080). The
 workspace `burn` entry is `default-features = false, features = ["std"]`;
@@ -120,17 +121,18 @@ is refused.
 | `consumer-umbrella`, `consumer-ppo` | the same three numbers for `rlevo` at default features, and for `rlevo-core` with `rlevo-reinforcement-learning`; `consumer-umbrella` also builds a network derived through `rlevo::burn` beside a default one, which no doctest can check |
 
 The layering rules no compiler checks are checked by **`cargo xtask guards`**,
-on every pull request (`crate-tests.yml`, `layering guards`):
-`rlevo-evolution` names no path into the environment contract (ADR 0002); no
-published crate depends on `rlevo-harness` but the umbrella, and
+on every pull request (`crate-tests.yml`, `layering guards`): `rlevo-evolution`
+names no path into the environment contract (ADR 0002); no published crate
+depends on `rlevo-harness` but the umbrella, `rlevo-rerun`, and
 `rlevo-environments` only under `record`; the umbrella's default features turn
 on no viz, recording or `rerun` feature; no published crate reaches a viz
-package at its default features, in its build or its tests; no workspace
+package at its default features, in its build or its tests, but `rlevo-rerun`,
+which may reach `rerun` and a viz package only through it; no workspace
 manifest names `ratatui` or `crossterm` (ADR 0096); and the five
-`katex-header.html` copies are byte-identical. A failed guard says what
-breaks the rule: a file and line, a crate and its feature, the copy that
-differs, or, for a viz package, the `cargo tree -i` command that prints the
-path to it. The guards are in `xtask/src/commands/guards.rs`.
+`katex-header.html` copies are byte-identical. A failed guard says what breaks
+the rule: a file and line, a crate and its feature, the copy that differs, or,
+for a viz package, the `cargo tree -i` command that prints the path to it. The
+guards are in `xtask/src/commands/guards.rs`.
 
 Docs as **docs.rs** builds them, on a current nightly rather than the pin,
 are `tools/docs-rs.sh [toolchain] [crate...]`; a rustdoc warning fails it
