@@ -18,6 +18,8 @@ pub mod logging;
 #[cfg(feature = "json")]
 pub mod json;
 
+use std::path::PathBuf;
+
 use crate::metrics::Metric;
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::suite::{SuiteInfo, TrialInfo};
@@ -59,6 +61,33 @@ pub enum Boundary {
         /// `EvolutionaryLoop`'s `ea/generation`.
         generation: usize,
     },
+}
+
+/// The file a recording sink wrote for one trial, as the sink reports it
+/// through [`Reporter::recording`].
+///
+/// `#[non_exhaustive]`: build one with [`Recording::new`], so a later field
+/// is not a breaking change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Recording {
+    /// Where the trial's recording is written.
+    pub path: PathBuf,
+    /// The version of the recording SDK that writes it. A viewer may open
+    /// only files of versions near its own, so the report keeps this beside
+    /// the path.
+    pub sdk_version: String,
+}
+
+impl Recording {
+    /// A recording at `path`, written by version `sdk_version` of its SDK.
+    #[must_use]
+    pub fn new(path: impl Into<PathBuf>, sdk_version: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            sdk_version: sdk_version.into(),
+        }
+    }
 }
 
 /// Event sink called by the `Evaluator` throughout a benchmark run.
@@ -108,6 +137,20 @@ pub trait Reporter: Send {
     /// `true`; a sink that leaves `on_metrics` at its default returns `false`.
     fn wants_metrics(&self) -> bool {
         true
+    }
+
+    /// The recording this sink is writing for `trial`, if it writes one.
+    ///
+    /// The harness asks once, after the trial has run and before
+    /// [`on_trial_end`](Self::on_trial_end), and copies the answer into the
+    /// trial's report ([`TrialReport::recording_path`] and
+    /// [`TrialReport::recording_sdk_version`]), so the report a sink receives
+    /// and the JSON a run leaves both say where the trial's recording is. A
+    /// sink cannot write there itself: it is handed the report by shared
+    /// reference. The default is `None`, for a sink that records nothing.
+    fn recording(&self, trial: &TrialInfo) -> Option<Recording> {
+        let _ = trial;
+        None
     }
 
     /// Called when a trial finishes, with its full accumulated report.
@@ -168,6 +211,11 @@ impl Reporter for MultiReporter {
     /// `true` when any sink wants them.
     fn wants_metrics(&self) -> bool {
         self.reporters.iter().any(|r| r.wants_metrics())
+    }
+    /// The first sink's that has one, in insertion order: a report names one
+    /// recording per trial.
+    fn recording(&self, trial: &TrialInfo) -> Option<Recording> {
+        self.reporters.iter().find_map(|r| r.recording(trial))
     }
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
         for r in &mut self.reporters {
@@ -315,6 +363,7 @@ mod tests {
             env_ids: vec!["E".into()],
             num_trials_per_env: 1,
             success_threshold: None,
+            run_id: "run".into(),
         };
         let trial = TrialInfo {
             key: TrialKey {
@@ -352,5 +401,47 @@ mod tests {
                 "a:S", "b:S", "a:E", "b:E", "a", "b", "a:E", "b:E", "a:S", "b:S",
             ]
         );
+    }
+
+    /// A report names one recording per trial, so `MultiReporter` answers
+    /// with the first sink's that has one, in insertion order.
+    #[test]
+    fn multi_reporter_reports_the_first_sinks_recording() {
+        use super::Recording;
+
+        struct Records(Option<&'static str>);
+        impl Reporter for Records {
+            fn on_suite_start(&mut self, _: &SuiteInfo) {}
+            fn on_trial_start(&mut self, _: &TrialInfo) {}
+            fn on_episode(&mut self, _: &TrialInfo, _: &EpisodeSummary) {}
+            fn recording(&self, _: &TrialInfo) -> Option<Recording> {
+                self.0.map(|path| Recording::new(path, "1.2.3"))
+            }
+            fn on_trial_end(&mut self, _: &TrialInfo, _: &TrialReport) {}
+            fn on_suite_end(&mut self, _: &BenchmarkReport) {}
+        }
+        let trial = TrialInfo {
+            key: TrialKey {
+                env_idx: 0,
+                trial_idx: 0,
+            },
+            env_id: "E".into(),
+            trial_seed: 0,
+        };
+        let multi = |sinks: &[Option<&'static str>]| {
+            MultiReporter::new(
+                sinks
+                    .iter()
+                    .map(|s| Box::new(Records(*s)) as Box<dyn Reporter>)
+                    .collect(),
+            )
+        };
+
+        assert_eq!(
+            multi(&[None, Some("b.rrd"), Some("c.rrd")]).recording(&trial),
+            Some(Recording::new("b.rrd", "1.2.3"))
+        );
+        assert_eq!(multi(&[None, None]).recording(&trial), None);
+        assert_eq!(multi(&[]).recording(&trial), None);
     }
 }

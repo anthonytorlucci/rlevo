@@ -118,10 +118,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     A literal of one outside `rlevo-harness` no longer compiles; a sink's
     tests build them with `EpisodeSummary::new`, `SuiteInfo::new` and
     `TrialInfo::new`.
-  - **The report has room for a recording.** `TrialReport::recording_id` and
-    `recording_path`, and `BenchmarkReport::recording_sdk_version`, are
-    `None` until a recording sink fills them. A checkpoint written by 0.6.1
-    still loads, and a resumed run still skips its finished trials.
+  - **A run has an ID, and a sink says where it recorded a trial.**
+    `BenchmarkReport::run_id` is 16 hexadecimal digits drawn at random when a
+    run starts, never from the base seed, so two runs of one seed differ. A
+    run resumed from a checkpoint keeps the checkpoint's, and sinks are given
+    it as `SuiteInfo::run_id` (`SuiteInfo::new` takes it as a fifth
+    argument), so a recording sink that uses it as its recording's ID adds to
+    the recording it began. A sink reports the file it writes for a trial
+    through the new, defaulted `Reporter::recording`, which returns a
+    `Recording` (a path and the recording SDK's version); the harness copies
+    it into `TrialReport::recording_path` and
+    `TrialReport::recording_sdk_version` before any sink's `on_trial_end`,
+    and names the version on the report as
+    `BenchmarkReport::recording_sdk_version`. `MultiReporter` answers with
+    its first sink's. All of these are `None` with no recording sink. A
+    checkpoint written by 0.6.1 still loads and is given an ID, and a resumed
+    run still skips its finished trials.
   - **`EpisodeStatus` implements `Serialize` and `Deserialize`.**
 
 - **`SnapshotMetadata::positions` and `with_position` are removed.** Nothing

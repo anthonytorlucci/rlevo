@@ -180,16 +180,19 @@ pub struct TrialReport {
     pub errored: bool,
     /// Human-readable error description when `errored` is `true`.
     pub error_message: Option<String>,
-    /// The recording ID of the trial's recording, when a recording sink wrote
-    /// one. `None` otherwise, and in a report written before 0.7.0
-    /// (`#[serde(default)]`).
-    #[cfg_attr(feature = "json", serde(default))]
-    pub recording_id: Option<String>,
     /// The path of the file the trial's recording was written to, when a
-    /// recording sink wrote one. `None` otherwise, and in a report written
-    /// before 0.7.0 (`#[serde(default)]`).
+    /// recording sink wrote one
+    /// ([`Reporter::recording`](crate::reporter::Reporter::recording)). The
+    /// recording's ID is the run's, [`BenchmarkReport::run_id`]. `None`
+    /// otherwise, and in a report written before 0.7.0 (`#[serde(default)]`).
     #[cfg_attr(feature = "json", serde(default))]
     pub recording_path: Option<PathBuf>,
+    /// The version of the recording SDK that wrote that file. A run resumed
+    /// from a checkpoint keeps each finished trial's own, since the build
+    /// that finishes a run may link another version. `None` when
+    /// [`recording_path`](Self::recording_path) is.
+    #[cfg_attr(feature = "json", serde(default))]
+    pub recording_sdk_version: Option<String>,
     /// The hash of the task the trial faced, when its unit was built with a
     /// task (`TrialUnit::with_task` or `Suite::with_task`, feature `json`);
     /// the full fingerprint is [`BenchmarkReport::tasks`]`[key.env_idx]`,
@@ -223,8 +226,8 @@ impl TrialReport {
             displaced_metrics: Vec::new(),
             errored: false,
             error_message: None,
-            recording_id: None,
             recording_path: None,
+            recording_sdk_version: None,
             task_hash: None,
             provenance: None,
         }
@@ -335,6 +338,13 @@ fn insert<V>(
     Some(name)
 }
 
+/// A fresh [`BenchmarkReport::run_id`]: 64 random bits as 16 hexadecimal
+/// digits, from the operating system's entropy and not from any seed of the
+/// run, so the same experiment run twice has two IDs.
+pub(crate) fn new_run_id() -> String {
+    format!("{:016x}", rand::random::<u64>())
+}
+
 /// Aggregated results for an entire benchmark suite run.
 ///
 /// Constructed at the start of a run via [`BenchmarkReport::new`] and held
@@ -352,9 +362,21 @@ pub struct BenchmarkReport {
     pub trials: Vec<TrialReport>,
     /// `true` while trials are still running; `false` after [`finalize`](Self::finalize).
     pub in_progress: bool,
+    /// What tells this run from every other: 16 hexadecimal digits, drawn at
+    /// random when the run starts and never from
+    /// [`base_seed`](Self::base_seed), so two runs of one seed differ. A run
+    /// resumed from a checkpoint keeps the checkpoint's. Sinks receive it as
+    /// [`SuiteInfo::run_id`](crate::suite::SuiteInfo::run_id), and a
+    /// recording sink uses it as the recording's ID, so a resumed run adds to
+    /// the recording it began. `None` only in a report written before 0.7.0
+    /// (`#[serde(default)]`).
+    #[cfg_attr(feature = "json", serde(default))]
+    pub run_id: Option<String>,
     /// The version of the recording SDK that wrote the trials' recordings,
-    /// when a recording sink wrote any. `None` otherwise, and in a report
-    /// written before 0.7.0 (`#[serde(default)]`).
+    /// when a recording sink wrote any: the last one a trial of this run
+    /// reported. Each [`TrialReport::recording_sdk_version`] says which wrote
+    /// that trial's. `None` otherwise, and in a report written before 0.7.0
+    /// (`#[serde(default)]`).
     #[cfg_attr(feature = "json", serde(default))]
     pub recording_sdk_version: Option<String>,
     /// The build that last wrote this report: the one that finished the run.
@@ -429,7 +451,8 @@ impl BenchmarkReport {
     /// `in_progress` is set to `true` until [`finalize`](Self::finalize) is
     /// called. Push completed [`TrialReport`]s into [`trials`](Self::trials)
     /// as they become available. [`provenance`](Self::provenance) is this
-    /// build's ([`Provenance::this_build`]).
+    /// build's ([`Provenance::this_build`]), and [`run_id`](Self::run_id) is
+    /// newly drawn.
     #[must_use]
     pub fn new(suite_name: String, base_seed: u64) -> Self {
         Self {
@@ -437,6 +460,7 @@ impl BenchmarkReport {
             base_seed,
             trials: Vec::new(),
             in_progress: true,
+            run_id: Some(new_run_id()),
             recording_sdk_version: None,
             provenance: Some(Provenance::this_build()),
             tasks: Vec::new(),

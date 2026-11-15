@@ -244,6 +244,11 @@ pub struct SuiteInfo {
     /// [`EvaluatorConfig`](crate::evaluator::EvaluatorConfig). `None` when the
     /// suite defines no success criterion.
     pub success_threshold: Option<f64>,
+    /// What tells this run from every other
+    /// ([`BenchmarkReport::run_id`](crate::report::BenchmarkReport::run_id)).
+    /// A run resumed from a checkpoint has the ID it began with, so a sink
+    /// that names its output by this ID adds to what the earlier run wrote.
+    pub run_id: String,
 }
 
 impl SuiteInfo {
@@ -255,12 +260,14 @@ impl SuiteInfo {
         env_ids: Vec<String>,
         num_trials_per_env: usize,
         success_threshold: Option<f64>,
+        run_id: String,
     ) -> Self {
         Self {
             name,
             env_ids,
             num_trials_per_env,
             success_threshold,
+            run_id,
         }
     }
 }
@@ -374,6 +381,7 @@ mod tests {
             env_ids: vec!["e1".into(), "e2".into()],
             num_trials_per_env: 3,
             success_threshold: None,
+            run_id: "run".into(),
         };
         assert_eq!(info.env_ids.len(), 2);
         assert_eq!(info.num_trials_per_env, 3);
