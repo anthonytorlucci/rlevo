@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use rerun::external::re_log_types::{EntityPath, EntityPathPart};
 
-use common::{path, read};
+use common::{path, read, read_as_written};
 
 use rlevo_core::environment::EpisodeStatus;
 use rlevo_harness::metrics::Metric;
@@ -437,6 +437,33 @@ fn interleaved_trials_keep_their_rows_apart() {
     assert_eq!(rec_a.series(&of(1), "eval_episode"), []);
     assert_eq!(rec_b.series(&of(0), "eval_episode"), []);
     assert_eq!(rec_a.timelines(&of(0)), names(&["eval_episode"]));
+}
+
+/// Rows logged a while apart are still written together. rerun's default
+/// writes every 200 ms, which made nearly every row a chunk of its own and a
+/// trial's file many times the size of its data.
+#[test]
+fn rows_logged_a_while_apart_share_a_chunk() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = sink(dir.path(), "ppo");
+    let trial = trial(0, 0, "cartpole");
+    sink.on_suite_start(&suite(&["cartpole"]));
+    sink.on_trial_start(&trial);
+    for (index, step) in [(0_usize, 3_u64), (1, 6), (2, 9)] {
+        sink.on_metrics(
+            &trial,
+            Boundary::TrainingEpisode { index, step },
+            &[scalar("rl/loss", 1.0)],
+        );
+        // Longer than rerun's default interval between writes.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    let file = end(&mut sink, &trial, report(&trial));
+
+    let rec = read_as_written(&file);
+    let loss = path("/metrics/rl/loss/ppo/cartpole/0");
+    assert_eq!(rec.series(&loss, "step").len(), 3);
+    assert_eq!(rec.chunks(&loss), 1);
 }
 
 /// The instructions name the directory, the version that wrote the files,

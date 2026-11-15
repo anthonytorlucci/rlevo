@@ -18,9 +18,19 @@ pub struct Recorded {
 }
 
 pub fn read(path: &Path) -> Recorded {
+    read_with(path, &ChunkStoreConfig::DEFAULT)
+}
+
+/// Reads the file's chunks as they were written. [`read`] lets the store
+/// merge small chunks as it loads them, which hides how many the file holds.
+pub fn read_as_written(path: &Path) -> Recorded {
+    read_with(path, &ChunkStoreConfig::COMPACTION_DISABLED)
+}
+
+fn read_with(path: &Path, config: &ChunkStoreConfig) -> Recorded {
     let mut file = File::open(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let stores = ChunkStore::from_rrd_reader(&ChunkStoreConfig::DEFAULT, &mut file)
-        .expect("the file is a readable recording");
+    let stores =
+        ChunkStore::from_rrd_reader(config, &mut file).expect("the file is a readable recording");
     let (id, store) = stores
         .into_iter()
         .find(|(id, _)| id.kind() == StoreKind::Recording)
@@ -40,6 +50,14 @@ impl Recorded {
             .iter()
             .map(ToString::to_string)
             .collect()
+    }
+
+    /// How many chunks an entity's rows were written in.
+    pub fn chunks(&self, entity: &EntityPath) -> usize {
+        self.store
+            .iter_physical_chunks()
+            .filter(|chunk| chunk.entity_path() == entity)
+            .count()
     }
 
     /// The timelines an entity's rows are on.

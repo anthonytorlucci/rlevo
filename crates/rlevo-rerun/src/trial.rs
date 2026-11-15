@@ -3,9 +3,11 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use rerun::external::re_log_types::{EntityPath, EntityPathPart};
+use rerun::log::ChunkBatcherConfig;
 use rerun::{RecordingStream, RecordingStreamBuilder};
 use rlevo_harness::report::{EpisodeSummary, Phase};
 
@@ -65,6 +67,23 @@ pub(crate) struct TrialStream {
     /// Log calls rerun refused.
     failures: AtomicU64,
 }
+
+/// How rows are gathered into chunks before they are written.
+///
+/// rerun's default writes what it has every 200 ms, which suits a live
+/// viewer. Here a trial logs a row or two per entity in that time, so nearly
+/// every row became a chunk of its own, and a chunk's framing is several
+/// times a scalar's size: a 20-second PPO trial wrote 1.2 MB that rerun's own
+/// `rrd optimize` packs into 79 KB. Ten seconds between writes gathers the
+/// rows an entity logs meanwhile into one chunk.
+///
+/// The cost is what a killed run loses: the rows of its last ten seconds,
+/// where it was the last fifth of a second. A trial that ends is flushed
+/// whole. rerun's `RERUN_FLUSH_TICK_SECS` overrides the interval.
+const BATCHING: ChunkBatcherConfig = ChunkBatcherConfig {
+    flush_tick: Duration::from_secs(10),
+    ..ChunkBatcherConfig::DEFAULT
+};
 
 /// A step or index as rerun's sequence type.
 pub(crate) fn sequence(value: u64) -> i64 {
@@ -194,6 +213,7 @@ impl TrialStream {
         // pending trial wants.
         let stream = RecordingStreamBuilder::new(kind.application_id())
             .recording_id(self.identity.run_id.as_str())
+            .batcher_config(BATCHING)
             .save(&self.path);
         let stream = match stream {
             Ok(stream) => stream,
