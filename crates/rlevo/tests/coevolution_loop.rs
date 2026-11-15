@@ -129,7 +129,7 @@ fn coevolutionary_loop_runs_through_evaluator() {
     let mut reporter = LoggingReporter::new();
     let report = evaluator.run_trials(
         "predator-prey-coea",
-        &["predator-prey-2d".to_string()],
+        &["predator-prey-2d".into()],
         |_key, env_seed, _agent_seed| GenerationTrial {
             probe: coea_factory(env_seed),
         },

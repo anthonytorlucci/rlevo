@@ -74,7 +74,7 @@ impl TryFrom<char> for Tile {
 // ── preset maps ───────────────────────────────────────────────────────────────
 
 /// Built-in preset map sizes for [`FrozenMapSpec::Preset`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FrozenPreset {
     /// The classic `$4 \times 4$` map: `"SFFF" / "FHFH" / "FFFH" / "HFFG"`.
     Four4x4,
@@ -93,7 +93,7 @@ const MAP_8X8: &[&str] = &[
 ///
 /// Controls whether the environment uses a built-in preset, a user-supplied layout, or a
 /// procedurally generated map. Random maps are regenerated on every call to `reset()`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum FrozenMapSpec {
     /// One of the two canonical preset maps.
     Preset(FrozenPreset),
@@ -125,7 +125,7 @@ impl Default for FrozenMapSpec {
 /// Per-tile reward values for [`FrozenLake`].
 ///
 /// The default schedule matches Gymnasium: `+1.0` on goal, `0.0` on hole, `0.0` on frozen.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RewardSchedule {
     /// Reward issued when the agent reaches the goal tile.
     pub goal: f32,
@@ -164,7 +164,7 @@ impl Default for RewardSchedule {
 ///     ..Default::default()
 /// };
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FrozenLakeConfig {
     /// Grid source: preset, custom, or randomly generated.
     pub map: FrozenMapSpec,

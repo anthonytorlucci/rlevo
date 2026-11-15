@@ -99,7 +99,7 @@ fn has_wall(row: u8, from_col: u8, to_col: u8) -> bool {
 ///     seed: 42,
 /// };
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct TaxiConfig {
     /// When `true`, movement directions slip: 80% intended, 10% each perpendicular.
     pub is_rainy: bool,

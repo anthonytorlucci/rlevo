@@ -20,7 +20,7 @@ use crate::locomotion::common::Gear;
 /// All other parameters (`frame_skip = 8`, env-dt = 0.04, `reset_noise_scale
 /// = 0.1`, `forward_reward_weight = 1.0`, `ctrl_cost_weight = 1e-4`,
 /// `max_steps = 1000`) match Gymnasium v5.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SwimmerConfig {
     /// Seed for the episode-level RNG used to sample reset noise.
     pub seed: u64,

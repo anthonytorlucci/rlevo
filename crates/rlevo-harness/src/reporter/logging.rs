@@ -35,7 +35,7 @@ impl Reporter for LoggingReporter {
         info!(
             target: "rlevo_harness",
             suite = %suite.name,
-            num_envs = suite.env_names.len(),
+            num_envs = suite.env_ids.len(),
             trials_per_env = suite.num_trials_per_env,
             "suite start"
         );
@@ -44,7 +44,7 @@ impl Reporter for LoggingReporter {
     fn on_trial_start(&mut self, trial: &TrialInfo) {
         info!(
             target: "rlevo_harness",
-            env = %trial.env_name,
+            env = %trial.env_id,
             env_idx = trial.key.env_idx,
             trial_idx = trial.key.trial_idx,
             seed = trial.trial_seed,
@@ -58,7 +58,7 @@ impl Reporter for LoggingReporter {
         match ep.phase {
             Phase::Evaluation => info!(
                 target: "rlevo_harness",
-                env = %trial.env_name,
+                env = %trial.env_id,
                 trial_idx = trial.key.trial_idx,
                 episode = ep.episode_idx,
                 ret = ep.return_value,
@@ -68,7 +68,7 @@ impl Reporter for LoggingReporter {
             ),
             Phase::Training => debug!(
                 target: "rlevo_harness",
-                env = %trial.env_name,
+                env = %trial.env_id,
                 trial_idx = trial.key.trial_idx,
                 episode = ep.episode_idx,
                 ret = ep.return_value,
@@ -87,7 +87,7 @@ impl Reporter for LoggingReporter {
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
         info!(
             target: "rlevo_harness",
-            env = %trial.env_name,
+            env = %trial.env_id,
             trial_idx = trial.key.trial_idx,
             episodes = report.episodes.len(),
             scalars = report.scalars.len(),

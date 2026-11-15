@@ -55,7 +55,7 @@ where
     let mut reporter = LoggingReporter::new();
     Evaluator::new(config()).run_trials(
         "sphere",
-        &["sphere".to_string()],
+        &["sphere".into()],
         |_key, seed, _agent_seed| GenerationTrial {
             probe: EvolutionaryLoop::new(
                 strategy.clone(),

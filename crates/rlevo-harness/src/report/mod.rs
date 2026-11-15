@@ -47,6 +47,7 @@ use rlevo_core::environment::EpisodeStatus;
 use crate::metrics::Metric;
 use crate::metrics::is_harness_reserved;
 use crate::suite::TrialKey;
+use crate::task::TaskFingerprint;
 
 /// Which phase of an episodic trial an episode belongs to.
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
@@ -141,8 +142,14 @@ impl EpisodeSummary {
 pub struct TrialReport {
     /// Unique identifier for this trial within its suite.
     pub key: TrialKey,
-    /// Human-readable name of the environment under test.
-    pub env_name: String,
+    /// The environment's id: the name the suite registered it under
+    /// ([`Suite::with_env`](crate::suite::Suite::with_env) or
+    /// [`Suite::with_task`](crate::suite::Suite::with_task)).
+    ///
+    /// Named `env_name` before 0.7.0; a report written then still loads
+    /// (`#[serde(alias = "env_name")]`).
+    #[cfg_attr(feature = "json", serde(alias = "env_name"))]
+    pub env_id: String,
     /// Seed used to initialize this trial's environment and agent.
     pub trial_seed: u64,
     /// Per-episode summaries, in the order episodes were completed.
@@ -183,6 +190,19 @@ pub struct TrialReport {
     /// before 0.7.0 (`#[serde(default)]`).
     #[cfg_attr(feature = "json", serde(default))]
     pub recording_path: Option<PathBuf>,
+    /// The hash of the task the trial faced, when its unit was built with a
+    /// task ([`TrialUnit::with_task`](crate::suite::TrialUnit::with_task) or
+    /// [`Suite::with_task`](crate::suite::Suite::with_task)); the full
+    /// fingerprint is [`BenchmarkReport::tasks`]`[key.env_idx]`, stored once
+    /// per unit. `None` otherwise, and in a report written before 0.7.0
+    /// (`#[serde(default)]`).
+    #[cfg_attr(feature = "json", serde(default))]
+    pub task_hash: Option<String>,
+    /// The build that ran this trial. A run resumed from a checkpoint keeps
+    /// each finished trial's own, so trials of two builds stay told apart;
+    /// `None` only for a trial written before 0.7.0 (`#[serde(default)]`).
+    #[cfg_attr(feature = "json", serde(default))]
+    pub provenance: Option<Provenance>,
 }
 
 impl TrialReport {
@@ -192,10 +212,10 @@ impl TrialReport {
     /// [`absorb_metrics`](Self::absorb_metrics) and push to
     /// [`episodes`](Self::episodes) to populate the report during evaluation.
     #[must_use]
-    pub fn new(key: TrialKey, env_name: String, trial_seed: u64) -> Self {
+    pub fn new(key: TrialKey, env_id: String, trial_seed: u64) -> Self {
         Self {
             key,
-            env_name,
+            env_id,
             trial_seed,
             episodes: Vec::new(),
             scalars: BTreeMap::new(),
@@ -206,6 +226,8 @@ impl TrialReport {
             error_message: None,
             recording_id: None,
             recording_path: None,
+            task_hash: None,
+            provenance: None,
         }
     }
 
@@ -336,6 +358,70 @@ pub struct BenchmarkReport {
     /// written before 0.7.0 (`#[serde(default)]`).
     #[cfg_attr(feature = "json", serde(default))]
     pub recording_sdk_version: Option<String>,
+    /// The build that last wrote this report: the one that finished the run.
+    /// A trial resumed from a checkpoint may have run on another; each
+    /// [`TrialReport::provenance`] says which. `None` only in a report
+    /// written before 0.7.0 (`#[serde(default)]`).
+    #[cfg_attr(feature = "json", serde(default))]
+    pub provenance: Option<Provenance>,
+    /// Each unit's task fingerprint, indexed by
+    /// [`TrialKey::env_idx`](crate::suite::TrialKey): `None` for a unit built
+    /// without a task. Each trial carries only the hash
+    /// ([`TrialReport::task_hash`]). Empty in a report written before 0.7.0
+    /// (`#[serde(default)]`).
+    #[cfg_attr(feature = "json", serde(default))]
+    pub tasks: Vec<Option<TaskFingerprint>>,
+}
+
+/// The build that produced a report: the `rlevo-harness` version, the commit
+/// it was built from, the compiler and the platform.
+///
+/// The commit is the one `cargo package` recorded for the harness crate
+/// (`.cargo_vcs_info.json`) when the harness is a packaged crate, as from
+/// crates.io; or the HEAD of rlevo's own checkout when the harness builds
+/// from one. Any other repository that happens to enclose the build, a home
+/// directory under git or a project that vendors its dependencies, is never
+/// read, so its commit cannot end up in a report.
+///
+/// `#[non_exhaustive]`: built by [`Provenance::this_build`], so a later field
+/// is not a breaking change.
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Provenance {
+    /// The `rlevo-harness` version.
+    pub rlevo_version: String,
+    /// The commit the harness was built from, when known.
+    pub git_commit: Option<String>,
+    /// Whether that tree had uncommitted changes, when known.
+    pub git_dirty: Option<bool>,
+    /// `rustc -V` of the compiler that built the harness, when known.
+    pub rustc_version: Option<String>,
+    /// `<os>-<arch>` of the machine the run is on.
+    pub platform: String,
+}
+
+impl Provenance {
+    /// The provenance of the running build. The harness's build script
+    /// records the commit, dirty flag and compiler; the version and platform
+    /// are read here.
+    #[must_use]
+    pub fn this_build() -> Self {
+        fn non_empty(s: Option<&'static str>) -> Option<String> {
+            s.filter(|v| !v.is_empty()).map(str::to_owned)
+        }
+        Self {
+            rlevo_version: env!("CARGO_PKG_VERSION").to_owned(),
+            git_commit: non_empty(option_env!("GIT_COMMIT")),
+            git_dirty: match option_env!("GIT_DIRTY") {
+                Some("1") => Some(true),
+                Some("0") => Some(false),
+                _ => None,
+            },
+            rustc_version: non_empty(option_env!("RUSTC_VERSION")),
+            platform: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
+        }
+    }
 }
 
 impl BenchmarkReport {
@@ -343,7 +429,8 @@ impl BenchmarkReport {
     ///
     /// `in_progress` is set to `true` until [`finalize`](Self::finalize) is
     /// called. Push completed [`TrialReport`]s into [`trials`](Self::trials)
-    /// as they become available.
+    /// as they become available. [`provenance`](Self::provenance) is this
+    /// build's ([`Provenance::this_build`]).
     #[must_use]
     pub fn new(suite_name: String, base_seed: u64) -> Self {
         Self {
@@ -352,6 +439,8 @@ impl BenchmarkReport {
             trials: Vec::new(),
             in_progress: true,
             recording_sdk_version: None,
+            provenance: Some(Provenance::this_build()),
+            tasks: Vec::new(),
         }
     }
 
@@ -374,6 +463,15 @@ mod tests {
             "stub".to_string(),
             7,
         )
+    }
+
+    #[test]
+    fn a_new_report_names_this_build() {
+        let report = BenchmarkReport::new("s".into(), 0);
+        assert_eq!(report.provenance, Some(Provenance::this_build()));
+        let p = Provenance::this_build();
+        assert_eq!(p.rlevo_version, env!("CARGO_PKG_VERSION"));
+        assert!(p.platform.contains('-'), "{}", p.platform);
     }
 
     #[test]

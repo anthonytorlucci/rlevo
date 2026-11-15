@@ -112,7 +112,7 @@ use serde::{Deserialize, Serialize};
 /// assert_eq!(cfg.seed, 42);
 /// assert!((cfg.gravity - 0.0025).abs() < 1e-6);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MountainCarConfig {
     /// Acceleration applied per step. Default: `0.001`.
     pub force: f32,

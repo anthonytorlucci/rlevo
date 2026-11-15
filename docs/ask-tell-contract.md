@@ -395,7 +395,7 @@ let config = EvaluatorConfig {
 let mut reporter = LoggingReporter::new();
 let report = Evaluator::new(config).run_trials(
     "sphere-ga",
-    &["sphere-d8".to_string()],
+    &["sphere-d8".into()],
     // Called once per trial with the seeds the harness derived for that trial.
     // The first is the one a loop takes: build a new loop from it each time.
     |_key, seed, _agent_seed| GenerationTrial {

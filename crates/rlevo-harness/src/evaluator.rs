@@ -36,9 +36,9 @@ use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
 use crate::metrics::{GENERATIONS, RETURN_NON_FINITE_STEPS, WALL_CLOCK_SECONDS, core_metrics};
-use crate::report::{BenchmarkReport, EpisodeSummary, Phase, TrialReport};
+use crate::report::{BenchmarkReport, EpisodeSummary, Phase, Provenance, TrialReport};
 use crate::reporter::{Boundary, Reporter};
-use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
+use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey, TrialUnit};
 
 /// Parameters governing how the evaluator runs a suite.
 #[derive(Debug, Clone)]
@@ -171,12 +171,12 @@ impl Evaluator {
         R: Reporter,
         FA: Fn(u64) -> A + Sync + Send,
     {
-        let env_names: Vec<String> = suite.envs.iter().map(|(n, _)| n.clone()).collect();
+        let units: Vec<TrialUnit> = suite.envs.iter().map(|e| e.unit.clone()).collect();
         self.run_trials(
             &suite.name,
-            &env_names,
+            &units,
             |key, env_seed, agent_seed| EpisodicTrial {
-                env: (suite.envs[key.env_idx].1.as_ref())(env_seed),
+                env: (suite.envs[key.env_idx].factory.as_ref())(env_seed),
                 agent: agent_factory(agent_seed),
                 agent_seed,
             },
@@ -184,13 +184,22 @@ impl Evaluator {
         )
     }
 
-    /// Drive `num_trials_per_env` trials of every named unit to completion.
+    /// Drive `num_trials_per_env` trials of every unit to completion.
     ///
     /// This is the shape-agnostic half of the evaluator: rayon fan-out,
     /// per-trial `catch_unwind`, checkpoint load/skip/save, fail-fast, and the
     /// reporter lifecycle. Nothing here knows whether a trial is an episodic
     /// environment rollout or something else — that lives entirely behind
     /// [`Trial::run`].
+    ///
+    /// `units[i]` names what the trials with `key.env_idx == i` run: every
+    /// one of their reports carries the unit's id as `env_id` and its task's
+    /// hash, if it has one, as `task_hash`; the report keeps each unit's full
+    /// fingerprint once, in `tasks`. A checkpointed trial is skipped only when
+    /// its id and task still match its unit's; one that does not is run
+    /// again. A unit is built from an id
+    /// (`"sphere-d8".into()`) or, to fingerprint the task, with
+    /// [`TrialUnit::with_task`].
     ///
     /// `make_trial` is called once per pending key with `(key, env_seed,
     /// agent_seed)`, all three derived from the configured base seed.
@@ -201,7 +210,7 @@ impl Evaluator {
     pub fn run_trials<T, MK, R>(
         &self,
         suite_name: &str,
-        env_names: &[String],
+        units: &[TrialUnit],
         make_trial: MK,
         reporter: &mut R,
     ) -> BenchmarkReport
@@ -215,7 +224,7 @@ impl Evaluator {
 
         let suite_info = SuiteInfo::new(
             suite_name.to_string(),
-            env_names.to_vec(),
+            units.iter().map(|u| u.id.clone()).collect(),
             cfg.num_trials_per_env,
             cfg.success_threshold,
         );
@@ -229,13 +238,52 @@ impl Evaluator {
                 checkpoint::load(&path).ok().flatten()
             })
             .unwrap_or_else(|| BenchmarkReport::new(suite_name.to_string(), cfg.base_seed));
+        // A resumed run reports the build that finishes it, and says so when
+        // the checkpoint's trials came from another; each finished trial keeps
+        // the provenance of the build that ran it.
+        let this_build = Provenance::this_build();
+        if let Some(earlier) = &report.provenance
+            && *earlier != this_build
+        {
+            tracing::warn!(
+                target: "rlevo_harness",
+                suite = %suite_name,
+                checkpoint_commit = ?earlier.git_commit,
+                commit = ?this_build.git_commit,
+                "resuming a checkpoint written by another build; each trial keeps the build that ran it"
+            );
+        }
+        report.provenance = Some(this_build.clone());
+        // A checkpointed trial counts as done only for the same unit and task:
+        // one whose environment id, task or task hash no longer matches is
+        // dropped and run again, so a report never mixes two tasks under one
+        // unit.
+        let checkpoint_tasks = std::mem::take(&mut report.tasks);
+        let before = report.trials.len();
+        report.trials.retain(|t| {
+            units.get(t.key.env_idx).is_none_or(|unit| {
+                t.env_id == unit.id
+                    && checkpoint_tasks.get(t.key.env_idx).cloned().flatten() == unit.task
+                    && t.task_hash.as_deref() == unit.task.as_ref().map(|f| f.hash.as_str())
+            })
+        });
+        let dropped = before - report.trials.len();
+        if dropped > 0 {
+            tracing::warn!(
+                target: "rlevo_harness",
+                suite = %suite_name,
+                dropped,
+                "checkpointed trials were of another unit or task and are run again"
+            );
+        }
+        report.tasks = units.iter().map(|u| u.task.clone()).collect();
         let skip = checkpoint::completed_keys(&report);
 
         reporter.on_suite_start(&suite_info);
 
         // Enumerate trial keys, filtering already-completed.
         let mut pending: Vec<TrialKey> = Vec::new();
-        for env_idx in 0..env_names.len() {
+        for env_idx in 0..units.len() {
             for trial_idx in 0..cfg.num_trials_per_env {
                 let key = TrialKey { env_idx, trial_idx };
                 if !skip.contains(&key) {
@@ -262,12 +310,13 @@ impl Evaluator {
                     return;
                 }
 
-                let env_name = &env_names[key.env_idx];
+                let unit = &units[key.env_idx];
+                let env_id = &unit.id;
                 let trial_seed = seeds.trial_seed(key.env_idx, key.trial_idx);
                 let env_seed = seeds.env_seed(trial_seed);
                 let agent_seed = seeds.agent_seed(trial_seed);
 
-                let info = TrialInfo::new(key, env_name.clone(), trial_seed);
+                let info = TrialInfo::new(key, env_id.clone(), trial_seed);
                 // Everything the trial does on this thread, its reporter
                 // callbacks included, is inside the span. A root span, with no
                 // parent: when the trial's own parallel work lets rayon run
@@ -277,7 +326,7 @@ impl Evaluator {
                     target: "rlevo_harness",
                     parent: None,
                     "trial",
-                    env = %env_name,
+                    env = %env_id,
                     env_idx = key.env_idx,
                     trial = key.trial_idx,
                     seed = trial_seed,
@@ -293,12 +342,16 @@ impl Evaluator {
                     Ok(tr) => tr,
                     Err(payload) => {
                         let msg = panic_message(&*payload);
-                        let mut err = TrialReport::new(key, env_name.clone(), trial_seed);
+                        let mut err = TrialReport::new(key, env_id.clone(), trial_seed);
                         err.errored = true;
                         err.error_message = Some(msg);
                         err
                     }
                 };
+
+                let mut tr = tr;
+                tr.task_hash = unit.task.as_ref().map(|f| f.hash.clone());
+                tr.provenance = Some(this_build.clone());
 
                 if tr.errored && cfg.fail_fast {
                     aborted.store(true, Ordering::Relaxed);
@@ -451,7 +504,7 @@ where
         reporter: &Mutex<&mut dyn Reporter>,
     ) -> TrialReport {
         let mut rng = StdRng::seed_from_u64(self.agent_seed);
-        let mut report = TrialReport::new(info.key, info.env_name.clone(), info.trial_seed);
+        let mut report = TrialReport::new(info.key, info.env_id.clone(), info.trial_seed);
         let mut returns: Vec<f64> = Vec::with_capacity(cfg.num_episodes);
         let mut lengths: Vec<usize> = Vec::with_capacity(cfg.num_episodes);
         // Evaluation steps (not episodes) whose reward was not finite, over
@@ -536,12 +589,12 @@ where
                 );
                 returns.push(total_reward);
                 lengths.push(length);
-                report.episodes.push(rec.clone());
                 let at = Boundary::EvaluationEpisode {
                     index: episode_idx,
                     step,
                 };
                 port.episode(&rec, at, || self.agent.emit_metrics());
+                report.episodes.push(rec);
             }
         }
 
@@ -554,7 +607,7 @@ where
         if non_finite_steps > 0 {
             tracing::warn!(
                 target: "rlevo_harness",
-                env = %info.env_name,
+                env = %info.env_id,
                 non_finite_steps,
                 "environment produced non-finite rewards; episode returns are poisoned"
             );
@@ -880,7 +933,7 @@ where
         info: &TrialInfo,
         reporter: &Mutex<&mut dyn Reporter>,
     ) -> TrialReport {
-        let mut report = TrialReport::new(info.key, info.env_name.clone(), info.trial_seed);
+        let mut report = TrialReport::new(info.key, info.env_id.clone(), info.trial_seed);
         let start = Instant::now();
         let mut port = TrialPort::new(reporter, info);
 
@@ -914,7 +967,7 @@ where
         if units == cfg.max_generations && self.probe.advance().is_some() {
             tracing::warn!(
                 target: "rlevo_harness",
-                env = %info.env_name,
+                env = %info.env_id,
                 trial = info.key.trial_idx,
                 max_generations = cfg.max_generations,
                 "generation trial stopped at max_generations before its probe was exhausted; \
@@ -1376,7 +1429,7 @@ mod tests {
         env: E,
         agent: A,
         cfg: &EvaluatorConfig,
-        env_name: &str,
+        env_id: &str,
     ) -> (TrialReport, Vec<CapturedEvent>)
     where
         E: Environment<ObservationType = StubObs, ActionType = StubAction>,
@@ -1387,7 +1440,7 @@ mod tests {
                 env_idx: 0,
                 trial_idx: 0,
             },
-            env_name: env_name.to_string(),
+            env_id: env_id.to_string(),
             trial_seed: 0,
         };
         let (mut reporter, _) = SpyReporter::new();
@@ -1531,6 +1584,230 @@ mod tests {
                 eval(0, 13),
                 Event::Episode(Phase::Evaluation, 1, done),
                 eval(1, 16),
+            ]
+        );
+    }
+
+    /// Every trial of an environment registered with `with_task` carries its
+    /// task's hash, including an errored trial, and the report the full
+    /// fingerprint once per unit; one registered with `with_env` carries
+    /// none. The report and every trial name this build.
+    #[cfg(feature = "json")]
+    #[test]
+    fn trials_carry_their_task_and_build() {
+        use crate::report::Provenance;
+
+        #[derive(serde::Serialize)]
+        struct Config {
+            steps: usize,
+            seed: u64,
+        }
+        let cfg = EvaluatorConfig {
+            num_trials_per_env: 2,
+            ..single_thread_cfg(1, 10)
+        };
+        let suite = Suite::new("s")
+            .with_task(
+                "tasked",
+                Config { steps: 3, seed: 0 },
+                |c: &Config, _seed| StubEnv::new(c.steps),
+            )
+            .unwrap()
+            .with_env("broken", |_| {
+                let mut e = StubEnv::new(3);
+                e.reset_fails = true;
+                e
+            })
+            .with_task(
+                "broken-tasked",
+                Config { steps: 4, seed: 0 },
+                |c: &Config, _seed| {
+                    let mut e = StubEnv::new(c.steps);
+                    e.step_fails = true;
+                    e
+                },
+            )
+            .unwrap();
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let task = |steps| crate::task::task_fingerprint(&Config { steps, seed: 1 }).unwrap();
+        assert_eq!(report.tasks, [Some(task(3)), None, Some(task(4))]);
+        let hash = |steps| Some(task(steps).hash);
+        let trials: Vec<(usize, bool, Option<String>)> = report
+            .trials
+            .iter()
+            .map(|t| (t.key.env_idx, t.errored, t.task_hash.clone()))
+            .collect();
+        assert_eq!(
+            trials,
+            [
+                (0, false, hash(3)),
+                (0, false, hash(3)),
+                (1, true, None),
+                (1, true, None),
+                (2, true, hash(4)),
+                (2, true, hash(4)),
+            ]
+        );
+        assert_eq!(report.provenance, Some(Provenance::this_build()));
+        assert!(
+            report
+                .trials
+                .iter()
+                .all(|t| t.provenance == Some(Provenance::this_build()))
+        );
+    }
+
+    /// A run resumed from a 0.6.1 checkpoint, which named no build, names this
+    /// one as the report's, keeps `None` on the trial it skips (it did not run
+    /// it) and names this build on the one it runs again.
+    #[cfg(feature = "json")]
+    #[test]
+    fn a_resumed_run_keeps_each_trials_build() {
+        use crate::report::Provenance;
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/checkpoint-0.6.1.json"
+            ),
+            crate::checkpoint::checkpoint_path(dir.path(), "fixture-suite"),
+        )
+        .unwrap();
+        let cfg = EvaluatorConfig {
+            num_trials_per_env: 2,
+            checkpoint_dir: Some(dir.path().to_path_buf()),
+            ..single_thread_cfg(1, 10)
+        };
+        let suite = Suite::new("fixture-suite").with_env("cartpole", |_| StubEnv::new(3));
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        assert_eq!(report.provenance, Some(Provenance::this_build()));
+        // The fixture's trial 0 finished; its trial 1 errored, so it runs again
+        // (the errored record stays beside the new one, as before 0.7.0).
+        let builds: Vec<(usize, bool, Option<Provenance>)> = report
+            .trials
+            .iter()
+            .map(|t| (t.key.trial_idx, t.errored, t.provenance.clone()))
+            .collect();
+        assert_eq!(
+            builds,
+            [
+                (0, false, None),
+                (1, true, None),
+                (1, false, Some(Provenance::this_build())),
+            ]
+        );
+    }
+
+    /// A checkpointed trial counts as done only for the same task: resumed
+    /// with the same config it is skipped; with a changed config every trial
+    /// runs again, and the report holds the new task only.
+    #[cfg(feature = "json")]
+    #[test]
+    fn a_resumed_run_reruns_trials_of_a_changed_task() {
+        #[derive(serde::Serialize)]
+        struct Config {
+            steps: usize,
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = EvaluatorConfig {
+            num_trials_per_env: 2,
+            checkpoint_dir: Some(dir.path().to_path_buf()),
+            ..single_thread_cfg(1, 10)
+        };
+        let run = |steps: usize| {
+            let suite = Suite::new("resume")
+                .with_task("e", Config { steps }, |c: &Config, _| StubEnv::new(c.steps))
+                .unwrap();
+            let (mut reporter, log) = SpyReporter::new();
+            let report =
+                Evaluator::new(cfg.clone()).run_suite(&suite, |_| StubAgent, &mut reporter);
+            let started = log
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| **e == Event::TrialStart)
+                .count();
+            (report, started)
+        };
+
+        let (_, started) = run(3);
+        assert_eq!(started, 2, "a fresh run runs both trials");
+        let (same, started) = run(3);
+        assert_eq!(started, 0, "the same task resumes with nothing to run");
+        assert_eq!(same.trials.len(), 2);
+
+        let (changed, started) = run(4);
+        assert_eq!(started, 2, "a changed task runs every trial again");
+        let new_hash = crate::task::task_fingerprint(&Config { steps: 4 })
+            .unwrap()
+            .hash;
+        assert_eq!(changed.trials.len(), 2, "the old task's trials are gone");
+        assert!(
+            changed
+                .trials
+                .iter()
+                .all(|t| t.task_hash.as_deref() == Some(new_hash.as_str()))
+        );
+        assert_eq!(changed.tasks[0].as_ref().map(|t| &t.hash), Some(&new_hash));
+    }
+
+    /// `run_trials` gives each trial its unit's id and task: a unit built
+    /// from an id alone records no task; one built with `with_task`, as a
+    /// landscape's caller would, records its fingerprint once and its hash on
+    /// every trial.
+    #[cfg(feature = "json")]
+    #[test]
+    fn run_trials_records_each_units_task() {
+        use crate::suite::TrialUnit;
+
+        #[derive(serde::Serialize)]
+        struct Landscape {
+            name: &'static str,
+            dim: usize,
+        }
+        let tasked = TrialUnit::with_task(
+            "sphere-d4",
+            &Landscape {
+                name: "sphere",
+                dim: 4,
+            },
+        )
+        .unwrap();
+        let cfg = EvaluatorConfig {
+            num_trials_per_env: 2,
+            ..single_thread_cfg(1, 10)
+        };
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_trials(
+            "s",
+            &["plain".into(), tasked.clone()],
+            |_, _, agent_seed| EpisodicTrial {
+                env: StubEnv::new(3),
+                agent: StubAgent,
+                agent_seed,
+            },
+            &mut reporter,
+        );
+        assert_eq!(report.tasks, [None, tasked.task.clone()]);
+        let hash = tasked.task.as_ref().map(|t| t.hash.as_str());
+        let got: Vec<(&str, Option<&str>)> = report
+            .trials
+            .iter()
+            .map(|t| (t.env_id.as_str(), t.task_hash.as_deref()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("plain", None),
+                ("plain", None),
+                ("sphere-d4", hash),
+                ("sphere-d4", hash)
             ]
         );
     }
@@ -1931,7 +2208,7 @@ mod tests {
                 env_idx: 0,
                 trial_idx: 0,
             },
-            env_name: "probe".to_string(),
+            env_id: "probe".to_string(),
             trial_seed: 0,
         };
         let (mut reporter, _) = SpyReporter::new();
@@ -2023,7 +2300,7 @@ mod tests {
                 env_idx: 0,
                 trial_idx: 0,
             },
-            env_name: "probe".to_string(),
+            env_id: "probe".to_string(),
             trial_seed: 0,
         };
         let (mut reporter, _) = SpyReporter::new();
@@ -2330,7 +2607,7 @@ mod tests {
                 env_idx: 0,
                 trial_idx: 0,
             },
-            env_name: "probe".to_string(),
+            env_id: "probe".to_string(),
             trial_seed: 0,
         };
         // (budget, cap, reads expected): exhausted before the cap, and cut at it.
@@ -2360,7 +2637,7 @@ mod tests {
     fn run_generation_trial_capturing_events(
         budget: usize,
         max_generations: usize,
-        env_name: &str,
+        env_id: &str,
     ) -> (TrialReport, Vec<CapturedEvent>, usize) {
         use std::cell::Cell;
         use std::rc::Rc;
@@ -2405,7 +2682,7 @@ mod tests {
                 env_idx: 0,
                 trial_idx: 0,
             },
-            env_name: env_name.to_string(),
+            env_id: env_id.to_string(),
             trial_seed: 0,
         };
         let (mut reporter, _) = SpyReporter::new();

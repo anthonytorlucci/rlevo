@@ -17,6 +17,7 @@
 //! - [`reporter`] — event-sink trait plus `logging` and `json` sinks.
 //! - [`report`] — in-memory report types written by the evaluator.
 //! - [`checkpoint`] — atomic partial-report persistence for crash recovery.
+//! - [`task`] — the task fingerprint that says two runs faced the same task.
 //! - `record` *(feature `record`)* — per-episode binary recording surface.
 
 pub mod checkpoint;
@@ -30,6 +31,11 @@ pub mod reporter;
 #[doc(hidden)]
 pub mod storage;
 pub mod suite;
+pub mod task;
+
+// The build script's commit rules, compiled here only so they are tested.
+#[cfg(test)]
+mod build_provenance;
 
 /// Flat crate-root re-export of the drive seam for self-paced work.
 ///

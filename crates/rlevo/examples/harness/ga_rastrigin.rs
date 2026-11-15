@@ -232,7 +232,7 @@ fn main() {
     let mut reporter = LoggingReporter::new();
     let report = evaluator.run_trials(
         "rastrigin-ga",
-        &["rastrigin-10d".to_string()],
+        &["rastrigin-10d".into()],
         |_key, env_seed, _agent_seed| GenerationTrial {
             probe: GaEnv::new(env_seed, DIM, POP, MAX_GENS),
         },

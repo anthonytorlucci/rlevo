@@ -84,7 +84,7 @@ where
     let mut reporter = LoggingReporter::new();
     let report = evaluator.run_trials(
         suite_name,
-        &[env_name.to_string()],
+        &[env_name.into()],
         |_key, env_seed, _agent_seed| GenerationTrial {
             probe: factory(env_seed),
         },

@@ -9,7 +9,7 @@ use crate::locomotion::common::{Gear, HealthyCheck, TerminationMode};
 ///
 /// Defaults match the Gymnasium v5 XML (gear 100, dt 0.01, `frame_skip` 1,
 /// healthy-angle band `(-0.2, 0.2)`, reset noise 0.01, truncation at 1000).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InvertedPendulumConfig {
     /// RNG seed used to initialise the reset-noise sampler.
     pub seed: u64,

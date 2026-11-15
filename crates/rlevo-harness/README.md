@@ -78,9 +78,16 @@ The traits a trial drives are part of the contract, so they live in `rlevo-core`
 
 | Item | Description |
 |------|-------------|
-| `Suite<E>` | Named collection of `EnvFactory<E>` entries with a default `EvaluatorConfig` |
+| `Suite<E>` | Named collection of environments, each a `SuiteEnv<E>`: its `TrialUnit` and its `EnvFactory<E>` |
+| `TrialUnit` | What a group of trials runs: an id (`"sphere-d8".into()`) and, when built with `TrialUnit::with_task(id, &config)`, a task fingerprint; `Evaluator::run_trials` takes `&[TrialUnit]` |
+| `Suite::with_env(id, factory)` | Registers an environment under its id; every trial report carries the id as `env_id` |
+| `Suite::with_task(id, config, factory)` | The same, built from a `Serialize` config the harness fingerprints; the report keeps the fingerprint in `tasks`, every trial its hash as `task_hash` |
 | `EnvFactory<E>` | `Arc`-wrapped `Fn(u64) -> E` — constructs a fresh env from a seed |
 | `TrialKey` | `(env_idx, trial_idx)` — uniquely identifies a trial |
+
+### `task` — Task Identity
+
+`task_fingerprint(&config)` returns a `TaskFingerprint`: 64-bit FNV-1a over a canonical text of the config that the harness writes itself (the top-level type's name, entries sorted at every depth, floats widened to `f64` with `Infinity`, `-Infinity` and `NaN` written distinctly, the top-level `seed` left out), tagged `fnv1a64-canon-v1`. The id a unit is registered under is not part of it. Two runs faced the same task when their fingerprints' hashes are equal; a probe recomputes one from the config it built and compares it with the report's.
 
 ### Deterministic seeding
 
@@ -109,8 +116,9 @@ Always-on re-export of the `rlevo-metrics-registry` leaf crate (ADR 0015). Suppl
 | Item | Description |
 |------|-------------|
 | `EpisodeSummary` | Per-episode index, return and length, its `Phase` (training or evaluation) and how it ended (`status`) |
-| `TrialReport` | Aggregated per-trial result: the evaluation episodes, scalar/histogram/counter BTreeMaps, error state, and the trial's recording ID and path when a recording sink wrote one |
-| `BenchmarkReport` | Suite-level result; `finalize()` marks the run complete |
+| `TrialReport` | Aggregated per-trial result: the environment's `env_id`, the evaluation episodes, scalar/histogram/counter BTreeMaps, error state, its task's hash when its unit has one, the `Provenance` of the build that ran it, and its recording ID and path when a recording sink wrote one |
+| `BenchmarkReport` | Suite-level result: each unit's `TaskFingerprint` once (`tasks`), the `Provenance` of the build that finished the run; `finalize()` marks the run complete |
+| `Provenance` | The harness version, the commit it was built from (from `.cargo_vcs_info.json` in a packaged crate, or git in rlevo's own checkout only), whether that tree was dirty, the compiler and the platform |
 
 ### `reporter` — Event Sink
 
