@@ -9250,6 +9250,7 @@ dependencies = [
  "rlevo-harness",
  "tempfile",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

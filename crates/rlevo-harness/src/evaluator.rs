@@ -14,9 +14,11 @@
 //! can skip already-finished keys.
 //!
 //! Each trial runs inside a `trial` tracing span (target `rlevo_harness`) with
-//! fields `env`, `env_idx`, `trial` and `seed`, so a tracing layer can file an
-//! event under the trial whose work emitted it. Work a trial hands to another
-//! thread runs outside the span.
+//! fields `run`, `env`, `env_idx`, `trial` and `seed`, so a tracing layer can
+//! file an event under the trial whose work emitted it. `run` is the run's ID
+//! ([`BenchmarkReport::run_id`]): with two runs in one process, each with a
+//! layer of its own, it says whose trial `env_idx` and `trial` name. Work a
+//! trial hands to another thread runs outside the span.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
@@ -243,7 +245,7 @@ impl Evaluator {
             units.iter().map(|u| u.id.clone()).collect(),
             cfg.num_trials_per_env,
             cfg.success_threshold,
-            run_id,
+            run_id.clone(),
         );
         // A resumed run reports the build that finishes it, and says so when
         // the checkpoint's trials came from another; each finished trial keeps
@@ -333,6 +335,7 @@ impl Evaluator {
                     target: "rlevo_harness",
                     parent: None,
                     "trial",
+                    run = run_id.as_str(),
                     env = %env_id,
                     env_idx = key.env_idx,
                     trial = key.trial_idx,
@@ -1231,6 +1234,7 @@ mod tests {
     /// had a parent span.
     #[derive(Debug, Clone, Default, PartialEq)]
     struct TrialSpan {
+        run: String,
         env: String,
         env_idx: u64,
         trial: u64,
@@ -1245,6 +1249,12 @@ mod tests {
                 "trial" => self.trial = value,
                 "seed" => self.seed = value,
                 _ => {}
+            }
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            if field.name() == "run" {
+                self.run = value.to_string();
             }
         }
 
@@ -2364,7 +2374,7 @@ mod tests {
     }
 
     /// Each trial's work on its thread runs inside a `trial` span carrying
-    /// its environment, indices and seed, with trials on two threads. The
+    /// its run, environment, indices and seed, with trials on two threads. The
     /// non-finite-reward `warn!` each trial emits is the event observed.
     #[test]
     fn every_trial_runs_inside_its_trial_span() {
@@ -2389,6 +2399,7 @@ mod tests {
             .trials
             .iter()
             .map(|t| TrialSpan {
+                run: report.run_id.clone().expect("a run has an ID"),
                 env: env.to_string(),
                 env_idx: t.key.env_idx as u64,
                 trial: t.key.trial_idx as u64,

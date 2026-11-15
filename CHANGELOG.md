@@ -92,7 +92,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Before, a training episode reached no reporter and a trial's metrics were
   read once, at its end; the report still keeps the last read. Each trial
   runs inside a root `trial` tracing span (target `rlevo_harness`; fields
-  `env`, `env_idx`, `trial`, `seed`). The trial's wall clock, and the
+  `run`, the run's ID, and `env`, `env_idx`, `trial`, `seed`). The trial's wall clock, and the
   throughput computed from it, leave out the time spent reading metrics and
   in reporter callbacks. A reporter that panics now errors only the trial it
   panicked in, instead of poisoning the lock every later trial needs.

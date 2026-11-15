@@ -3,13 +3,15 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use rlevo_harness::metrics::Metric;
 use rlevo_harness::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use rlevo_harness::reporter::{Boundary, Recording, Reporter};
 use rlevo_harness::suite::{SuiteInfo, TrialInfo, TrialKey};
 
+use crate::layer::UpdateLayer;
 use crate::trial::{TrialIdentity, TrialKind, TrialStream, sequence};
 
 /// Where a [`RerunSink`] writes and what it calls the run.
@@ -79,9 +81,17 @@ impl std::error::Error for RerunError {
     }
 }
 
-/// The open trials, by key. Shared, so that a tracing layer can find the
-/// stream of the trial an event belongs to.
-type Trials = Arc<Mutex<HashMap<TrialKey, Arc<TrialStream>>>>;
+/// What a sink and its [`UpdateLayer`]s share: enough for a layer to find
+/// the stream of the trial an event belongs to.
+#[derive(Debug, Default)]
+pub(crate) struct Shared {
+    /// The run the sink is recording; empty before `on_suite_start`.
+    pub(crate) run_id: RwLock<String>,
+    /// The open trials, by key.
+    pub(crate) trials: Mutex<HashMap<TrialKey, Arc<TrialStream>>>,
+    /// Update events a layer could not file under a trial.
+    pub(crate) unattributed: AtomicU64,
+}
 
 /// A [`Reporter`] that records a run as rerun `.rrd` files, one per trial.
 ///
@@ -98,9 +108,8 @@ type Trials = Arc<Mutex<HashMap<TrialKey, Arc<TrialStream>>>>;
 pub struct RerunSink {
     config: RerunConfig,
     sdk_version: String,
-    run_id: String,
     suite: String,
-    trials: Trials,
+    shared: Arc<Shared>,
     /// The kind of the last trial seen to reach a boundary: what a trial that
     /// ended before its first is opened as.
     seen_kind: Option<TrialKind>,
@@ -125,9 +134,8 @@ impl RerunSink {
         Ok(Self {
             config,
             sdk_version: rerun::external::re_build_info::CrateVersion::LOCAL.to_string(),
-            run_id: String::new(),
             suite: String::new(),
-            trials: Trials::default(),
+            shared: Arc::default(),
             seen_kind: None,
             written: Vec::new(),
             metric_names: BTreeSet::new(),
@@ -165,8 +173,40 @@ impl RerunSink {
         ))
     }
 
+    /// A tracing layer that records update-rate events into this sink's
+    /// trial files: the per-update statistics a learner logs at
+    /// [`UPDATE_TARGET`](rlevo_core::fitness::UPDATE_TARGET), such as PPO's
+    /// losses. Add it to the process's subscriber before the run:
+    ///
+    /// ```no_run
+    /// use tracing_subscriber::layer::SubscriberExt;
+    /// use tracing_subscriber::util::SubscriberInitExt;
+    /// # use rlevo_rerun::{RerunConfig, RerunSink};
+    /// # let sink = RerunSink::new(RerunConfig::new("runs/x", "ppo"))?;
+    /// tracing_subscriber::registry().with(sink.layer()).init();
+    /// # Ok::<(), rlevo_rerun::RerunError>(())
+    /// ```
+    ///
+    /// The subscriber must be the global one: the harness runs trials on
+    /// worker threads, which a subscriber set for one thread does not reach.
+    /// Without the layer a run is recorded all the same, less these
+    /// statistics. See [`UpdateLayer`] for how an event finds its trial.
+    #[must_use]
+    pub fn layer(&self) -> UpdateLayer {
+        UpdateLayer::new(Arc::clone(&self.shared))
+    }
+
+    /// Update-rate events the layer saw and could file under no trial of
+    /// this run: emitted outside any trial (by work a trial handed to
+    /// another thread, say), or after their trial ended. `0` in a run whose
+    /// every event was recorded.
+    #[must_use]
+    pub fn unattributed_updates(&self) -> u64 {
+        self.shared.unattributed.load(Ordering::Relaxed)
+    }
+
     fn open_trial(&self, key: TrialKey) -> Option<Arc<TrialStream>> {
-        self.trials.lock().get(&key).cloned()
+        self.shared.trials.lock().get(&key).cloned()
     }
 
     /// What a trial is opened as when it ends before its first boundary.
@@ -177,13 +217,13 @@ impl RerunSink {
 
 impl Reporter for RerunSink {
     fn on_suite_start(&mut self, suite: &SuiteInfo) {
-        self.run_id.clone_from(&suite.run_id);
+        self.shared.run_id.write().clone_from(&suite.run_id);
         self.suite.clone_from(&suite.name);
     }
 
     fn on_trial_start(&mut self, trial: &TrialInfo) {
         let identity = TrialIdentity {
-            run_id: self.run_id.clone(),
+            run_id: self.shared.run_id.read().clone(),
             suite: self.suite.clone(),
             label: self.config.run_label.clone(),
             env_id: trial.env_id.clone(),
@@ -193,7 +233,7 @@ impl Reporter for RerunSink {
             sdk_version: self.sdk_version.clone(),
         };
         let stream = Arc::new(TrialStream::new(identity, &self.config.output_dir));
-        self.trials.lock().insert(trial.key, stream);
+        self.shared.trials.lock().insert(trial.key, stream);
     }
 
     fn on_episode(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
@@ -246,9 +286,11 @@ impl Reporter for RerunSink {
         };
         if let Boundary::TrainingEpisode { step, .. } | Boundary::EvaluationEpisode { step, .. } =
             at
-            && let Some(episode) = entry.take_held()
         {
-            entry.log_episode(stream, &episode, Some(step));
+            entry.note_step(step);
+            if let Some(episode) = entry.take_held() {
+                entry.log_episode(stream, &episode, Some(step));
+            }
         }
         for metric in metrics {
             let (name, value) = match metric {
@@ -285,7 +327,7 @@ impl Reporter for RerunSink {
     }
 
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
-        let Some(entry) = self.trials.lock().remove(&trial.key) else {
+        let Some(entry) = self.shared.trials.lock().remove(&trial.key) else {
             return;
         };
         let Some(stream) = entry.stream(self.fallback_kind()) else {
@@ -339,6 +381,14 @@ impl Reporter for RerunSink {
                     "one metric's name is a prefix of another's; a view of the first shows both"
                 );
             }
+        }
+        let unattributed = self.unattributed_updates();
+        if unattributed > 0 {
+            tracing::warn!(
+                target: "rlevo_rerun",
+                unattributed,
+                "update events were emitted outside any trial of this run and are not recorded"
+            );
         }
         if self.failures > 0 {
             tracing::warn!(

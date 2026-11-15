@@ -58,6 +58,10 @@ pub(crate) struct TrialStream {
     /// The episode `on_episode` delivered, held until the metrics read that
     /// follows it says how many steps the trial has taken.
     pending: Mutex<Option<EpisodeSummary>>,
+    /// The trial's step count at its last episode boundary.
+    last_step: AtomicU64,
+    /// Update events logged so far: the next one's index.
+    updates: AtomicU64,
     /// Log calls rerun refused.
     failures: AtomicU64,
 }
@@ -96,12 +100,41 @@ impl TrialStream {
             identity,
             stream: OnceLock::new(),
             pending: Mutex::new(None),
+            last_step: AtomicU64::new(0),
+            updates: AtomicU64::new(0),
             failures: AtomicU64::new(0),
         }
     }
 
     pub(crate) fn path(&self) -> &std::path::Path {
         &self.path
+    }
+
+    pub(crate) fn run_id(&self) -> &str {
+        &self.identity.run_id
+    }
+
+    /// Records the trial's step count at an episode boundary.
+    pub(crate) fn note_step(&self, step: u64) {
+        self.last_step.store(step, Ordering::Relaxed);
+    }
+
+    /// Logs one update's statistics, each on `update` (the update's index in
+    /// this trial) and on `step`: the step the event named, or, for an event
+    /// that named none, the trial's step count at its last episode boundary,
+    /// so the values still draw on the timeline everything else is on.
+    pub(crate) fn log_update(
+        &self,
+        stream: &RecordingStream,
+        step: Option<u64>,
+        metrics: &[(&'static str, f64)],
+    ) {
+        let update = self.updates.fetch_add(1, Ordering::Relaxed);
+        let step = step.unwrap_or_else(|| self.last_step.load(Ordering::Relaxed));
+        let times = [("update", sequence(update)), ("step", sequence(step))];
+        for &(name, value) in metrics {
+            self.log_scalar(stream, self.metric_path(name, None), &times, value);
+        }
     }
 
     pub(crate) fn failures(&self) -> u64 {

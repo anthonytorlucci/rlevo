@@ -14,6 +14,8 @@ keywords = ["rerun", "reinforcement-learning", "evolution", "visualization"]
 categories.workspace = true
 
 [dependencies]
+# `UPDATE_TARGET`, the tracing target the layer reads.
+rlevo-core = { path = "../rlevo-core", version = "0.6.1" }
 rlevo-harness = { path = "../rlevo-harness", version = "0.6.1" }
 # A caret within one minor, not an exact pin: patch fixes reach users, and a
 # researcher's own `rerun` in the same minor resolves beside this one. `sdk`
@@ -23,10 +25,12 @@ rerun = { version = "0.43.2", default-features = false, features = ["sdk"] }
 # workspace's lock for sink state (ADR 0010).
 parking_lot = { workspace = true }
 tracing = { workspace = true }
+# `UpdateLayer` is a `tracing_subscriber::Layer`; `registry` is what gives a
+# layer the span an event was emitted in.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
 
 [dev-dependencies]
 rand = { workspace = true }
-rlevo-core = { path = "../rlevo-core", version = "0.6.1" }
 # CartPole for the end-to-end run; no physics features.
 rlevo-environments = { path = "../rlevo-environments", version = "0.6.1", default-features = false }
 tempfile = "3"

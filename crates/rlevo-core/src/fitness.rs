@@ -100,6 +100,11 @@ pub enum Metric {
 ///   exist for this update is absent, never `0.0`. Pass the `Option` itself,
 ///   without `?` or `%`, which would record its text.
 ///
+/// One rule of the `tracing` macros to know: a quoted name cannot be the
+/// first field, where the macro reads a string as the message. Put `step`
+/// first, as above, or put the fields in braces:
+/// `tracing::info!(target: UPDATE_TARGET, { "rl/loss" = loss }, "update")`.
+///
 /// The value is a contract between the code that logs and the code that
 /// reads; this crate does not depend on `tracing`.
 pub const UPDATE_TARGET: &str = "rlevo::update";

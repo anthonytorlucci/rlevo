@@ -18,6 +18,9 @@
 //! - every episode's return and length, training and evaluation apart;
 //! - every metric the trial's agent or generation loop reported, at each
 //!   point the harness read it;
+//! - every update's statistics that a learner logs as a `tracing` event at
+//!   [`UPDATE_TARGET`](rlevo_core::fitness::UPDATE_TARGET), when the sink's
+//!   [`layer`](RerunSink::layer) is installed;
 //! - the trial's identity, task and build, as properties of the recording;
 //! - a status entry, when the trial ended in an error.
 //!
@@ -37,7 +40,9 @@
 //! # Ok::<(), rlevo_rerun::RerunError>(())
 //! ```
 
+mod layer;
 mod sink;
 mod trial;
 
+pub use layer::UpdateLayer;
 pub use sink::{RerunConfig, RerunError, RerunSink};
