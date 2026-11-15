@@ -33,12 +33,14 @@ use tracel_xtask::prelude::*;
 pub struct Workspace {
     /// The workspace root.
     pub root: PathBuf,
-    /// The version every published crate shares.
+    /// The umbrella `rlevo`'s version: the release an author asks for.
     pub version: String,
     /// Members `cargo package` must skip: those marked `publish = false`.
     pub unpublished: Vec<String>,
-    /// Members that are packaged and staged.
-    pub published: Vec<String>,
+    /// Members that are packaged and staged, each with its own version. Most
+    /// share the umbrella's; a crate on its own release line (`rlevo-rerun`)
+    /// does not.
+    pub published: Vec<(String, String)>,
 }
 
 /// The extracted crates a probe is patched onto.
@@ -46,8 +48,8 @@ pub struct Workspace {
 pub struct Stage {
     /// Directory holding one `<name>-<version>` directory per staged crate.
     pub crates_dir: PathBuf,
-    /// Names of the staged crates.
-    pub names: Vec<String>,
+    /// The staged crates, each a name and its version.
+    pub crates: Vec<(String, String)>,
 }
 
 /// A probe's resolved dependency graph, as far as a probe reads it.
@@ -139,7 +141,8 @@ pub fn workspace() -> Result<Workspace> {
         if withheld {
             unpublished.push(name);
         } else {
-            published.push(name);
+            let own = package["version"].as_str().unwrap_or_default();
+            published.push((name, own.to_string()));
         }
     }
     Ok(Workspace {
@@ -176,8 +179,8 @@ pub fn stage(workspace: &Workspace, run_dir: &Path) -> Result<Stage> {
         bail!("cargo package failed:\n{}", packaged.stderr);
     }
 
-    for name in &workspace.published {
-        let stem = format!("{name}-{}", workspace.version);
+    for (name, version) in &workspace.published {
+        let stem = format!("{name}-{version}");
         let tarball = package_target.join("package").join(format!("{stem}.crate"));
         let extracted = run(Command::new("tar")
             .arg("-xzf")
@@ -197,14 +200,14 @@ pub fn stage(workspace: &Workspace, run_dir: &Path) -> Result<Stage> {
 
     Ok(Stage {
         crates_dir,
-        names: workspace.published.clone(),
+        crates: workspace.published.clone(),
     })
 }
 
 /// The `[patch.crates-io]` table that points every staged crate at the stage.
-pub fn patch_table(stage: &Stage, version: &str) -> String {
+pub fn patch_table(stage: &Stage) -> String {
     let mut table = String::from("[patch.crates-io]\n");
-    for name in &stage.names {
+    for (name, version) in &stage.crates {
         let dir = stage.crates_dir.join(format!("{name}-{version}"));
         // A TOML literal string takes the path as written, backslashes and all.
         let _ = writeln!(table, "{name} = {{ path = '{}' }}", dir.display());
@@ -240,7 +243,7 @@ pub fn render(
     )?;
     fs::write(
         probe_dir.join(".cargo").join("config.toml"),
-        patch_table(stage, version),
+        patch_table(stage),
     )?;
     if template_dir.join("src").is_dir() {
         copy_tree(&template_dir.join("src"), &probe_dir.join("src"))?;
@@ -330,8 +333,9 @@ pub fn resolve(probe_dir: &Path, target_dir: &Path, stage: &Stage) -> Result<Res
     rlevo.sort();
 
     let mut unreached: Vec<String> = stage
-        .names
+        .crates
         .iter()
+        .map(|(name, _)| name)
         .filter(|name| {
             !rlevo
                 .iter()
@@ -431,13 +435,19 @@ mod tests {
     fn test_patch_table_names_every_staged_crate() {
         let stage = Stage {
             crates_dir: PathBuf::from("/scratch/stage/crates"),
-            names: vec!["rlevo".to_string(), "rlevo-core".to_string()],
+            crates: vec![
+                ("rlevo".to_string(), "0.5.0".to_string()),
+                ("rlevo-core".to_string(), "0.5.0".to_string()),
+                // A crate on its own release line is staged at its own version.
+                ("rlevo-rerun".to_string(), "0.1.0".to_string()),
+            ],
         };
         assert_eq!(
-            patch_table(&stage, "0.5.0"),
+            patch_table(&stage),
             "[patch.crates-io]\n\
              rlevo = { path = '/scratch/stage/crates/rlevo-0.5.0' }\n\
-             rlevo-core = { path = '/scratch/stage/crates/rlevo-core-0.5.0' }\n"
+             rlevo-core = { path = '/scratch/stage/crates/rlevo-core-0.5.0' }\n\
+             rlevo-rerun = { path = '/scratch/stage/crates/rlevo-rerun-0.1.0' }\n"
         );
     }
 

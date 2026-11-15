@@ -146,19 +146,13 @@ fn meaningful_lines(text: &str) -> Vec<String> {
 }
 
 /// Render the seam at `seam_dir` into `probe_dir` as the crate `name`,
-/// patched onto `stage`, whose crates are at `version`.
+/// patched onto `stage`.
 ///
 /// # Errors
 ///
 /// Returns an error if the seam asks `cargo-generate` for more than this
 /// rendering does, or if it cannot be read or written.
-pub fn render(
-    seam_dir: &Path,
-    probe_dir: &Path,
-    name: &str,
-    stage: &Stage,
-    version: &str,
-) -> Result<()> {
+pub fn render(seam_dir: &Path, probe_dir: &Path, name: &str, stage: &Stage) -> Result<()> {
     let config = fs::read_to_string(seam_dir.join(CONFIG))
         .with_context(|| format!("no {CONFIG} in {}", seam_dir.display()))?;
     if meaningful_lines(&config) != expected_config() {
@@ -198,7 +192,7 @@ pub fn render(
     fs::create_dir_all(probe_dir.join(".cargo"))?;
     fs::write(
         probe_dir.join(".cargo").join("config.toml"),
-        stage::patch_table(stage, version),
+        stage::patch_table(stage),
     )?;
     Ok(())
 }
@@ -281,7 +275,7 @@ mod tests {
     fn stage(root: &Path) -> Stage {
         Stage {
             crates_dir: root.join("crates"),
-            names: vec!["rlevo".to_string()],
+            crates: vec![("rlevo".to_string(), "0.5.0".to_string())],
         }
     }
 
@@ -293,7 +287,7 @@ mod tests {
         let root = scratch("renders");
         let seam = seam(&root, CONFIG_TEXT, "# {{project-name}} ({{crate_name}})\n");
         let probe = root.join("probe");
-        render(&seam, &probe, "rlevo-algo-seam", &stage(&root), "0.5.0").expect("renders");
+        render(&seam, &probe, "rlevo-algo-seam", &stage(&root)).expect("renders");
 
         let manifest = fs::read_to_string(probe.join("Cargo.toml")).expect("manifest");
         assert!(manifest.starts_with("[package]\nname = \"rlevo-algo-seam\"\n"));
@@ -318,8 +312,8 @@ mod tests {
     fn test_liquid_beyond_the_two_placeholders_is_refused() {
         let root = scratch("liquid");
         let seam = seam(&root, CONFIG_TEXT, "# {{ authors }}\n");
-        let error = render(&seam, &root.join("probe"), "p", &stage(&root), "0.5.0")
-            .expect_err("an unrendered tag");
+        let error =
+            render(&seam, &root.join("probe"), "p", &stage(&root)).expect_err("an unrendered tag");
         assert!(error.to_string().contains("uses Liquid beyond"), "{error}");
         let _ = fs::remove_dir_all(root);
     }
@@ -330,8 +324,8 @@ mod tests {
         let config = "[template]\ninclude = [\"Cargo.toml\", \"README.md\"]\n\
                       [placeholders]\nalgo = { type = \"string\", prompt = \"?\" }\n";
         let seam = seam(&root, config, "# readme\n");
-        let error = render(&seam, &root.join("probe"), "p", &stage(&root), "0.5.0")
-            .expect_err("more config");
+        let error =
+            render(&seam, &root.join("probe"), "p", &stage(&root)).expect_err("more config");
         assert!(
             error.to_string().contains("asks cargo-generate for more"),
             "{error}"

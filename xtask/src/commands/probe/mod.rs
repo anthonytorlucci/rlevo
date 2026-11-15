@@ -552,7 +552,6 @@ fn attempt(
             &probe_dir,
             probe.name,
             &stage,
-            &workspace.version,
         )?;
     } else {
         let sources = match &probe.kind {
