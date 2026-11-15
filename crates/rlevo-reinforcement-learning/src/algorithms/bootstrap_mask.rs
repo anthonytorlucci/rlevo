@@ -479,9 +479,16 @@ impl tracing::field::Visit for UpdateEvent {
     }
 }
 
-/// Keeps the events at [`UPDATE_TARGET`](rlevo_core::fitness::UPDATE_TARGET)
-/// and ignores every other one, as a reader of that target does.
-struct UpdateCapture(std::sync::Arc<std::sync::Mutex<Vec<UpdateEvent>>>);
+thread_local! {
+    /// The update events this thread is collecting, while it is collecting.
+    static COLLECTING: std::cell::RefCell<Option<Vec<UpdateEvent>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The process's subscriber in this crate's tests: hands each event at
+/// [`UPDATE_TARGET`](rlevo_core::fitness::UPDATE_TARGET) to the thread that
+/// logged it, if that thread is collecting, and ignores every other one.
+struct UpdateCapture;
 
 impl tracing::Subscriber for UpdateCapture {
     fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
@@ -500,12 +507,13 @@ impl tracing::Subscriber for UpdateCapture {
         if event.metadata().target() != rlevo_core::fitness::UPDATE_TARGET {
             return;
         }
-        let mut captured = UpdateEvent::default();
-        event.record(&mut captured);
-        self.0
-            .lock()
-            .expect("capture mutex is never poisoned")
-            .push(captured);
+        COLLECTING.with_borrow_mut(|collecting| {
+            if let Some(events) = collecting {
+                let mut captured = UpdateEvent::default();
+                event.record(&mut captured);
+                events.push(captured);
+            }
+        });
     }
 
     fn enter(&self, _span: &tracing::span::Id) {}
@@ -514,12 +522,29 @@ impl tracing::Subscriber for UpdateCapture {
 }
 
 /// Runs `f` and returns the update-rate events it logged on this thread, in
-/// order. `with_default` is thread-local, so parallel tests do not see each
-/// other's events.
+/// order.
+///
+/// The subscriber is the process's, set once, and not one scoped to this
+/// thread with `with_default`. `tracing` caches, for the whole process,
+/// whether anything listens at a callsite, and decides it when the callsite
+/// is first reached. An agent's update event is one callsite for every
+/// instantiation of the agent, since a `static` in a generic function is
+/// shared; and other tests drive the same agents through an update with no
+/// subscriber. If one of them reaches the callsite first, "no one listens"
+/// is cached, and a scoped subscriber on this thread then sees nothing: a
+/// failure that depends on how many test threads run. With a subscriber
+/// that is always there, the answer is always that someone listens.
 pub(crate) fn capture_update_events(f: impl FnOnce()) -> Vec<UpdateEvent> {
-    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    tracing::subscriber::with_default(UpdateCapture(std::sync::Arc::clone(&events)), f);
-    std::mem::take(&mut *events.lock().expect("capture mutex is never poisoned"))
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        tracing::subscriber::set_global_default(UpdateCapture)
+            .expect("no other global subscriber is installed in this crate's tests");
+        // Callsites reached before this, by tests that do not collect.
+        tracing::callsite::rebuild_interest_cache();
+    });
+    COLLECTING.set(Some(Vec::new()));
+    f();
+    COLLECTING.take().unwrap_or_default()
 }
 
 /// The metric names of `event`, in order.
