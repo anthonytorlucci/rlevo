@@ -26,13 +26,44 @@ use rlevo_rerun::{RerunConfig, RerunSink};
 const RUN_ID: &str = "00000000000000a7";
 
 fn suite(env_ids: &[&str]) -> SuiteInfo {
+    suite_of_run(RUN_ID, env_ids)
+}
+
+fn suite_of_run(run_id: &str, env_ids: &[&str]) -> SuiteInfo {
     SuiteInfo::new(
         "suite".to_string(),
         env_ids.iter().map(ToString::to_string).collect(),
         1,
         None,
-        RUN_ID.to_string(),
+        run_id.to_string(),
     )
+}
+
+fn suite_end(sink: &mut RerunSink) {
+    sink.on_suite_end(&BenchmarkReport::new("suite".to_string(), 0));
+}
+
+fn errored(trial: &TrialInfo, message: &str) -> TrialReport {
+    let mut report = report(trial);
+    report.errored = true;
+    report.error_message = Some(message.to_string());
+    report
+}
+
+/// The status entry of `rec`'s trial, if it has one.
+fn status(rec: &common::Recorded, entity: &str) -> Option<String> {
+    let text = rerun::TextDocument::descriptor_text().component;
+    rec.store
+        .iter_physical_chunks()
+        .filter(|chunk| *chunk.entity_path() == path(entity))
+        .flat_map(|chunk| {
+            chunk
+                .iter_slices::<String>(text)
+                .flatten()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+        })
+        .next()
 }
 
 fn trial(env_idx: usize, trial_idx: usize, env_id: &str) -> TrialInfo {
@@ -288,31 +319,98 @@ fn an_errored_trial_has_a_status_entry() {
     let trial = trial(0, 0, "cartpole");
     sink.on_suite_start(&suite(&["cartpole"]));
     sink.on_trial_start(&trial);
-    let mut report = report(&trial);
-    report.errored = true;
-    report.error_message = Some("reset failed: no such device".to_string());
+    let report = errored(&trial, "reset failed: no such device");
     let file = end(&mut sink, &trial, report);
+    suite_end(&mut sink);
 
     let rec = read(&file);
-    let text = rerun::TextDocument::descriptor_text().component;
-    let status = rec
-        .store
-        .iter_physical_chunks()
-        .filter(|chunk| *chunk.entity_path() == path("/status/ppo/cartpole/0"))
-        .flat_map(|chunk| {
-            chunk
-                .iter_slices::<String>(text)
-                .flatten()
-                .map(|t| t.to_string())
-                .collect::<Vec<_>>()
-        })
-        .next();
     assert_eq!(
-        status.as_deref(),
+        status(&rec, "/status/ppo/cartpole/0").as_deref(),
         Some("errored: reset failed: no such device")
     );
     let props = path("/__properties/trial/ppo/cartpole/0");
     assert_eq!(rec.text(&props, "errored").as_deref(), Some("true"));
+}
+
+/// A trial that errors before its first generation says nothing of its
+/// kind, and may end before any sibling has said. Its file waits for the
+/// suite's end and is filed with the run: under the application ID its
+/// siblings have, which with the recording ID is what makes one recording.
+/// Opened at once as an episodic trial, it would sit outside the run.
+#[test]
+fn a_trial_that_errors_before_any_boundary_is_filed_with_its_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = sink(dir.path(), "ga");
+    let (early, late) = (trial(0, 0, "sphere"), trial(0, 1, "sphere"));
+    sink.on_suite_start(&suite(&["sphere"]));
+    sink.on_trial_start(&early);
+    sink.on_trial_start(&late);
+
+    // The first trial errors and ends before the second reaches a generation.
+    let early_file = end(&mut sink, &early, errored(&early, "bad genome"));
+    assert!(
+        !early_file.exists(),
+        "nothing says yet what kind of run this is"
+    );
+    assert_eq!(sink.files(), Vec::<PathBuf>::new());
+
+    for generation in 1..=2_usize {
+        sink.on_metrics(
+            &late,
+            Boundary::Generation { generation },
+            &[scalar("ea/best_fitness", 1.0)],
+        );
+    }
+    let late_file = end(&mut sink, &late, report(&late));
+    suite_end(&mut sink);
+    assert_eq!(sink.files(), [late_file.clone(), early_file.clone()]);
+
+    let (early_rec, late_rec) = (read(&early_file), read(&late_file));
+    assert_eq!(late_rec.application_id, "rlevo-generation");
+    assert_eq!(early_rec.application_id, late_rec.application_id);
+    assert_eq!(early_rec.recording_id, late_rec.recording_id);
+    assert_eq!(
+        status(&early_rec, "/status/ga/sphere/0").as_deref(),
+        Some("errored: bad genome")
+    );
+}
+
+/// A sink handed to a second run starts afresh: the second run's files are
+/// its own, and the first run's kind does not decide how a trial of the
+/// second is filed.
+#[test]
+fn what_a_sink_knows_of_one_run_does_not_reach_the_next() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = sink(dir.path(), "x");
+
+    // A generation run.
+    let first = trial(0, 0, "sphere");
+    sink.on_suite_start(&suite_of_run("00000000000000a1", &["sphere"]));
+    sink.on_trial_start(&first);
+    sink.on_metrics(
+        &first,
+        Boundary::Generation { generation: 1 },
+        &[scalar("ea/best_fitness", 1.0)],
+    );
+    end(&mut sink, &first, report(&first));
+    suite_end(&mut sink);
+    assert_eq!(sink.files().len(), 1);
+
+    // Then a run whose only trial errors at once.
+    let second = trial(0, 0, "cartpole");
+    sink.on_suite_start(&suite_of_run("00000000000000a2", &["cartpole"]));
+    assert_eq!(sink.files(), Vec::<PathBuf>::new());
+    sink.on_trial_start(&second);
+    let file = end(&mut sink, &second, errored(&second, "reset failed"));
+    suite_end(&mut sink);
+
+    assert_eq!(sink.files(), std::slice::from_ref(&file));
+    let rec = read(&file);
+    assert_eq!(rec.recording_id, "00000000000000a2");
+    assert_eq!(
+        rec.application_id, "rlevo-episodic",
+        "no trial of this run said its kind, so the earlier run's does not stand in"
+    );
 }
 
 /// An environment or a run named with free text: the name is one path part,
@@ -478,7 +576,7 @@ fn viewer_instructions_name_the_version_and_bind_locally() {
     sink.on_trial_start(&trial);
     let sdk = sink.recording(&trial).unwrap().sdk_version;
     end(&mut sink, &trial, report(&trial));
-    sink.on_suite_end(&BenchmarkReport::new("suite".to_string(), 0));
+    suite_end(&mut sink);
 
     let how = sink.viewer_instructions().expect("a trial has ended");
     assert!(

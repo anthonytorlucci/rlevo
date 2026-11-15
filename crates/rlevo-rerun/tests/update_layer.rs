@@ -25,7 +25,7 @@ use rlevo_environments::classic::cartpole::{
 };
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_harness::report::{BenchmarkReport, TrialReport};
-use rlevo_harness::reporter::Reporter;
+use rlevo_harness::reporter::{Boundary, Reporter};
 use rlevo_harness::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 use rlevo_rerun::{RerunConfig, RerunSink};
 use tracing_subscriber::layer::SubscriberExt;
@@ -146,24 +146,27 @@ fn run(sink: &mut RerunSink, trials: usize, names_step: bool) -> (BenchmarkRepor
 /// last: every layer counts it, so before it every count must be zero.
 #[test]
 fn update_events_are_filed_under_their_trials() {
-    let dirs: Vec<tempfile::TempDir> = (0..4).map(|_| tempfile::tempdir().unwrap()).collect();
+    let dirs: Vec<tempfile::TempDir> = (0..5).map(|_| tempfile::tempdir().unwrap()).collect();
     let mut attrib = sink(&dirs[0], "attrib");
     let mut nostep = sink(&dirs[1], "nostep");
     let mut idle = sink(&dirs[2], "idle");
     let mut busy = sink(&dirs[3], "busy");
+    let mut early = sink(&dirs[4], "early");
     tracing_subscriber::registry()
         .with(vec![
             attrib.layer(),
             nostep.layer(),
             idle.layer(),
             busy.layer(),
+            early.layer(),
         ])
         .init();
 
     each_trials_updates_are_filed_under_that_trial(&mut attrib);
     an_update_with_no_step_is_stamped_with_the_last_boundary(&mut nostep);
     another_runs_updates_are_not_filed(&mut idle, &mut busy);
-    an_update_outside_any_trial_is_counted(&[&attrib, &nostep, &idle, &busy]);
+    an_update_before_the_first_boundary_waits_for_the_trials_kind(&mut early);
+    an_update_outside_any_trial_is_counted(&[&attrib, &nostep, &idle, &busy, &early]);
 }
 
 /// Row 9. Four trials on two threads, every agent logging updates: each
@@ -297,6 +300,7 @@ fn another_runs_updates_are_not_filed(idle: &mut RerunSink, busy: &mut RerunSink
 
     let recording = idle.recording(&info).expect("the idle trial has a file");
     idle.on_trial_end(&info, &TrialReport::new(key, "cartpole".to_string(), 7));
+    idle.on_suite_end(&BenchmarkReport::new("idle-suite".to_string(), 0));
     let rec = read(&recording.path);
     assert!(
         rec.entities().iter().all(|e| !e.starts_with("/metrics")),
@@ -308,6 +312,64 @@ fn another_runs_updates_are_not_filed(idle: &mut RerunSink, busy: &mut RerunSink
         0,
         "nor are they counted against it"
     );
+}
+
+/// The layer does not know a trial's kind, so it never opens a file. An
+/// update logged before the trial's first boundary is kept and written when
+/// the sink opens the file, under the kind the boundary gives: here a
+/// generation trial with an inner gradient step, which must not be filed as
+/// an episodic one.
+fn an_update_before_the_first_boundary_waits_for_the_trials_kind(sink: &mut RerunSink) {
+    const RUN: &str = "00000000000000e1";
+    let key = TrialKey {
+        env_idx: 0,
+        trial_idx: 0,
+    };
+    let info = TrialInfo::new(key, "sphere".to_string(), 3);
+    sink.on_suite_start(&SuiteInfo::new(
+        "early-suite".to_string(),
+        vec!["sphere".to_string()],
+        1,
+        None,
+        RUN.to_string(),
+    ));
+    sink.on_trial_start(&info);
+    let file = sink
+        .recording(&info)
+        .expect("the trial will have a file")
+        .path;
+
+    // The harness's span, as `run_trials` opens it.
+    let span = tracing::info_span!(
+        target: "rlevo_harness",
+        parent: None,
+        "trial",
+        run = RUN,
+        env = "sphere",
+        env_idx = 0_usize,
+        trial = 0_usize,
+        seed = 3_u64,
+    );
+    {
+        let _in_trial = span.enter();
+        tracing::info!(target: UPDATE_TARGET, step = 7_u64, "test/loss" = 0.25_f64, "inner step");
+        tracing::info!(target: UPDATE_TARGET, step = 9_u64, "test/loss" = 0.5_f64, "inner step");
+        assert!(!file.exists(), "the layer does not open the file");
+        sink.on_metrics(&info, Boundary::Generation { generation: 1 }, &[]);
+        tracing::info!(target: UPDATE_TARGET, step = 11_u64, "test/loss" = 0.75_f64, "inner step");
+    }
+    sink.on_trial_end(&info, &TrialReport::new(key, "sphere".to_string(), 3));
+    sink.on_suite_end(&BenchmarkReport::new("early-suite".to_string(), 0));
+    assert_eq!(sink.unattributed_updates(), 0);
+
+    let rec = read(&file);
+    assert_eq!(rec.application_id, "rlevo-generation");
+    let loss = path("/metrics/test/loss/early/sphere/0");
+    assert_eq!(
+        rec.series(&loss, "update"),
+        [(0, 0.25), (1, 0.5), (2, 0.75)]
+    );
+    assert_eq!(rec.series(&loss, "step"), [(7, 0.25), (9, 0.5), (11, 0.75)]);
 }
 
 /// An update event outside any trial cannot be filed: every layer counts

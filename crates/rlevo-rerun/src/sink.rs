@@ -81,6 +81,16 @@ impl std::error::Error for RerunError {
     }
 }
 
+/// A trial that has ended: what `on_trial_end` writes last.
+#[derive(Debug)]
+struct Ended {
+    stream: Arc<TrialStream>,
+    /// The status entry of a trial that errored.
+    status: Option<String>,
+    /// Facts about the trial known only at its end.
+    facts: Vec<(&'static str, String)>,
+}
+
 /// What a sink and its [`UpdateLayer`]s share: enough for a layer to find
 /// the stream of the trial an event belongs to.
 #[derive(Debug, Default)]
@@ -110,9 +120,15 @@ pub struct RerunSink {
     sdk_version: String,
     suite: String,
     shared: Arc<Shared>,
-    /// The kind of the last trial seen to reach a boundary: what a trial that
-    /// ended before its first is opened as.
+    /// `false` when rerun is switched off (`RERUN=off`): nothing is recorded.
+    enabled: bool,
+    /// The kind of this run's trials, once one has reached an episode or a
+    /// generation.
     seen_kind: Option<TrialKind>,
+    /// Trials that ended before their first episode or generation. Nothing
+    /// said what kind they were, so their files wait for the end of the
+    /// suite, when the run's other trials have said.
+    kindless: Vec<Ended>,
     written: Vec<PathBuf>,
     metric_names: BTreeSet<String>,
     histograms_skipped: BTreeSet<String>,
@@ -136,7 +152,12 @@ impl RerunSink {
             sdk_version: rerun::external::re_build_info::CrateVersion::LOCAL.to_string(),
             suite: String::new(),
             shared: Arc::default(),
+            // rerun's own reading of the `RERUN` environment variable. With
+            // it off, a stream opens without error and writes nothing, so
+            // the sink must not report a file for it.
+            enabled: rerun::decide_logging_enabled(true),
             seen_kind: None,
+            kindless: Vec::new(),
             written: Vec::new(),
             metric_names: BTreeSet::new(),
             histograms_skipped: BTreeSet::new(),
@@ -144,7 +165,9 @@ impl RerunSink {
         })
     }
 
-    /// The files written so far, in the order their trials ended.
+    /// The files of the current run written so far, in the order their
+    /// trials ended. A trial that ended before its first episode or
+    /// generation is written when the suite ends, and listed then.
     #[must_use]
     pub fn files(&self) -> &[PathBuf] {
         &self.written
@@ -209,9 +232,22 @@ impl RerunSink {
         self.shared.trials.lock().get(&key).cloned()
     }
 
-    /// What a trial is opened as when it ends before its first boundary.
-    fn fallback_kind(&self) -> TrialKind {
-        self.seen_kind.unwrap_or(TrialKind::Episodic)
+    /// Writes the end of a trial whose stream is open, and closes it.
+    fn finish(&mut self, ended: &Ended, stream_kind: TrialKind) {
+        let entry = &ended.stream;
+        let Some(stream) = entry.stream(stream_kind) else {
+            return;
+        };
+        if let Some(unread) = entry.take_held() {
+            entry.log_episode(stream, &unread, None);
+        }
+        if let Some(status) = &ended.status {
+            entry.log_status(stream, status);
+        }
+        entry.send_properties(stream, &ended.facts);
+        entry.flush(stream);
+        self.failures += entry.failures();
+        self.written.push(entry.path().to_path_buf());
     }
 }
 
@@ -219,9 +255,27 @@ impl Reporter for RerunSink {
     fn on_suite_start(&mut self, suite: &SuiteInfo) {
         self.shared.run_id.write().clone_from(&suite.run_id);
         self.suite.clone_from(&suite.name);
+        // A sink may be handed to one run after another; what it knows of a
+        // run is that run's.
+        self.shared.trials.lock().clear();
+        self.shared.unattributed.store(0, Ordering::Relaxed);
+        self.seen_kind = None;
+        self.kindless.clear();
+        self.written.clear();
+        self.metric_names.clear();
+        self.failures = 0;
+        if !self.enabled {
+            tracing::warn!(
+                target: "rlevo_rerun",
+                "rerun is switched off (the RERUN environment variable); nothing is recorded"
+            );
+        }
     }
 
     fn on_trial_start(&mut self, trial: &TrialInfo) {
+        if !self.enabled {
+            return;
+        }
         let identity = TrialIdentity {
             run_id: self.shared.run_id.read().clone(),
             suite: self.suite.clone(),
@@ -320,9 +374,12 @@ impl Reporter for RerunSink {
 
     fn recording(&self, trial: &TrialInfo) -> Option<Recording> {
         let entry = self.open_trial(trial.key)?;
-        // A trial that ended before its first boundary has no stream yet;
-        // it still gets a file, for its status and properties.
-        entry.stream(self.fallback_kind())?;
+        // A trial whose file could not be opened is not recorded. One that
+        // has not reached an episode or a generation has no file yet, and
+        // gets one, for its status and properties, when the suite ends.
+        if entry.opened() == Some(false) {
+            return None;
+        }
         Some(Recording::new(entry.path(), self.sdk_version.clone()))
     }
 
@@ -330,16 +387,10 @@ impl Reporter for RerunSink {
         let Some(entry) = self.shared.trials.lock().remove(&trial.key) else {
             return;
         };
-        let Some(stream) = entry.stream(self.fallback_kind()) else {
-            return;
-        };
-        if let Some(unread) = entry.take_held() {
-            entry.log_episode(stream, &unread, None);
-        }
-        if report.errored {
+        let status = report.errored.then(|| {
             let message = report.error_message.as_deref().unwrap_or("unknown error");
-            entry.log_status(stream, &format!("errored: {message}"));
-        }
+            format!("errored: {message}")
+        });
         let mut facts = vec![
             ("errored", report.errored.to_string()),
             // The report keeps evaluation episodes; training ones reach sinks
@@ -362,13 +413,32 @@ impl Reporter for RerunSink {
                 facts.push(("rustc_version", rustc.clone()));
             }
         }
-        entry.send_properties(stream, &facts);
-        entry.flush(stream);
-        self.failures += entry.failures();
-        self.written.push(entry.path().to_path_buf());
+        let ended = Ended {
+            stream: entry,
+            status,
+            facts,
+        };
+        match (ended.stream.opened(), self.seen_kind) {
+            // Opening failed: the trial is not recorded.
+            (Some(false), _) => {}
+            // Open, so its kind is the run's.
+            (Some(true), Some(kind)) => self.finish(&ended, kind),
+            // No episode and no generation: nothing says what kind of trial
+            // this was. The application ID follows the kind, and a file
+            // under the wrong one is outside the run's recording, so it
+            // waits for the suite's end, when a sibling will have said.
+            _ => self.kindless.push(ended),
+        }
     }
 
     fn on_suite_end(&mut self, _report: &BenchmarkReport) {
+        // Every trial of a run is of one kind. If none reached an episode or
+        // a generation, the run says nothing either, and its files are filed
+        // as episodic: arbitrary, but together.
+        let kind = self.seen_kind.unwrap_or(TrialKind::Episodic);
+        for ended in std::mem::take(&mut self.kindless) {
+            self.finish(&ended, kind);
+        }
         // A view rooted at a metric shows everything below it, so a metric
         // whose name is another's prefix would draw the other's trials too.
         for name in &self.metric_names {
@@ -383,7 +453,7 @@ impl Reporter for RerunSink {
             }
         }
         let unattributed = self.unattributed_updates();
-        if unattributed > 0 {
+        if unattributed > 0 && self.enabled {
             tracing::warn!(
                 target: "rlevo_rerun",
                 unattributed,

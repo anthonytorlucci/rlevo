@@ -13,7 +13,6 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
 use crate::sink::Shared;
-use crate::trial::TrialKind;
 
 /// A `tracing` layer that records update-rate events into the trial files of
 /// the [`RerunSink`](crate::RerunSink) it came from
@@ -169,14 +168,8 @@ where
             self.shared.unattributed.fetch_add(1, Ordering::Relaxed);
             return;
         };
-        // An update may come before the trial's first episode ends, so the
-        // layer may be what opens the file. Only an agent learns from
-        // updates, so the trial is an episodic one.
-        let Some(stream) = entry.stream(TrialKind::Episodic) else {
-            return;
-        };
         let mut fields = UpdateFields::default();
         event.record(&mut fields);
-        entry.log_update(stream, fields.step, &fields.metrics);
+        entry.log_update(fields.step, fields.metrics);
     }
 }

@@ -60,6 +60,10 @@ pub(crate) struct TrialStream {
     /// The episode `on_episode` delivered, held until the metrics read that
     /// follows it says how many steps the trial has taken.
     pending: Mutex<Option<EpisodeSummary>>,
+    /// Updates logged before the stream was open, in order: each its index,
+    /// its step and its statistics. The layer cannot open the stream, since
+    /// it does not know the trial's kind, so they wait for the sink to.
+    early_updates: Mutex<Vec<EarlyUpdate>>,
     /// The trial's step count at its last episode boundary.
     last_step: AtomicU64,
     /// Update events logged so far: the next one's index.
@@ -84,6 +88,14 @@ const BATCHING: ChunkBatcherConfig = ChunkBatcherConfig {
     flush_tick: Duration::from_secs(10),
     ..ChunkBatcherConfig::DEFAULT
 };
+
+/// An update logged before its trial's stream was open.
+#[derive(Debug)]
+struct EarlyUpdate {
+    update: u64,
+    step: u64,
+    metrics: Vec<(&'static str, f64)>,
+}
 
 /// A step or index as rerun's sequence type.
 pub(crate) fn sequence(value: u64) -> i64 {
@@ -119,6 +131,7 @@ impl TrialStream {
             identity,
             stream: OnceLock::new(),
             pending: Mutex::new(None),
+            early_updates: Mutex::new(Vec::new()),
             last_step: AtomicU64::new(0),
             updates: AtomicU64::new(0),
             failures: AtomicU64::new(0),
@@ -142,18 +155,39 @@ impl TrialStream {
     /// this trial) and on `step`: the step the event named, or, for an event
     /// that named none, the trial's step count at its last episode boundary,
     /// so the values still draw on the timeline everything else is on.
-    pub(crate) fn log_update(
-        &self,
-        stream: &RecordingStream,
-        step: Option<u64>,
-        metrics: &[(&'static str, f64)],
-    ) {
-        let update = self.updates.fetch_add(1, Ordering::Relaxed);
-        let step = step.unwrap_or_else(|| self.last_step.load(Ordering::Relaxed));
-        let times = [("update", sequence(update)), ("step", sequence(step))];
-        for &(name, value) in metrics {
+    ///
+    /// The caller is the tracing layer, which does not know the trial's
+    /// kind and so never opens the stream. An update that comes before the
+    /// sink has opened it (a learner may update before its first episode
+    /// ends) is kept, and written when the stream opens.
+    pub(crate) fn log_update(&self, step: Option<u64>, metrics: Vec<(&'static str, f64)>) {
+        let update = EarlyUpdate {
+            update: self.updates.fetch_add(1, Ordering::Relaxed),
+            step: step.unwrap_or_else(|| self.last_step.load(Ordering::Relaxed)),
+            metrics,
+        };
+        match self.stream.get() {
+            Some(Some(stream)) => self.write_update(stream, &update),
+            // Opening failed: the trial is not recorded.
+            Some(None) => {}
+            None => self.early_updates.lock().push(update),
+        }
+    }
+
+    fn write_update(&self, stream: &RecordingStream, update: &EarlyUpdate) {
+        let times = [
+            ("update", sequence(update.update)),
+            ("step", sequence(update.step)),
+        ];
+        for &(name, value) in &update.metrics {
             self.log_scalar(stream, self.metric_path(name, None), &times, value);
         }
+    }
+
+    /// Whether the stream has been opened, or opening it has failed: `None`
+    /// while no one has tried.
+    pub(crate) fn opened(&self) -> Option<bool> {
+        self.stream.get().map(Option::is_some)
     }
 
     pub(crate) fn failures(&self) -> u64 {
@@ -205,7 +239,14 @@ impl TrialStream {
     /// The trial's stream, opened as `kind` if this is its first use. `None`
     /// if the file could not be opened, which is logged once.
     pub(crate) fn stream(&self, kind: TrialKind) -> Option<&RecordingStream> {
-        self.stream.get_or_init(|| self.open(kind)).as_ref()
+        let stream = self.stream.get_or_init(|| self.open(kind)).as_ref()?;
+        // The trial's own thread logs its updates and makes this call, so
+        // none can slip in between the open and this.
+        let early = std::mem::take(&mut *self.early_updates.lock());
+        for update in &early {
+            self.write_update(stream, update);
+        }
+        Some(stream)
     }
 
     fn open(&self, kind: TrialKind) -> Option<RecordingStream> {
