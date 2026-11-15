@@ -45,8 +45,8 @@ impl RerunConfig {
 /// Why a [`RerunSink`] could not be built.
 ///
 /// A failure after that, while a run is under way, does not stop the run: it
-/// is logged through `tracing`, and the trial it struck has no recording in
-/// the report.
+/// is logged through `tracing`, and the trial it struck has no file in
+/// [`RerunSink::files`].
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RerunError {
@@ -76,6 +76,18 @@ impl std::error::Error for RerunError {
         match self {
             Self::OutputDir { source, .. } => Some(source),
         }
+    }
+}
+
+/// `path` as one word of a POSIX shell command: as it is when every
+/// character is safe unquoted, and in single quotes otherwise, so a
+/// directory with a space in its name is still one argument.
+fn shell_quoted(path: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "/._-+:@%,=".contains(c);
+    if !path.is_empty() && path.chars().all(plain) {
+        path.to_string()
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
     }
 }
 
@@ -126,11 +138,14 @@ pub struct RerunSink {
     /// The kind of this run's trials, once one has reached an episode or a
     /// generation.
     seen_kind: Option<TrialKind>,
-    /// Trials that ended before their first episode or generation. Nothing
-    /// said what kind they were, so their files wait for the end of the
-    /// suite, when the run's other trials have said.
+    /// Trials that ended before their first episode or generation, while no
+    /// trial of the run had reached one. Nothing said what kind they were,
+    /// so their files wait for the end of the suite, when the run's other
+    /// trials have said.
     kindless: Vec<Ended>,
     written: Vec<PathBuf>,
+    /// The environment IDs this run's suite has more than once.
+    repeated_envs: BTreeSet<String>,
     metric_names: BTreeSet<String>,
     histograms_skipped: BTreeSet<String>,
     failures: u64,
@@ -160,6 +175,7 @@ impl RerunSink {
             seen_kind: None,
             kindless: Vec::new(),
             written: Vec::new(),
+            repeated_envs: BTreeSet::new(),
             metric_names: BTreeSet::new(),
             histograms_skipped: BTreeSet::new(),
             failures: 0,
@@ -167,8 +183,9 @@ impl RerunSink {
     }
 
     /// The files of the current run written so far, in the order their
-    /// trials ended. A trial that ended before its first episode or
-    /// generation is written when the suite ends, and listed then.
+    /// trials ended. A trial that ended before any trial of the run had
+    /// reached an episode or a generation is written when the suite ends,
+    /// and listed then.
     #[must_use]
     pub fn files(&self) -> &[PathBuf] {
         &self.written
@@ -176,7 +193,8 @@ impl RerunSink {
 
     /// How to open what was written: the command that installs the rerun
     /// viewer at the version that wrote the files, and the command that opens
-    /// them. `None` before any trial has ended.
+    /// the run's directory, which for a resumed run holds the files of the
+    /// earlier run too. `None` before any trial has ended.
     ///
     /// A viewer is only sure to open recordings of versions next to its own,
     /// so the install commands name the version exactly. The viewer is told
@@ -187,12 +205,13 @@ impl RerunSink {
             return None;
         }
         let version = &self.sdk_version;
-        let dir = self.run.as_ref()?.dir.display();
+        let dir = self.run.as_ref()?.dir.display().to_string();
+        let quoted = shell_quoted(&dir);
         Some(format!(
-            "{} recordings in {dir}, written by rerun {version}\n\
+            "wrote {} recordings to {dir} with rerun {version}\n\
              install the viewer:  cargo binstall rerun-cli@{version}\n\
              or build it:         cargo install rerun-cli --version ={version} --locked\n\
-             open the run:        rerun --bind 127.0.0.1 {dir}/*.rrd",
+             open the run:        rerun --bind 127.0.0.1 {quoted}/*.rrd",
             self.written.len()
         ))
     }
@@ -250,7 +269,15 @@ impl Reporter for RerunSink {
         self.kindless.clear();
         self.written.clear();
         self.metric_names.clear();
+        self.histograms_skipped.clear();
         self.failures = 0;
+        let mut seen = BTreeSet::new();
+        self.repeated_envs = suite
+            .env_ids
+            .iter()
+            .filter(|id| !seen.insert(id.as_str()))
+            .cloned()
+            .collect();
         if !self.enabled {
             tracing::warn!(
                 target: "rlevo_rerun",
@@ -284,6 +311,11 @@ impl Reporter for RerunSink {
             run_id: run.id.clone(),
             suite: self.suite.clone(),
             label: self.config.run_label.clone(),
+            env_name: if self.repeated_envs.contains(&trial.env_id) {
+                format!("{}-{}", trial.key.env_idx, trial.env_id)
+            } else {
+                trial.env_id.clone()
+            },
             env_id: trial.env_id.clone(),
             env_idx: trial.key.env_idx,
             trial_idx: trial.key.trial_idx,
@@ -417,13 +449,15 @@ impl Reporter for RerunSink {
         match (ended.stream.opened(), self.seen_kind) {
             // Opening failed: the trial is not recorded.
             (Some(false), _) => {}
-            // Open, so its kind is the run's.
-            (Some(true), Some(kind)) => self.finish(&ended, kind),
-            // No episode and no generation: nothing says what kind of trial
-            // this was. The application ID follows the kind, and a file
-            // under the wrong one is outside the run's recording, so it
-            // waits for the suite's end, when a sibling will have said.
-            _ => self.kindless.push(ended),
+            // Every trial of a run is of one kind, so a kind any of them
+            // has shown is this one's too, whether or not it got as far as
+            // an episode or a generation itself.
+            (_, Some(kind)) => self.finish(&ended, kind),
+            // No trial has yet: nothing says what kind this one was. The
+            // application ID follows the kind, and a file under the wrong
+            // one is outside the run's recording, so it waits for the
+            // suite's end, when a sibling will have said.
+            (_, None) => self.kindless.push(ended),
         }
     }
 

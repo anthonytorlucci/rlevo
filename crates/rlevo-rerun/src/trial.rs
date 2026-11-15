@@ -38,6 +38,10 @@ pub(crate) struct TrialIdentity {
     pub(crate) suite: String,
     pub(crate) label: String,
     pub(crate) env_id: String,
+    /// The environment's name in entity paths: its ID, or, when the suite
+    /// has that ID more than once, `<environment index>-<ID>`, so two
+    /// environments under one ID do not log to one path.
+    pub(crate) env_name: String,
     pub(crate) env_idx: usize,
     pub(crate) trial_idx: usize,
     pub(crate) seed: u64,
@@ -82,11 +86,27 @@ pub(crate) struct TrialStream {
 ///
 /// The cost is what a killed run loses: the rows of its last ten seconds,
 /// where it was the last fifth of a second. A trial that ends is flushed
-/// whole. rerun's `RERUN_FLUSH_TICK_SECS` overrides the interval.
+/// whole. rerun's `RERUN_FLUSH_TICK_SECS` overrides the interval, and its
+/// other batching variables their own settings.
 const BATCHING: ChunkBatcherConfig = ChunkBatcherConfig {
     flush_tick: Duration::from_secs(10),
     ..ChunkBatcherConfig::DEFAULT
 };
+
+/// [`BATCHING`], with rerun's environment variables applied over it.
+///
+/// rerun reads them itself only for a stream given no configuration, so a
+/// stream given this one must apply them.
+fn batching() -> ChunkBatcherConfig {
+    BATCHING.apply_env().unwrap_or_else(|error| {
+        tracing::warn!(
+            target: "rlevo_rerun",
+            %error,
+            "a rerun batching variable could not be read; it is ignored"
+        );
+        BATCHING
+    })
+}
 
 /// An update logged before its trial's stream was open.
 #[derive(Debug)]
@@ -101,8 +121,13 @@ pub(crate) fn sequence(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
 
-/// `name` with every character a file name cannot safely hold replaced.
+/// `name` with every character a file name cannot safely hold replaced. An
+/// empty name becomes `_`: a file named from it would begin with a dot, and
+/// a shell's `*.rrd` passes over such a file.
 fn file_safe(name: &str) -> String {
+    if name.is_empty() {
+        return "_".to_string();
+    }
     name.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') {
@@ -249,7 +274,7 @@ impl TrialStream {
         // pending trial wants.
         let stream = RecordingStreamBuilder::new(kind.application_id())
             .recording_id(self.identity.run_id.as_str())
-            .batcher_config(BATCHING)
+            .batcher_config(batching())
             .save(&self.path);
         let stream = match stream {
             Ok(stream) => stream,
@@ -298,11 +323,12 @@ impl TrialStream {
 
     /// The trial's own tail of a path: run label, environment, trial index.
     /// Free text is one part each, which rerun escapes; the index, not the
-    /// seed, names the trial.
+    /// seed, names the trial. The environment is its name in paths
+    /// ([`TrialIdentity::env_name`]).
     fn tail(&self) -> [EntityPathPart; 3] {
         [
             EntityPathPart::new(self.identity.label.as_str()),
-            EntityPathPart::new(self.identity.env_id.as_str()),
+            EntityPathPart::new(self.identity.env_name.as_str()),
             EntityPathPart::new(self.identity.trial_idx.to_string()),
         ]
     }

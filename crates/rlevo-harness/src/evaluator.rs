@@ -16,9 +16,9 @@
 //! Each trial runs inside a `trial` tracing span (target `rlevo_harness`) with
 //! fields `run`, `env`, `env_idx`, `trial` and `seed`, so a tracing layer can
 //! file an event under the trial whose work emitted it. `run` is the run's ID
-//! ([`BenchmarkReport::run_id`]): with two runs in one process, each with a
-//! layer of its own, it says whose trial `env_idx` and `trial` name. Work a
-//! trial hands to another thread runs outside the span.
+//! ([`BenchmarkReport::run_id`]): with two runs in one process, it says
+//! whose trial `env_idx` and `trial` name. Work a trial hands to another
+//! thread runs outside the span.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;

@@ -618,9 +618,112 @@ fn viewer_instructions_name_the_version_and_bind_locally() {
         )),
         "{how}"
     );
-    assert!(how.contains("rerun --bind 127.0.0.1"), "{how}");
+    // A directory whose name needs no quoting is given as it is.
     assert!(
-        how.contains(&dir.path().join(RUN_ID).display().to_string()),
-        "the instructions name the run's own directory: {how}"
+        how.ends_with(&format!(
+            "rerun --bind 127.0.0.1 {}/*.rrd",
+            dir.path().join(RUN_ID).display()
+        )),
+        "the instructions open the run's own directory: {how}"
     );
+}
+
+/// A suite may have one environment ID more than once (one environment at
+/// two configurations). Each of those is named with its index in paths, so
+/// the two do not log to one entity or share a trial's properties; an ID the
+/// suite has once stays as it is.
+#[test]
+fn environments_under_one_id_have_paths_of_their_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = sink(dir.path(), "ppo");
+    sink.on_suite_start(&suite(&["cartpole", "pendulum", "cartpole"]));
+    let trials = [
+        trial(0, 0, "cartpole"),
+        trial(1, 0, "pendulum"),
+        trial(2, 0, "cartpole"),
+    ];
+    let mut files = Vec::new();
+    for (trial, value) in trials.iter().zip([1.0, 2.0, 3.0]) {
+        sink.on_trial_start(trial);
+        sink.on_metrics(
+            trial,
+            Boundary::TrainingEpisode { index: 0, step: 1 },
+            &[scalar("rl/loss", value)],
+        );
+        files.push(end(&mut sink, trial, &report(trial)));
+    }
+
+    let loss = |env: &str| path(&format!("/metrics/rl/loss/ppo/{env}/0"));
+    let seed = |file: &Path, env: &str| {
+        read(file).text(
+            &path(&format!("/__properties/trial/ppo/{env}/0")),
+            "env_idx",
+        )
+    };
+    for (file, env, value, idx) in [
+        (&files[0], "0-cartpole", 1.0, "0"),
+        (&files[1], "pendulum", 2.0, "1"),
+        (&files[2], "2-cartpole", 3.0, "2"),
+    ] {
+        let rec = read(file);
+        assert_eq!(rec.series(&loss(env), "step"), [(1, value)], "{env}");
+        assert_eq!(seed(file, env).as_deref(), Some(idx), "{env}");
+        assert_eq!(rec.series(&loss("cartpole"), "step"), [], "{env}");
+    }
+}
+
+/// Once one trial of a run has shown its kind, a trial that ends before its
+/// own first episode is written as it ends, not held for the suite's end: a
+/// run that is killed later still has the errored trial's file.
+#[test]
+fn a_trial_that_errors_after_a_sibling_has_played_is_written_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = sink(dir.path(), "ppo");
+    sink.on_suite_start(&suite(&["cartpole"]));
+    let (played, failed) = (trial(0, 0, "cartpole"), trial(0, 1, "cartpole"));
+    sink.on_trial_start(&played);
+    sink.on_trial_start(&failed);
+    sink.on_metrics(
+        &played,
+        Boundary::TrainingEpisode { index: 0, step: 1 },
+        &[scalar("rl/loss", 1.0)],
+    );
+
+    let file = end(&mut sink, &failed, &errored(&failed, "reset failed"));
+
+    // No suite end, and the sibling is still running.
+    assert_eq!(sink.files(), std::slice::from_ref(&file));
+    let rec = read(&file);
+    assert_eq!(rec.application_id, "rlevo-episodic");
+    assert_eq!(
+        status(&rec, "/status/ppo/cartpole/1").as_deref(),
+        Some("errored: reset failed")
+    );
+}
+
+/// The command that opens a run is one a shell reads as written: a
+/// directory with a space in its name is quoted, and a run with no label
+/// still has files a `*.rrd` matches.
+#[test]
+fn the_open_command_survives_a_space_and_an_empty_label() {
+    let parent = tempfile::tempdir().unwrap();
+    let dir = parent.path().join("my runs");
+    let mut sink = RerunSink::new(RerunConfig::new(&dir, "")).expect("a sink");
+    let trial = trial(0, 0, "cartpole");
+    sink.on_suite_start(&suite(&["cartpole"]));
+    sink.on_trial_start(&trial);
+    sink.on_trial_end(&trial, &report(&trial));
+    suite_end(&mut sink);
+
+    let run_dir = dir.join(RUN_ID);
+    assert_eq!(sink.files(), [run_dir.join("_.0-cartpole.0.rrd")]);
+    let how = sink.viewer_instructions().expect("a trial has ended");
+    assert!(
+        how.ends_with(&format!(
+            "rerun --bind 127.0.0.1 '{}'/*.rrd",
+            run_dir.display()
+        )),
+        "{how}"
+    );
+    assert!(how.starts_with("wrote 1 recordings to "), "{how}");
 }

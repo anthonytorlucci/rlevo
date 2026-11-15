@@ -32,7 +32,9 @@
 //! - a status entry, when the trial ended in an error.
 //!
 //! Values sit at `/metrics/<metric>/<run label>/<environment>/<trial>`, the
-//! metric first, so one view rooted at a metric overlays every trial.
+//! metric first, so one view rooted at a metric overlays every trial. The
+//! environment is its ID; in a suite that has one ID more than once, each of
+//! those is `<environment index>-<ID>`, so the two do not share a path.
 //!
 //! # Examples
 //!

@@ -22,7 +22,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the trial's identity, task and build as properties, and a status entry when
   the trial errored. Values sit at
   `/metrics/<metric>/<run label>/<environment>/<trial>`, each on its episode
-  or generation timeline and, for an episodic trial, on `step`.
+  or generation timeline and, for an episodic trial, on `step`. An
+  environment ID a suite has more than once is `<environment index>-<ID>`
+  there, so the two do not share a path.
   - **Where the files are.** `<output dir>/<run ID>/`, one directory per run,
     so one sink records run after run. The run ID is
     `BenchmarkReport::run_id`, which is what joins a report's JSON to its
@@ -35,7 +37,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     statistics are recorded as PPO's and PPG's are. An event it cannot file
     is counted (`RerunSink::unattributed_updates`). A level filter added as
     a layer of its own switches these events off for every layer; filter the
-    layer that prints.
+    layer that prints. Alone in a subscriber the layer enables every
+    callsite in the process; its docs give the filter that keeps the rest
+    off.
   - **Opening a run.** `RerunSink::viewer_instructions` names the viewer
     version that wrote the files and the command that opens them. rerun
     promises that a recording opens only in viewers of adjacent minor

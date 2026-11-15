@@ -8,6 +8,7 @@ mod common;
 use std::collections::BTreeSet;
 
 use burn::tensor::Device;
+use rlevo_core::fitness::UPDATE_TARGET;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig, CartPoleObservation};
 use rlevo_environments::wrappers::TimeLimit;
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig};
@@ -19,6 +20,8 @@ use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
 use rlevo_rerun::{RerunConfig, RerunSink, UpdateLayer};
+use tracing_subscriber::Layer;
+use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -62,8 +65,12 @@ fn agent() -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 2> 
 fn ppo_updates_are_recorded_per_trial() {
     let dir = tempfile::tempdir().unwrap();
     let mut sink = RerunSink::new(RerunConfig::new(dir.path(), "ppo")).expect("a sink");
+    // With the filter the layer's docs give for a subscriber that wants
+    // nothing else: the trial span and the update events must pass it.
     tracing_subscriber::registry()
-        .with(UpdateLayer::new())
+        .with(UpdateLayer::new().with_filter(filter_fn(|meta| {
+            meta.target() == UPDATE_TARGET || (meta.is_span() && meta.name() == "trial")
+        })))
         .init();
 
     let suite = Suite::new("ppo-suite").with_env("cartpole", |seed| {

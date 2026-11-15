@@ -46,6 +46,30 @@ use crate::registry;
 /// reach. Without the layer a run is recorded all the same, less these
 /// statistics. Installed twice, it records every event twice.
 ///
+/// **Alone, it listens to everything.** A subscriber enables whatever any
+/// of its layers has not refused, and this layer refuses nothing, so
+/// `registry().with(UpdateLayer::new())` on its own has every `debug!` and
+/// `trace!` in the process build its fields and dispatch, to be dropped
+/// here. Where nothing else wants those, give the layer a filter of its own
+/// that passes what it reads, the harness's `trial` span and the update
+/// events:
+///
+/// ```no_run
+/// use rlevo_core::fitness::UPDATE_TARGET;
+/// use tracing_subscriber::Layer;
+/// use tracing_subscriber::filter::filter_fn;
+/// use tracing_subscriber::layer::SubscriberExt;
+/// use tracing_subscriber::util::SubscriberInitExt;
+///
+/// let updates = rlevo_rerun::UpdateLayer::new().with_filter(filter_fn(|meta| {
+///     meta.target() == UPDATE_TARGET || (meta.is_span() && meta.name() == "trial")
+/// }));
+/// tracing_subscriber::registry().with(updates).init();
+/// ```
+///
+/// The layer cannot do this for itself: what a plain layer refuses is
+/// refused for every layer beside it, which is the next point.
+///
 /// **A filter that is itself a layer applies to every layer.** With
 /// `registry().with(LevelFilter::WARN).with(UpdateLayer::new())`, or an
 /// `EnvFilter` in that position, update events (which are `INFO`) are
@@ -162,9 +186,8 @@ where
             return;
         };
         if let Some(span) = ctx.span(id) {
-            // `replace`, not `insert`: another sink's layer in the same
-            // subscriber writes the same value, and `insert` panics on a
-            // second one.
+            // `replace`, not `insert`: a layer installed twice writes the
+            // same value twice, and `insert` panics on a second one.
             span.extensions_mut().replace(SpanTrial {
                 run,
                 key: TrialKey { env_idx, trial_idx },

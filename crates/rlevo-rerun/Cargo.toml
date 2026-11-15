@@ -16,6 +16,11 @@ categories.workspace = true
 [dependencies]
 # `UPDATE_TARGET`, the tracing target the layer reads.
 rlevo-core = { path = "../rlevo-core", version = "0.6.1" }
+# The harness API this crate is written against (`SuiteInfo::run_id`,
+# `Reporter::on_metrics`) is newer than the released 0.6.1, so this crate
+# must not be published before the harness that has it. The workspace's
+# version bump makes that harness 0.7.0, which this requirement does not
+# admit, so the build fails until the line is raised.
 rlevo-harness = { path = "../rlevo-harness", version = "0.6.1" }
 # A caret within one minor, not an exact pin: patch fixes reach users, and a
 # researcher's own `rerun` in the same minor resolves beside this one. `sdk`
