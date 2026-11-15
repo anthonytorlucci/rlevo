@@ -522,8 +522,23 @@ impl tracing::Subscriber for Capture {
     fn exit(&self, _span: &tracing::span::Id) {}
 }
 
+/// Puts back the collector a capture displaced, on return and on unwind.
+struct Restore(Option<Collector>);
+
+impl Drop for Restore {
+    fn drop(&mut self) {
+        // Dropping the capture's own collector drops its handle on what it
+        // collected.
+        COLLECTOR.set(self.0.take());
+    }
+}
+
 /// Runs `f` and returns what `read` made of each `tracing` event `f` logged
 /// on this thread, in order; an event `read` returns `None` for is left out.
+///
+/// A call inside another's `f` collects alone while it runs, and the outer
+/// call collects again once it returns. If `f` panics, the thread is left
+/// collecting what it was before the call.
 ///
 /// Every test in this crate that asserts on a `tracing` event captures it
 /// through this function, and through no subscriber of its own.
@@ -552,14 +567,13 @@ pub(crate) fn capture_events<T: 'static>(
 
     let collected = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let sink = std::rc::Rc::clone(&collected);
-    COLLECTOR.set(Some(Box::new(move |event| {
+    let restore = Restore(COLLECTOR.replace(Some(Box::new(move |event| {
         if let Some(item) = read(event) {
             sink.borrow_mut().push(item);
         }
-    })));
+    }))));
     f();
-    // Dropping the collector drops its handle on what was collected.
-    COLLECTOR.set(None);
+    drop(restore);
     collected.take()
 }
 
@@ -582,4 +596,48 @@ pub(crate) fn capture_update_events(f: impl FnOnce()) -> Vec<UpdateEvent> {
 /// The metric names of `event`, in order.
 pub(crate) fn metric_names(event: &UpdateEvent) -> Vec<&str> {
     event.metrics.keys().map(String::as_str).collect()
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::capture_events;
+
+    /// Keeps `INFO` events only.
+    fn message(event: &tracing::Event<'_>) -> Option<&'static str> {
+        (*event.metadata().level() == tracing::Level::INFO).then(|| event.metadata().name())
+    }
+
+    /// A capture inside a capture collects alone, and the outer one goes on
+    /// collecting when it returns.
+    #[test]
+    fn test_a_nested_capture_gives_the_outer_one_back() {
+        let mut inner = Vec::new();
+        let outer = capture_events(
+            |event| Some(*event.metadata().level()),
+            || {
+                tracing::warn!("before");
+                inner = capture_events(message, || tracing::info!("inside"));
+                tracing::error!("after");
+            },
+        );
+        assert_eq!(inner.len(), 1);
+        assert_eq!(outer, [tracing::Level::WARN, tracing::Level::ERROR]);
+    }
+
+    /// A capture whose closure panics leaves the thread collecting what it
+    /// was before: the outer capture still sees what follows.
+    #[test]
+    fn test_a_capture_that_panics_gives_the_outer_one_back() {
+        let outer = capture_events(
+            |event| Some(*event.metadata().level()),
+            || {
+                let unwound = std::panic::catch_unwind(|| {
+                    capture_events(message, || panic!("inside the capture"))
+                });
+                assert!(unwound.is_err());
+                tracing::error!("after");
+            },
+        );
+        assert_eq!(outer, [tracing::Level::ERROR]);
+    }
 }

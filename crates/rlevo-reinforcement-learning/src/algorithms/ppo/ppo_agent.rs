@@ -470,10 +470,6 @@ where
         self.policy().deterministic_env_row(batched)
     }
 
-    /// Logs one update at `info`, its statistics under the metric registry's
-    /// names. The two `log_std` extrema are `Option`s, logged with `?`: a
-    /// categorical policy has no `$\sigma$`, and `None` says so where a
-    /// `0.0` would claim `$\sigma = 1$` (ADR 0049).
     /// Logs one update's statistics as an update-rate event
     /// ([`UPDATE_TARGET`]): every field but `step` is a metric under `rl/`.
     ///

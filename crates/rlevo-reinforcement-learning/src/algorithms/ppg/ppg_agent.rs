@@ -561,10 +561,6 @@ where
         }
     }
 
-    /// Logs one policy phase, and the auxiliary phase when it ran, at `info`
-    /// under the metric registry's names. The two `log_std` extrema read
-    /// `None` for every PPG run, PPG being discrete-only, and are logged so a
-    /// Gaussian head is observable the day one lands (ADR 0049).
     /// Logs one iteration's statistics as an update-rate event
     /// ([`UPDATE_TARGET`]): every field but `step` is a metric under `rl/`.
     ///
