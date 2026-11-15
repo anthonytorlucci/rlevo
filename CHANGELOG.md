@@ -11,6 +11,48 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking changes
 
+- **A trial names its environment `env_id`, and can name its task.**
+  `TrialInfo::env_name` and `TrialReport::env_name` are renamed `env_id`, and
+  `SuiteInfo::env_names` `env_ids`: the id is the name the suite registers an
+  environment under, given once (a report written before 0.7.0 still loads,
+  through a serde alias). `Suite::with_task(id, config, factory)` registers an
+  environment built from a `Serialize` config and fingerprints the task: the
+  report keeps each unit's `TaskFingerprint` once, in `BenchmarkReport::tasks`
+  (indexed by `env_idx`), and every trial its hash as `task_hash`. Two runs
+  faced the same task when the hashes are equal, whatever ids they used;
+  `task_fingerprint(&config)` recomputes one, leaving the config's top-level
+  `seed` out. Its canonical text is written by the harness itself
+  (`fnv1a64-canon-v1`), so no `serde_json` feature in a build can change it.
+  A run resumed from a checkpoint re-runs a finished trial whose id or task
+  no longer matches its unit, and each trial keeps the `Provenance` of the
+  build that ran it.
+  - **`Evaluator::run_trials` takes units**, `&[TrialUnit]`, instead of
+    `&[String]` ids. A `TrialUnit` is an id and, when built with
+    `TrialUnit::with_task(id, &config)`, a task fingerprint, so a generation
+    trial over a landscape can name its task as `Suite::with_task` does:
+
+    ```rust
+    // before
+    evaluator.run_trials("sphere-ga", &["sphere-d8".to_string()], make_trial, &mut reporter);
+
+    // after: an id alone, or a fingerprinted task
+    evaluator.run_trials("sphere-ga", &["sphere-d8".into()], make_trial, &mut reporter);
+    evaluator.run_trials("sphere-ga", &[TrialUnit::with_task("sphere-d8", &landscape)?], make_trial, &mut reporter);
+    ```
+  - **`Suite::envs`** holds `SuiteEnv<E>` values (`unit: TrialUnit`,
+    `factory`) instead of `(String, EnvFactory<E>)` pairs.
+  - **The 13 environment configs that did not** (the classic-control,
+    locomotion and toy-text ones) **implement `Serialize` and `Deserialize`**,
+    with their nested types; `Gear<N>` serializes as its list of ratios.
+  - **`TrialReport::provenance`** records the build that ran the trial, and
+    **`BenchmarkReport::provenance`** the build that finished the run:
+    harness version, commit, dirty flag, compiler and platform. The commit is
+    the one `cargo package` recorded for a packaged harness, or HEAD of
+    rlevo's own checkout, and never that of another repository enclosing
+    the build, as a home directory under git or a vendoring project could
+    before. The record manifest's `with_build_provenance` uses the same rules
+    and no longer records `burn_version`, which was a hard-coded `0.21.0`.
+
 - **A reporter sees every episode and every metrics read, and each trial
   runs inside a span.** `Reporter::on_episode_end` is renamed
   `Reporter::on_episode` (`Agent::on_episode_end` keeps its name), and is now

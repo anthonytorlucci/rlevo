@@ -87,7 +87,7 @@ fn generation_trial_runs_through_the_shared_machinery() {
     let mut reporter = LoggingReporter::new();
     let report = Evaluator::new(cfg.clone()).run_trials(
         "sphere-ga",
-        &["sphere-d4".to_string()],
+        &["sphere-d4".into()],
         |_key, env_seed, _agent_seed| GenerationTrial {
             probe: evo_loop(env_seed),
         },
@@ -137,7 +137,7 @@ fn distinct_trial_seeds_give_distinct_runs() {
     let mut reporter = LoggingReporter::new();
     let report = Evaluator::new(cfg).run_trials(
         "sphere-ga",
-        &["sphere-d4".to_string()],
+        &["sphere-d4".into()],
         |_key, env_seed, _agent_seed| GenerationTrial {
             probe: evo_loop(env_seed),
         },
@@ -179,7 +179,7 @@ fn parallel_trials_match_serial_trials() {
         let mut reporter = LoggingReporter::new();
         let report = Evaluator::new(cfg).run_trials(
             "sphere-ga",
-            &["sphere-d4".to_string()],
+            &["sphere-d4".into()],
             |_key, env_seed, _agent_seed| GenerationTrial {
                 probe: evo_loop(env_seed),
             },

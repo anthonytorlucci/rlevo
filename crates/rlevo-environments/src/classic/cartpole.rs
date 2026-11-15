@@ -156,7 +156,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Integration scheme for the `CartPole` equations of motion.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Integrator {
     /// Forward Euler (Gymnasium default).
     #[default]
@@ -182,7 +182,7 @@ pub enum Integrator {
 ///     ..Default::default()
 /// };
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CartPoleConfig {
     /// Gravitational acceleration (`$\text{m/s}^2$`). Default: `9.8`.
     pub gravity: f32,

@@ -31,7 +31,7 @@ fn run_suite(generations: usize) -> BenchmarkReport {
     let mut reporter = LoggingReporter::new();
     Evaluator::new(config).run_trials(
         "byoe-2",
-        &["well-siting".to_string()],
+        &["well-siting".into()],
         |_key, seed, _agent_seed| GenerationTrial {
             probe: evo_loop(seed, generations).expect("checked at build-loop"),
         },

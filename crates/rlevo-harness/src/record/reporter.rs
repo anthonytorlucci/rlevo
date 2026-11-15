@@ -231,7 +231,7 @@ mod tests {
                 env_idx: 0,
                 trial_idx: 0,
             },
-            env_name: "stub".into(),
+            env_id: "stub".into(),
             trial_seed: 1,
         }
     }
@@ -239,7 +239,7 @@ mod tests {
     fn suite() -> SuiteInfo {
         SuiteInfo {
             name: "S".into(),
-            env_names: vec!["stub".into()],
+            env_ids: vec!["stub".into()],
             num_trials_per_env: 1,
             success_threshold: None,
         }
@@ -405,7 +405,7 @@ mod tests {
 
         let info = SuiteInfo {
             name: "S".into(),
-            env_names: vec!["stub".into()],
+            env_ids: vec!["stub".into()],
             num_trials_per_env: 5,
             success_threshold: Some(195.0),
         };
@@ -429,7 +429,7 @@ mod tests {
 
         r.on_suite_start(&SuiteInfo {
             name: "S".into(),
-            env_names: vec!["stub".into()],
+            env_ids: vec!["stub".into()],
             num_trials_per_env: 5,
             success_threshold: None,
         });
@@ -455,7 +455,7 @@ mod tests {
                 env_idx: 3,
                 trial_idx: 7,
             },
-            env_name: "stub".into(),
+            env_id: "stub".into(),
             trial_seed: 1,
         };
         r.on_trial_start(&info);

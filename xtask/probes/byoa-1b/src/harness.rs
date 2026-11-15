@@ -61,7 +61,7 @@ where
     let mut reporter = LoggingReporter::new();
     let report: BenchmarkReport = Evaluator::new(config).run_trials(
         "byoa-1b",
-        &["sphere-d4".to_string()],
+        &["sphere-d4".into()],
         |_key, seed, _agent_seed| GenerationTrial {
             probe: EvolutionaryLoop::new(
                 strategy,

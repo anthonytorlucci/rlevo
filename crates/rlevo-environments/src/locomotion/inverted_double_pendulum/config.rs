@@ -9,7 +9,7 @@ use crate::locomotion::common::{Gear, HealthyCheck, TerminationMode};
 ///
 /// Defaults match the Gymnasium v5 XML: gear 100, dt 0.01, `frame_skip` 1,
 /// reset noise 0.1, truncation at 1000, termination on `$y_{\text{tip}} \leq 1.0$`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InvertedDoublePendulumConfig {
     /// RNG seed used for both weight initialisation and reset noise sampling.
     /// Each call to `reset` re-seeds from this value, so episodes are

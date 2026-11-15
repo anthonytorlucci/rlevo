@@ -47,14 +47,14 @@ pub fn run() -> Result<String, String> {
         if trial.errored {
             return Err(format!(
                 "a trial on `{}` errored: {}",
-                trial.env_name,
+                trial.env_id,
                 trial.error_message.as_deref().unwrap_or("no message")
             ));
         }
-        if trial.env_name != ENV_ID {
+        if trial.env_id != ENV_ID {
             return Err(format!(
                 "a trial is named `{}`, not `{ENV_ID}`",
-                trial.env_name
+                trial.env_id
             ));
         }
         if trial.episodes.len() != EPISODES {

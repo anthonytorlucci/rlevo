@@ -215,7 +215,7 @@ mod tests {
             self.log
                 .lock()
                 .unwrap()
-                .push(Tag::TrialStart(format!("{}:{}", self.name, trial.env_name)));
+                .push(Tag::TrialStart(format!("{}:{}", self.name, trial.env_id)));
         }
         fn on_episode(&mut self, _trial: &TrialInfo, _ep: &EpisodeSummary) {
             self.log
@@ -227,7 +227,7 @@ mod tests {
             self.log
                 .lock()
                 .unwrap()
-                .push(Tag::TrialEnd(format!("{}:{}", self.name, trial.env_name)));
+                .push(Tag::TrialEnd(format!("{}:{}", self.name, trial.env_id)));
         }
         fn on_suite_end(&mut self, report: &BenchmarkReport) {
             self.log.lock().unwrap().push(Tag::SuiteEnd(format!(
@@ -312,7 +312,7 @@ mod tests {
 
         let suite = SuiteInfo {
             name: "S".into(),
-            env_names: vec!["E".into()],
+            env_ids: vec!["E".into()],
             num_trials_per_env: 1,
             success_threshold: None,
         };
@@ -321,7 +321,7 @@ mod tests {
                 env_idx: 0,
                 trial_idx: 0,
             },
-            env_name: "E".into(),
+            env_id: "E".into(),
             trial_seed: 0,
         };
         let ep = EpisodeSummary::new(Phase::Evaluation, 7, 1.0, 2, EpisodeStatus::Terminated);

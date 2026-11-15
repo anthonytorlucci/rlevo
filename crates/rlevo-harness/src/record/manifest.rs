@@ -161,34 +161,21 @@ impl RunManifest {
         self
     }
 
-    /// Stamps build-time + platform provenance onto the manifest:
-    /// `rlevo_version` (always), and — when the `build.rs` provided them —
-    /// `git_commit`, `git_dirty`, `rustc_version`, `burn_version`, plus the
-    /// runtime `platform`. Missing build-time values resolve to `None`, so
-    /// this is safe to call outside a git checkout or without `build.rs`.
-    ///
-    /// The `option_env!` reads resolve against *this* crate's build script,
-    /// which is why provenance lives on the manifest rather than at call
-    /// sites in downstream crates. Added in v6.
+    /// Stamps build-time + platform provenance onto the manifest, from
+    /// [`Provenance::this_build`](crate::report::Provenance::this_build):
+    /// `rlevo_version`, `platform`, and, when known, `git_commit`, `git_dirty`
+    /// and `rustc_version`. `burn_version` is no longer recorded (the harness
+    /// does not depend on Burn, and the value was a hard-coded constant), so
+    /// it stays `None`. Added in v6.
     #[must_use]
     pub fn with_build_provenance(mut self) -> Self {
-        fn non_empty(s: &str) -> Option<String> {
-            (!s.is_empty()).then(|| s.to_string())
-        }
-        self.rlevo_version = non_empty(env!("CARGO_PKG_VERSION"));
-        self.git_commit = option_env!("GIT_COMMIT").and_then(non_empty);
-        self.git_dirty = match option_env!("GIT_DIRTY") {
-            Some("1") => Some(true),
-            Some("0") => Some(false),
-            _ => None,
-        };
-        self.rustc_version = option_env!("RUSTC_VERSION").and_then(non_empty);
-        self.burn_version = option_env!("BURN_VERSION").and_then(non_empty);
-        self.platform = Some(format!(
-            "{}-{}",
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        ));
+        let p = crate::report::Provenance::this_build();
+        self.rlevo_version = Some(p.rlevo_version);
+        self.git_commit = p.git_commit;
+        self.git_dirty = p.git_dirty;
+        self.rustc_version = p.rustc_version;
+        self.burn_version = None;
+        self.platform = Some(p.platform);
         self
     }
 

@@ -33,9 +33,14 @@ fn a_0_6_1_checkpoint_loads_with_defaults_for_new_fields() {
 
     assert_eq!(report.suite_name, "fixture-suite");
     assert_eq!(report.recording_sdk_version, None);
+    assert_eq!(report.provenance, None, "0.6.1 recorded no provenance");
+    assert!(report.tasks.is_empty(), "0.6.1 recorded no tasks");
     assert_eq!(report.trials.len(), 2);
 
     let trial = &report.trials[0];
+    assert_eq!(trial.env_id, "cartpole", "read from 0.6.1's `env_name`");
+    assert_eq!(trial.task_hash, None);
+    assert_eq!(trial.provenance, None);
     assert_eq!(trial.recording_id, None);
     assert_eq!(trial.recording_path, None);
     let episodes: Vec<(usize, Phase, Option<EpisodeStatus>)> = trial

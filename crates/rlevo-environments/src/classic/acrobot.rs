@@ -302,7 +302,7 @@ fn scale4(a: [f32; 4], s: f32) -> [f32; 4] {
 ///     ..Default::default()
 /// };
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AcrobotConfig {
     /// Integration time step (s). Default: `0.2`.
     pub dt: f32,

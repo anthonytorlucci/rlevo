@@ -16,7 +16,7 @@ use rlevo_core::bounds::Bounds;
 /// Hopper sets all three (z + angle + state); Ant only sets `z_range`;
 /// `HalfCheetah` / Swimmer / Reacher / Pusher / `HumanoidStandup` set none
 /// (they never terminate on unhealthy).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HealthyCheck {
     /// Inclusive `[lo, hi]` range for the torso's world-frame z (height).
     pub z_range: Option<Bounds>,
@@ -73,7 +73,7 @@ impl Default for HealthyCheck {
 }
 
 /// How the env handles an unhealthy state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum TerminationMode {
     /// Terminate the episode when [`HealthyCheck::is_healthy`] returns false.
     #[default]
@@ -89,6 +89,24 @@ pub enum TerminationMode {
 /// error rather than a runtime mismatch.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Gear<const N: usize>([f32; N]);
+
+/// A sequence of `N` ratios: serde derives arrays only up to a fixed length,
+/// not for a const-generic `N`.
+impl<const N: usize> serde::Serialize for Gear<N> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0.iter())
+    }
+}
+
+impl<'de, const N: usize> serde::Deserialize<'de> for Gear<N> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let values = Vec::<f32>::deserialize(deserializer)?;
+        let len = values.len();
+        <[f32; N]>::try_from(values).map(Self).map_err(|_| {
+            serde::de::Error::invalid_length(len, &format!("{N} gear ratios").as_str())
+        })
+    }
+}
 
 impl<const N: usize> Gear<N> {
     /// Construct a `Gear` from a fixed-size array of per-actuator ratios.

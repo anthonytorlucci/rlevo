@@ -90,7 +90,7 @@ fn is_natural(hand: &[u8]) -> bool {
 ///
 /// Selects between standard casino rules and the academic formulation from
 /// Sutton & Barto, *Reinforcement Learning: An Introduction*, Example 5.1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlackjackVariant {
     /// Standard casino rules.
     ///
@@ -126,7 +126,7 @@ impl Default for BlackjackVariant {
 ///     seed: 42,
 /// };
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BlackjackConfig {
     /// Rule variant governing reward and natural-hand handling.
     pub variant: BlackjackVariant,

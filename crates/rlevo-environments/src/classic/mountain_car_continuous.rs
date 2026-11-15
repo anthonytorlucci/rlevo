@@ -140,7 +140,7 @@ pub const REWARD_GOAL: &str = "goal";
 /// assert_eq!(cfg.seed, 42);
 /// assert!((cfg.power - 0.0015).abs() < 1e-7);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MountainCarContinuousConfig {
     /// Inclusive valid action bounds `[min, max]`. Default: `[-1.0, 1.0]`.
     pub action_bounds: Bounds,

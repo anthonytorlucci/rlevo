@@ -123,7 +123,7 @@ use serde::{Deserialize, Serialize};
 /// assert!((cfg.g - 9.81).abs() < 1e-5);
 /// assert_eq!(cfg.seed, 42);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PendulumConfig {
     /// Maximum angular velocity (rad/s). Default: `8.0`.
     pub max_speed: f32,

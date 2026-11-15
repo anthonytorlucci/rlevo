@@ -79,7 +79,7 @@ const GOAL: (u8, u8) = (3, 11);
 ///     seed: 7,
 /// };
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct CliffWalkingConfig {
     /// When `true`, intended direction succeeds with probability 1/3; each perpendicular
     /// direction occurs with probability 1/3.

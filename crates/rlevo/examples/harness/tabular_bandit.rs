@@ -126,7 +126,7 @@ fn main() {
         let ret = trial.scalars.get("return/mean").copied().unwrap_or(0.0);
         println!(
             "{:>16} trial={} seed={:>20} return/mean={:.3}",
-            trial.env_name, trial.key.trial_idx, trial.trial_seed, ret
+            trial.env_id, trial.key.trial_idx, trial.trial_seed, ret
         );
     }
 }

@@ -184,7 +184,7 @@ fn neat_runs_through_run_trials_and_repeats() {
     let suite = || {
         Evaluator::new(cfg()).run_trials(
             "neat-xor",
-            &["xor".to_string()],
+            &["xor".into()],
             |_key, seed, _agent_seed| GenerationTrial {
                 probe: neat_loop(seed),
             },
@@ -210,7 +210,7 @@ fn arch_nas_runs_through_run_trials_as_a_cost_and_repeats() {
     let suite = || {
         Evaluator::new(cfg()).run_trials(
             "nas-xor",
-            &["xor".to_string()],
+            &["xor".into()],
             |_key, seed, _agent_seed| GenerationTrial {
                 probe: nas_loop(seed),
             },

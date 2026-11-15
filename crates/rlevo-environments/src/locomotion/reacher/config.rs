@@ -14,7 +14,7 @@ use crate::locomotion::common::Gear;
 /// Defaults match the Gymnasium v5 reacher XML: gear `[200, 200]`, dt 0.01,
 /// `frame_skip` 2 (env dt = 0.02), reset noise 0.1, ctrl-cost weight 0.1,
 /// target-disk radius 0.2, truncation at 50.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ReacherConfig {
     /// Seed for the internal `StdRng` used during resets. The same seed
     /// always produces the same sequence of initial states.
