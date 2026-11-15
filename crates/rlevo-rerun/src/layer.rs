@@ -1,6 +1,5 @@
 //! [`UpdateLayer`]: update-rate `tracing` events into trial recordings.
 
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use rlevo_core::fitness::UPDATE_TARGET;
@@ -12,11 +11,10 @@ use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
-use crate::sink::Shared;
+use crate::registry;
 
-/// A `tracing` layer that records update-rate events into the trial files of
-/// the [`RerunSink`](crate::RerunSink) it came from
-/// ([`RerunSink::layer`](crate::RerunSink::layer)).
+/// A `tracing` layer that records update-rate events into the trial files
+/// of the runs being recorded in this process.
 ///
 /// It reads events at [`UPDATE_TARGET`] and no others. Of such an event,
 /// every numeric field is a metric, logged at
@@ -27,24 +25,52 @@ use crate::sink::Shared;
 /// is on two timelines: `update`, the event's index among its trial's, and
 /// `step`.
 ///
+/// # Installing it
+///
+/// Once, in the process's global subscriber, before the first run:
+///
+/// ```no_run
+/// use tracing_subscriber::layer::SubscriberExt;
+/// use tracing_subscriber::util::SubscriberInitExt;
+///
+/// tracing_subscriber::registry()
+///     .with(rlevo_rerun::UpdateLayer::new())
+///     .init();
+/// ```
+///
+/// It belongs to the process, not to a sink: a
+/// [`RerunSink`](crate::RerunSink) registers its run while the run is under
+/// way, so one layer serves every sink, one run after another or several at
+/// once. The subscriber must be the global one, because the harness runs
+/// trials on worker threads, which a subscriber set for one thread does not
+/// reach. Without the layer a run is recorded all the same, less these
+/// statistics. Installed twice, it records every event twice.
+///
+/// **A filter that is itself a layer applies to every layer.** With
+/// `registry().with(LevelFilter::WARN).with(UpdateLayer::new())`, or an
+/// `EnvFilter` in that position, update events (which are `INFO`) are
+/// switched off before this layer sees them: no statistics are recorded and
+/// nothing is counted as lost. Filter the layer that prints instead:
+/// `fmt::layer().with_filter(..)`.
+///
 /// # How an event finds its trial
 ///
 /// The harness runs each trial inside a `trial` span that names the run and
 /// the trial. An event emitted in that span, on the trial's thread, is filed
-/// under that trial, whichever worker thread runs it and whatever else runs
-/// beside it. An event of another run is ignored. An event outside any trial
-/// span (emitted by work the trial handed to another thread) cannot be
-/// filed: it is counted, and
+/// under that trial of that run, whichever worker thread runs it and
+/// whatever else runs beside it. An event of a run no sink is recording is
+/// ignored. An event outside any trial span (emitted by work the trial
+/// handed to another thread) cannot be filed: it is counted, and
 /// [`RerunSink::unattributed_updates`](crate::RerunSink::unattributed_updates)
 /// reports the count, so nothing is dropped unseen.
-#[derive(Debug, Clone)]
-pub struct UpdateLayer {
-    shared: Arc<Shared>,
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UpdateLayer;
 
 impl UpdateLayer {
-    pub(crate) fn new(shared: Arc<Shared>) -> Self {
-        Self { shared }
+    /// The layer. See the [type's docs](Self) for where to install it.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
     }
 }
 
@@ -156,20 +182,25 @@ where
             scope.find_map(|span| span.extensions().get::<SpanTrial>().cloned())
         });
         let Some(trial) = trial else {
-            self.shared.unattributed.fetch_add(1, Ordering::Relaxed);
+            registry::note_stray();
             return;
         };
-        // Another run's trial, with a sink and a layer of its own.
-        if trial.run != *self.shared.run_id.read() {
+        // Every sink recording this run; none, for a run with no sink.
+        let recording = registry::recording(&trial.run);
+        if recording.is_empty() {
             return;
         }
-        let entry = self.shared.trials.lock().get(&trial.key).cloned();
-        let Some(entry) = entry.filter(|entry| entry.run_id() == trial.run) else {
-            self.shared.unattributed.fetch_add(1, Ordering::Relaxed);
-            return;
-        };
         let mut fields = UpdateFields::default();
         event.record(&mut fields);
-        entry.log_update(fields.step, fields.metrics);
+        for run in recording {
+            let entry = run.trials.lock().get(&trial.key).cloned();
+            match entry {
+                Some(entry) => entry.log_update(fields.step, fields.metrics.clone()),
+                // The trial has ended, or never began in this sink.
+                None => {
+                    run.late.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
     }
 }

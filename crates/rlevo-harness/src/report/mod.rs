@@ -40,8 +40,6 @@ pub use replay::{EpisodeIndex, OpenError, OpenWarning, RecordedRun};
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
-use std::path::PathBuf;
-
 use rlevo_core::environment::EpisodeStatus;
 
 use crate::metrics::Metric;
@@ -180,19 +178,6 @@ pub struct TrialReport {
     pub errored: bool,
     /// Human-readable error description when `errored` is `true`.
     pub error_message: Option<String>,
-    /// The path of the file the trial's recording was written to, when a
-    /// recording sink wrote one
-    /// ([`Reporter::recording`](crate::reporter::Reporter::recording)). The
-    /// recording's ID is the run's, [`BenchmarkReport::run_id`]. `None`
-    /// otherwise, and in a report written before 0.7.0 (`#[serde(default)]`).
-    #[cfg_attr(feature = "json", serde(default))]
-    pub recording_path: Option<PathBuf>,
-    /// The version of the recording SDK that wrote that file. A run resumed
-    /// from a checkpoint keeps each finished trial's own, since the build
-    /// that finishes a run may link another version. `None` when
-    /// [`recording_path`](Self::recording_path) is.
-    #[cfg_attr(feature = "json", serde(default))]
-    pub recording_sdk_version: Option<String>,
     /// The hash of the task the trial faced, when its unit was built with a
     /// task (`TrialUnit::with_task` or `Suite::with_task`, feature `json`);
     /// the full fingerprint is [`BenchmarkReport::tasks`]`[key.env_idx]`,
@@ -226,8 +211,6 @@ impl TrialReport {
             displaced_metrics: Vec::new(),
             errored: false,
             error_message: None,
-            recording_path: None,
-            recording_sdk_version: None,
             task_hash: None,
             provenance: None,
         }
@@ -366,19 +349,13 @@ pub struct BenchmarkReport {
     /// random when the run starts and never from
     /// [`base_seed`](Self::base_seed), so two runs of one seed differ. A run
     /// resumed from a checkpoint keeps the checkpoint's. Sinks receive it as
-    /// [`SuiteInfo::run_id`](crate::suite::SuiteInfo::run_id), and a
-    /// recording sink uses it as the recording's ID, so a resumed run adds to
-    /// the recording it began. `None` only in a report written before 0.7.0
+    /// [`SuiteInfo::run_id`](crate::suite::SuiteInfo::run_id). It is what
+    /// joins this report to whatever else a sink wrote for the run: a
+    /// recording sink names its output by it, so a resumed run adds to what
+    /// it began. `None` only in a report written before 0.7.0
     /// (`#[serde(default)]`).
     #[cfg_attr(feature = "json", serde(default))]
     pub run_id: Option<String>,
-    /// The version of the recording SDK that wrote the trials' recordings,
-    /// when a recording sink wrote any: the last one a trial of this run
-    /// reported. Each [`TrialReport::recording_sdk_version`] says which wrote
-    /// that trial's. `None` otherwise, and in a report written before 0.7.0
-    /// (`#[serde(default)]`).
-    #[cfg_attr(feature = "json", serde(default))]
-    pub recording_sdk_version: Option<String>,
     /// The build that last wrote this report: the one that finished the run.
     /// A trial resumed from a checkpoint may have run on another; each
     /// [`TrialReport::provenance`] says which. `None` only in a report
@@ -461,7 +438,6 @@ impl BenchmarkReport {
             trials: Vec::new(),
             in_progress: true,
             run_id: Some(new_run_id()),
-            recording_sdk_version: None,
             provenance: Some(Provenance::this_build()),
             tasks: Vec::new(),
         }

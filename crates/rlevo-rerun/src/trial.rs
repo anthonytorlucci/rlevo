@@ -6,9 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use rerun::external::re_log_types::{EntityPath, EntityPathPart};
 use rerun::log::ChunkBatcherConfig;
-use rerun::{RecordingStream, RecordingStreamBuilder};
+use rerun::{EntityPath, EntityPathPart, RecordingStream, RecordingStreamBuilder};
 use rlevo_harness::report::{EpisodeSummary, Phase};
 
 /// Which loop a trial drives. The application ID follows it, because the
@@ -140,10 +139,6 @@ impl TrialStream {
 
     pub(crate) fn path(&self) -> &std::path::Path {
         &self.path
-    }
-
-    pub(crate) fn run_id(&self) -> &str {
-        &self.identity.run_id
     }
 
     /// Records the trial's step count at an episode boundary.

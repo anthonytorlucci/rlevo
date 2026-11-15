@@ -20,10 +20,6 @@ rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.6.1" }
 # The evaluation harness, re-exported as `rlevo::harness` (ADR 0084). At
 # its default features it links no visualization crate.
 rlevo-harness = { path = "../rlevo-harness", version = "0.6.1" }
-# The rerun recording sink, re-exported as `rlevo::rerun` under the `rerun`
-# feature and never a default: it links rerun's SDK. It is on a release line
-# of its own, so its version is not the workspace's.
-rlevo-rerun = { path = "../rlevo-rerun", version = "0.1.0", optional = true }
 # Re-exported as `rlevo::burn`, and the crate through which the `flex` and
 # `wgpu` features below select a backend for the whole tree (ADR 0080).
 burn = { workspace = true }
@@ -68,9 +64,6 @@ locomotion = ["rlevo-environments/locomotion"]
 # umbrella forwards products, not their parts (ADR-0013, Decision 5), and
 # this is the one product since the live TUI was deleted (ADR 0096).
 viz-report = ["rlevo-harness/report", "rlevo-environments/record"]
-# Record a run as rerun `.rrd` files: `rlevo::rerun::RerunSink`, a harness
-# reporter. Off by default; it adds rerun's SDK to the build.
-rerun = ["dep:rlevo-rerun"]
 
 [lints]
 workspace = true
@@ -287,11 +280,6 @@ path = "tests/rastrigin_run_suite.rs"
 name = "recording_episode_count"
 path = "tests/recording_episode_count.rs"
 required-features = ["viz-report"]
-
-[[test]]
-name = "rerun_sink_smoke"
-path = "tests/rerun_sink_smoke.rs"
-required-features = ["rerun"]
 
 [[test]]
 name = "sac_integration"

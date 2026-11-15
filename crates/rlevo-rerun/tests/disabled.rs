@@ -61,18 +61,16 @@ fn a_disabled_rerun_records_nothing_and_reports_nothing() {
         Boundary::EvaluationEpisode { index: 0, step: 3 },
         &[],
     );
-    assert_eq!(sink.recording(&trial), None, "no file is being written");
     sink.on_trial_end(&trial, &TrialReport::new(key, "cartpole".to_string(), 1));
 
     // A trial that ends before its first episode has not tried to open a
-    // file; it must not be promised one either.
+    // file; none must be written for it at the suite's end either.
     let key = TrialKey {
         env_idx: 0,
         trial_idx: 1,
     };
     let unstarted = TrialInfo::new(key, "cartpole".to_string(), 2);
     sink.on_trial_start(&unstarted);
-    assert_eq!(sink.recording(&unstarted), None);
     sink.on_trial_end(
         &unstarted,
         &TrialReport::new(key, "cartpole".to_string(), 2),

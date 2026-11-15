@@ -12,31 +12,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - **`rlevo-rerun`, a recording sink for the evaluation harness.** A new
-  crate, re-exported as `rlevo::rerun` under the umbrella's off-by-default
-  `rerun` feature. `RerunSink` is a harness `Reporter`: hand it to
-  `Evaluator::run_suite` or `run_trials` and the run is written as
-  [rerun](https://rerun.io) `.rrd` files, one per trial, all under the run's
-  ID so the viewer shows them as one recording and a resumed run adds to it.
-  A file holds its trial's episode returns and lengths (training and
-  evaluation apart), every metric the agent or generation loop reported at
-  each point the harness read it, the trial's identity, task and build as
-  properties, and a status entry when the trial errored. Values sit at
+  crate, added to a manifest beside `rlevo` (`cargo add rlevo-rerun`).
+  `RerunSink` is a harness `Reporter`: hand it to `Evaluator::run_suite` or
+  `run_trials` and the run is written as [rerun](https://rerun.io) `.rrd`
+  files, one per trial, all under the run's ID so the viewer shows them as
+  one recording and a resumed run adds to it. A file holds its trial's
+  episode returns and lengths (training and evaluation apart), every metric
+  the agent or generation loop reported at each point the harness read it,
+  the trial's identity, task and build as properties, and a status entry when
+  the trial errored. Values sit at
   `/metrics/<metric>/<run label>/<environment>/<trial>`, each on its episode
   or generation timeline and, for an episodic trial, on `step`.
-  - **Per-update statistics.** `RerunSink::layer` returns a `tracing` layer
-    for the process's global subscriber. It files every numeric field of an
-    event at `rlevo_core::fitness::UPDATE_TARGET` in the emitting trial's
-    file, on `update` and `step`, with no list of names, so an outside
-    learner's statistics are recorded as PPO's and PPG's are. An event it
-    cannot file is counted (`RerunSink::unattributed_updates`).
+  - **Where the files are.** `<output dir>/<run ID>/`, one directory per run,
+    so one sink records run after run. The run ID is
+    `BenchmarkReport::run_id`, which is what joins a report's JSON to its
+    recordings.
+  - **Per-update statistics.** `UpdateLayer` is a `tracing` layer for the
+    process's global subscriber, installed once, whatever number of sinks
+    and runs follow. It files every numeric field of an event at
+    `rlevo_core::fitness::UPDATE_TARGET` in the emitting trial's file, on
+    `update` and `step`, with no list of names, so an outside learner's
+    statistics are recorded as PPO's and PPG's are. An event it cannot file
+    is counted (`RerunSink::unattributed_updates`). A level filter added as
+    a layer of its own switches these events off for every layer; filter the
+    layer that prints.
   - **Opening a run.** `RerunSink::viewer_instructions` names the viewer
     version that wrote the files and the command that opens them. rerun
     promises that a recording opens only in viewers of adjacent minor
     versions, so the report's JSON stays the record that lasts.
   - **No rerun type is in its API**, it pins rerun within one minor, and it
     is on a release line of its own, so that a rerun upgrade is a release of
-    this crate and not of `rlevo`. It is the one crate that links rerun; no
-    default build includes it.
+    this crate and not of `rlevo`. It is the one crate that links rerun, and
+    the `rlevo` umbrella does not carry it.
   - Not yet recorded: environment frames, a default layout, and the
     cross-seed band.
 
@@ -51,7 +58,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `rl/epochs_run`, `rl/learning_rate`, and for PPO `rl/old_approx_kl` and
   `rl/explained_variance`. `step` stays, as the point the values belong to.
   A subscriber that filtered on the module path or read `policy_loss` reads
-  the new target and names.
+  the new target and names: console output filtered to
+  `rlevo_reinforcement_learning=info` no longer shows the per-update line.
   - **A quantity that does not exist is absent.** `rl/min_log_std` and
     `rl/max_log_std` were logged as the text `Some(-1.2)` or `None`; they are
     numbers now, and a categorical head logs neither. PPG's
@@ -149,22 +157,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     A literal of one outside `rlevo-harness` no longer compiles; a sink's
     tests build them with `EpisodeSummary::new`, `SuiteInfo::new` and
     `TrialInfo::new`.
-  - **A run has an ID, and a sink says where it recorded a trial.**
-    `BenchmarkReport::run_id` is 16 hexadecimal digits drawn at random when a
-    run starts, never from the base seed, so two runs of one seed differ. A
-    run resumed from a checkpoint keeps the checkpoint's, and sinks are given
-    it as `SuiteInfo::run_id` (`SuiteInfo::new` takes it as a fifth
-    argument), so a recording sink that uses it as its recording's ID adds to
-    the recording it began. A sink reports the file it writes for a trial
-    through the new, defaulted `Reporter::recording`, which returns a
-    `Recording` (a path and the recording SDK's version); the harness copies
-    it into `TrialReport::recording_path` and
-    `TrialReport::recording_sdk_version` before any sink's `on_trial_end`,
-    and names the version on the report as
-    `BenchmarkReport::recording_sdk_version`. `MultiReporter` answers with
-    its first sink's. All of these are `None` with no recording sink. A
-    checkpoint written by 0.6.1 still loads and is given an ID, and a resumed
-    run still skips its finished trials.
+  - **A run has an ID.** `BenchmarkReport::run_id` is 16 hexadecimal digits
+    drawn at random when a run starts, never from the base seed, so two runs
+    of one seed differ. A run resumed from a checkpoint keeps the
+    checkpoint's, and sinks are given it as `SuiteInfo::run_id`
+    (`SuiteInfo::new` takes it as a fifth argument), so a sink that names
+    its output by the ID adds to what it began. A checkpoint written by
+    0.6.1 still loads and is given an ID, and a resumed run still skips its
+    finished trials.
   - **`EpisodeStatus` implements `Serialize` and `Deserialize`.**
 
 - **`SnapshotMetadata::positions` and `with_position` are removed.** Nothing

@@ -367,22 +367,9 @@ impl Evaluator {
                     aborted.store(true, Ordering::Relaxed);
                 }
 
-                // A sink is handed the report by shared reference, so it
-                // says where it recorded the trial and the harness writes it
-                // down, before the sinks see the finished report.
-                let recording = lock_reporter(&reporter_lock).recording(&info);
-                if let Some(recording) = recording {
-                    tr.recording_path = Some(recording.path);
-                    tr.recording_sdk_version = Some(recording.sdk_version);
-                }
-
                 lock_reporter(&reporter_lock).on_trial_end(&info, &tr);
 
                 let mut rep = report_lock.lock().unwrap_or_else(PoisonError::into_inner);
-                if tr.recording_sdk_version.is_some() {
-                    rep.recording_sdk_version
-                        .clone_from(&tr.recording_sdk_version);
-                }
                 rep.trials.push(tr);
                 if let Some(dir) = &cfg.checkpoint_dir {
                     let path = checkpoint::checkpoint_path(dir, suite_name);
@@ -3308,41 +3295,34 @@ mod tests {
         assert_eq!(*log.lock().unwrap(), vec![Told::Training(true)]);
     }
 
-    // ── Run identity and recordings ──────────────────────────────────────────
+    // ── Run identity ─────────────────────────────────────────────────────────
 
-    /// What a recording sink is told and what it tells: the run ID from
-    /// `on_suite_start`, and, from `on_trial_end`, the recording path each
-    /// finished report already carried.
+    /// What a sink is told: the run ID from `on_suite_start`, and the trials
+    /// that ended.
     #[derive(Default)]
     struct SinkLog {
         run_id: Option<String>,
-        ended: Vec<(TrialKey, Option<std::path::PathBuf>)>,
+        ended: Vec<TrialKey>,
     }
 
-    /// A sink that records every trial but those of the last environment.
-    struct RecordsAllButLast {
-        last_env: usize,
+    /// A sink that keeps what it is told.
+    struct KeepsRunId {
         told: Arc<Mutex<SinkLog>>,
     }
 
-    impl RecordsAllButLast {
-        fn new(last_env: usize) -> (Self, Arc<Mutex<SinkLog>>) {
+    impl KeepsRunId {
+        fn new() -> (Self, Arc<Mutex<SinkLog>>) {
             let told = Arc::new(Mutex::new(SinkLog::default()));
             (
                 Self {
-                    last_env,
                     told: Arc::clone(&told),
                 },
                 told,
             )
         }
-
-        fn path(trial: &TrialInfo) -> std::path::PathBuf {
-            format!("out/{}-{}.rrd", trial.env_id, trial.key.trial_idx).into()
-        }
     }
 
-    impl Reporter for RecordsAllButLast {
+    impl Reporter for KeepsRunId {
         fn on_suite_start(&mut self, suite: &SuiteInfo) {
             self.told.lock().unwrap().run_id = Some(suite.run_id.clone());
         }
@@ -3351,16 +3331,8 @@ mod tests {
         fn wants_metrics(&self) -> bool {
             false
         }
-        fn recording(&self, trial: &TrialInfo) -> Option<crate::reporter::Recording> {
-            (trial.key.env_idx != self.last_env)
-                .then(|| crate::reporter::Recording::new(Self::path(trial), "9.9.9"))
-        }
-        fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
-            self.told
-                .lock()
-                .unwrap()
-                .ended
-                .push((trial.key, report.recording_path.clone()));
+        fn on_trial_end(&mut self, trial: &TrialInfo, _: &TrialReport) {
+            self.told.lock().unwrap().ended.push(trial.key);
         }
         fn on_suite_end(&mut self, _: &BenchmarkReport) {}
     }
@@ -3369,86 +3341,13 @@ mod tests {
         id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit())
     }
 
-    /// What a sink answers from `recording` is in the trial's report, with
-    /// that trial's own path, before any sink sees the report; a trial that
-    /// errored is asked too, since its recording was opened; a trial the sink
-    /// does not record has neither field; and the report names the SDK
-    /// version.
-    #[test]
-    fn a_sinks_recording_reaches_each_trial_report_before_the_sinks_see_it() {
-        let cfg = EvaluatorConfig {
-            num_trials_per_env: 2,
-            ..single_thread_cfg(1, 10)
-        };
-        let suite = Suite::new("s")
-            .with_env("fine", |_| StubEnv::new(3))
-            .with_env("broken", |_| {
-                let mut e = StubEnv::new(3);
-                e.reset_fails = true;
-                e
-            })
-            .with_env("unrecorded", |_| StubEnv::new(3));
-        let (mut reporter, told) = RecordsAllButLast::new(2);
-        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
-
-        let path = |s: &str| Some(std::path::PathBuf::from(s));
-        let recorded: Vec<(bool, Option<std::path::PathBuf>, Option<&str>)> = report
-            .trials
-            .iter()
-            .map(|t| {
-                (
-                    t.errored,
-                    t.recording_path.clone(),
-                    t.recording_sdk_version.as_deref(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            recorded,
-            [
-                (false, path("out/fine-0.rrd"), Some("9.9.9")),
-                (false, path("out/fine-1.rrd"), Some("9.9.9")),
-                (true, path("out/broken-0.rrd"), Some("9.9.9")),
-                (true, path("out/broken-1.rrd"), Some("9.9.9")),
-                (false, None, None),
-                (false, None, None),
-            ]
-        );
-        assert_eq!(report.recording_sdk_version.as_deref(), Some("9.9.9"));
-
-        let mut ended = std::mem::take(&mut told.lock().unwrap().ended);
-        ended.sort_by_key(|(key, _)| (key.env_idx, key.trial_idx));
-        let seen: Vec<Option<std::path::PathBuf>> = ended.into_iter().map(|(_, p)| p).collect();
-        let in_report: Vec<Option<std::path::PathBuf>> = report
-            .trials
-            .iter()
-            .map(|t| t.recording_path.clone())
-            .collect();
-        assert_eq!(seen, in_report, "on_trial_end sees the path already");
-    }
-
-    /// A sink that records nothing leaves every recording field empty.
-    #[test]
-    fn a_run_with_no_recording_sink_names_no_recording() {
-        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(3));
-        let (mut reporter, _) = SpyReporter::new();
-        let report = Evaluator::new(single_thread_cfg(1, 10)).run_suite(
-            &suite,
-            |_| StubAgent,
-            &mut reporter,
-        );
-        assert_eq!(report.recording_sdk_version, None);
-        assert_eq!(report.trials[0].recording_path, None);
-        assert_eq!(report.trials[0].recording_sdk_version, None);
-    }
-
     /// A run has an ID of 16 hexadecimal digits, its sinks are given the same
     /// one, and a second run of the same suite and base seed has another.
     #[test]
     fn a_run_has_an_id_its_sinks_are_given() {
         let run = || {
             let suite = Suite::new("s").with_env("e", |_| StubEnv::new(3));
-            let (mut reporter, told) = RecordsAllButLast::new(usize::MAX);
+            let (mut reporter, told) = KeepsRunId::new();
             let report = Evaluator::new(single_thread_cfg(1, 10)).run_suite(
                 &suite,
                 |_| StubAgent,
@@ -3468,8 +3367,8 @@ mod tests {
     }
 
     /// A run resumed from its checkpoint is the same run: the report and the
-    /// sinks have the ID the first run drew, so a recording sink adds to the
-    /// recording it began.
+    /// sinks have the ID the first run drew, so a sink that names its output
+    /// by the ID adds to what it began.
     #[cfg(feature = "json")]
     #[test]
     fn a_resumed_run_keeps_its_run_id() {
@@ -3481,7 +3380,7 @@ mod tests {
                 ..single_thread_cfg(1, 10)
             };
             let suite = Suite::new("resume-id").with_env("e", |_| StubEnv::new(3));
-            let (mut reporter, told) = RecordsAllButLast::new(usize::MAX);
+            let (mut reporter, told) = KeepsRunId::new();
             let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
             let told = std::mem::take(&mut *told.lock().unwrap());
             (report, told)
@@ -3495,11 +3394,6 @@ mod tests {
         assert_eq!(told.ended.len(), 1, "only the pending trial ran");
         assert_eq!(second.run_id.as_deref(), Some(id.as_str()));
         assert_eq!(told.run_id.as_deref(), Some(id.as_str()));
-        // The finished trial keeps the recording the first run reported.
-        assert_eq!(
-            second.trials[0].recording_path,
-            Some(std::path::PathBuf::from("out/e-0.rrd"))
-        );
     }
 
     /// A checkpoint from before 0.7.0 names no run. Resuming it draws an ID,
@@ -3522,7 +3416,7 @@ mod tests {
             ..single_thread_cfg(1, 10)
         };
         let suite = Suite::new("fixture-suite").with_env("cartpole", |_| StubEnv::new(3));
-        let (mut reporter, told) = RecordsAllButLast::new(usize::MAX);
+        let (mut reporter, told) = KeepsRunId::new();
         let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
 
         let id = report.run_id.expect("the resumed run is given an ID");

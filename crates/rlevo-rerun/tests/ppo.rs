@@ -18,11 +18,11 @@ use rlevo_reinforcement_learning::algorithms::ppo::policies::{
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::{MlpValue, MlpValueConfig};
-use rlevo_rerun::{RerunConfig, RerunSink};
+use rlevo_rerun::{RerunConfig, RerunSink, UpdateLayer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use common::{path, read};
+use common::{path, read, trial_file};
 
 const ROLLOUT: usize = 64;
 /// Four whole rollouts and a tail that never fills a fifth.
@@ -62,7 +62,9 @@ fn agent() -> PpoAgent<CategoricalPolicyHead, MlpValue, CartPoleObservation, 2> 
 fn ppo_updates_are_recorded_per_trial() {
     let dir = tempfile::tempdir().unwrap();
     let mut sink = RerunSink::new(RerunConfig::new(dir.path(), "ppo")).expect("a sink");
-    tracing_subscriber::registry().with(sink.layer()).init();
+    tracing_subscriber::registry()
+        .with(UpdateLayer::new())
+        .init();
 
     let suite = Suite::new("ppo-suite").with_env("cartpole", |seed| {
         TimeLimit::new(
@@ -102,12 +104,8 @@ fn ppo_updates_are_recorded_per_trial() {
     for trial in &report.trials {
         assert!(!trial.errored, "{:?}", trial.error_message);
         let idx = trial.key.trial_idx;
-        let rec = read(
-            trial
-                .recording_path
-                .as_ref()
-                .expect("the trial is recorded"),
-        );
+        let run_id = report.run_id.as_deref().expect("a run has an ID");
+        let rec = read(&trial_file(dir.path(), run_id, "ppo", 0, "cartpole", idx));
         let of = |name: &str| path(&format!("/metrics/rl/{name}/ppo/cartpole/{idx}"));
 
         for name in per_update {

@@ -5,10 +5,27 @@
 
 use std::collections::BTreeSet;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rerun::external::re_log_types::{EntityPath, TimelineName};
 use rerun::{ChunkStore, ChunkStoreConfig, StoreKind};
+
+/// Where the sink writes a trial's file, by the rule the crate documents:
+/// `<output dir>/<run ID>/<label>.<env index>-<env>.<trial index>.rrd`, with
+/// `label` and `env` already cleaned. Nothing hands a test the path, so each
+/// test that opens a file also holds the sink to the rule.
+pub fn trial_file(
+    output_dir: &Path,
+    run_id: &str,
+    label: &str,
+    env_idx: usize,
+    env: &str,
+    trial_idx: usize,
+) -> PathBuf {
+    output_dir
+        .join(run_id)
+        .join(format!("{label}.{env_idx}-{env}.{trial_idx}.rrd"))
+}
 
 /// One `.rrd` file's recording, as rerun reads it.
 pub struct Recorded {

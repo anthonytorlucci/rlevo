@@ -11,11 +11,17 @@ use rlevo_environments::classic::cartpole::{
 };
 use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_harness::report::{BenchmarkReport, EpisodeSummary, Phase, TrialReport};
-use rlevo_harness::reporter::{Boundary, Recording, Reporter};
+use rlevo_harness::reporter::{Boundary, Reporter};
 use rlevo_harness::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 use rlevo_rerun::{RerunConfig, RerunSink};
 
-use common::{path, read};
+use common::{path, read, trial_file};
+
+/// The file of trial `idx` of `report`'s run, written into `dir`.
+fn file(dir: &std::path::Path, report: &BenchmarkReport, idx: usize) -> std::path::PathBuf {
+    let run_id = report.run_id.as_deref().expect("a run has an ID");
+    trial_file(dir, run_id, "alt", 0, "cartpole", idx)
+}
 
 /// Pushes left and right in turn, and counts its actions: one per
 /// environment step, so its counter equals the trial's step count.
@@ -87,9 +93,6 @@ impl Reporter for Tee<'_> {
     fn wants_metrics(&self) -> bool {
         self.sink.wants_metrics()
     }
-    fn recording(&self, trial: &TrialInfo) -> Option<Recording> {
-        self.sink.recording(trial)
-    }
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
         self.sink.on_trial_end(trial, report);
     }
@@ -133,7 +136,7 @@ fn a_parallel_run_records_each_trial_in_its_own_file() {
     let mut files: Vec<_> = report
         .trials
         .iter()
-        .map(|t| t.recording_path.clone().expect("each trial is recorded"))
+        .map(|t| file(dir.path(), &report, t.key.trial_idx))
         .collect();
     files.sort();
     files.dedup();
@@ -142,14 +145,9 @@ fn a_parallel_run_records_each_trial_in_its_own_file() {
 
     for trial in &report.trials {
         let idx = trial.key.trial_idx;
-        let rec = read(trial.recording_path.as_ref().unwrap());
+        let rec = read(&file(dir.path(), &report, idx));
         assert_eq!(rec.recording_id, run_id);
         assert_eq!(rec.application_id, "rlevo-episodic");
-        assert_eq!(
-            trial.recording_sdk_version, report.recording_sdk_version,
-            "one build wrote every file"
-        );
-
         let of = |name: &str| path(&format!("/metrics/{name}/alt/cartpole/{idx}"));
         let own: Vec<&EpisodeSummary> = delivered
             .iter()
@@ -211,19 +209,18 @@ fn a_resumed_run_adds_to_the_recording_it_began() {
 
     let (first, _, _) = run(cfg(1), dir.path());
     let run_id = first.run_id.clone().expect("a run has an ID");
-    let file_0 = first.trials[0].recording_path.clone().unwrap();
+    let file_0 = file(dir.path(), &first, 0);
     let before = std::fs::read(&file_0).unwrap();
 
     let (second, sink, _) = run(cfg(2), dir.path());
     assert_eq!(second.run_id.as_deref(), Some(run_id.as_str()));
     assert_eq!(sink.files().len(), 1, "only the pending trial was written");
-    assert_eq!(second.trials[0].recording_path.as_ref(), Some(&file_0));
     assert_eq!(
         std::fs::read(&file_0).unwrap(),
         before,
         "the finished trial's file is untouched"
     );
-    let file_1 = second.trials[1].recording_path.clone().unwrap();
+    let file_1 = file(dir.path(), &second, 1);
     assert_ne!(file_1, file_0);
     assert_eq!(read(&file_1).recording_id, run_id);
     assert_eq!(read(&file_0).recording_id, run_id);

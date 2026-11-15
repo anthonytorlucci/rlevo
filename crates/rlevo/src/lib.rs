@@ -129,14 +129,6 @@ pub use rlevo_evolution as evo;
 pub use rlevo_harness as harness;
 pub use rlevo_hybrid as hybrid;
 pub use rlevo_reinforcement_learning as rl;
-/// The rerun recording sink, [`rlevo_rerun`]: hand a
-/// [`RerunSink`](rerun::RerunSink) to the evaluator as its reporter and a run
-/// is written as `.rrd` files the [rerun](https://rerun.io) viewer opens.
-///
-/// Behind this crate's `rerun` feature, which is off by default: it adds
-/// rerun's SDK to the build. No rerun type is in its API.
-#[cfg(feature = "rerun")]
-pub use rlevo_rerun as rerun;
 
 /// The Burn release this version of `rlevo` is built against, re-exported so
 /// a consumer names Burn's types without a `burn` entry of its own.

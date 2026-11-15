@@ -32,7 +32,6 @@ fn a_0_6_1_checkpoint_loads_with_defaults_for_new_fields() {
         .expect("the fixture parses with today's types");
 
     assert_eq!(report.suite_name, "fixture-suite");
-    assert_eq!(report.recording_sdk_version, None);
     assert_eq!(report.run_id, None, "0.6.1 gave a run no ID");
     assert_eq!(report.provenance, None, "0.6.1 recorded no provenance");
     assert!(report.tasks.is_empty(), "0.6.1 recorded no tasks");
@@ -42,8 +41,6 @@ fn a_0_6_1_checkpoint_loads_with_defaults_for_new_fields() {
     assert_eq!(trial.env_id, "cartpole", "read from 0.6.1's `env_name`");
     assert_eq!(trial.task_hash, None);
     assert_eq!(trial.provenance, None);
-    assert_eq!(trial.recording_path, None);
-    assert_eq!(trial.recording_sdk_version, None);
     let episodes: Vec<(usize, Phase, Option<EpisodeStatus>)> = trial
         .episodes
         .iter()
@@ -71,9 +68,6 @@ fn a_0_6_1_checkpoint_still_marks_its_trials_completed() {
 fn a_new_report_round_trips_its_new_fields() {
     let mut report = checkpoint::load(fixture()).unwrap().unwrap();
     report.run_id = Some("00000000000000a7".to_string());
-    report.recording_sdk_version = Some("0.43.2".to_string());
-    report.trials[0].recording_sdk_version = Some("0.43.1".to_string());
-    report.trials[0].recording_path = Some("out/trial-0.rrd".into());
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("checkpoint.json");
@@ -81,13 +75,4 @@ fn a_new_report_round_trips_its_new_fields() {
     let back = checkpoint::load(&path).unwrap().unwrap();
 
     assert_eq!(back.run_id.as_deref(), Some("00000000000000a7"));
-    assert_eq!(back.recording_sdk_version.as_deref(), Some("0.43.2"));
-    assert_eq!(
-        back.trials[0].recording_sdk_version.as_deref(),
-        Some("0.43.1")
-    );
-    assert_eq!(
-        back.trials[0].recording_path.as_deref(),
-        Some(Path::new("out/trial-0.rrd"))
-    );
 }

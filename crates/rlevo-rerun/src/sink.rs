@@ -1,17 +1,16 @@
 //! [`RerunSink`], its configuration and its error.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 
-use parking_lot::{Mutex, RwLock};
 use rlevo_harness::metrics::Metric;
 use rlevo_harness::report::{BenchmarkReport, EpisodeSummary, TrialReport};
-use rlevo_harness::reporter::{Boundary, Recording, Reporter};
+use rlevo_harness::reporter::{Boundary, Reporter};
 use rlevo_harness::suite::{SuiteInfo, TrialInfo, TrialKey};
 
-use crate::layer::UpdateLayer;
+use crate::registry::{self, RunState};
 use crate::trial::{TrialIdentity, TrialKind, TrialStream, sequence};
 
 /// Where a [`RerunSink`] writes and what it calls the run.
@@ -21,11 +20,10 @@ use crate::trial::{TrialIdentity, TrialKind, TrialStream, sequence};
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RerunConfig {
-    /// The directory the trial files are written to, created if absent. Give
-    /// each run a directory of its own: a file is named for its run label,
-    /// environment and trial, and a second run with the same three replaces
-    /// it. A run resumed from a checkpoint is given the same directory, and
-    /// rewrites only the trials it runs again.
+    /// The directory recordings are written under, created if absent. Each
+    /// run gets a directory of its own inside it, named for the run's ID
+    /// ([`BenchmarkReport::run_id`]), so one sink may record run after run,
+    /// and a run resumed from a checkpoint finds the files it began.
     pub output_dir: PathBuf,
     /// A short name for what is being run, usually the algorithm (`"ppo"`).
     /// It is part of every path in the recording, so the files of two runs
@@ -81,6 +79,16 @@ impl std::error::Error for RerunError {
     }
 }
 
+/// The run a sink is recording.
+#[derive(Debug)]
+struct Run {
+    id: String,
+    dir: PathBuf,
+    state: Arc<RunState>,
+    /// The process's count of stray update events when the run began.
+    strays_before: u64,
+}
+
 /// A trial that has ended: what `on_trial_end` writes last.
 #[derive(Debug)]
 struct Ended {
@@ -91,18 +99,6 @@ struct Ended {
     facts: Vec<(&'static str, String)>,
 }
 
-/// What a sink and its [`UpdateLayer`]s share: enough for a layer to find
-/// the stream of the trial an event belongs to.
-#[derive(Debug, Default)]
-pub(crate) struct Shared {
-    /// The run the sink is recording; empty before `on_suite_start`.
-    pub(crate) run_id: RwLock<String>,
-    /// The open trials, by key.
-    pub(crate) trials: Mutex<HashMap<TrialKey, Arc<TrialStream>>>,
-    /// Update events a layer could not file under a trial.
-    pub(crate) unattributed: AtomicU64,
-}
-
 /// A [`Reporter`] that records a run as rerun `.rrd` files, one per trial.
 ///
 /// See the [crate docs](crate) for what a run writes. Build one, hand it to
@@ -111,15 +107,20 @@ pub(crate) struct Shared {
 /// `JsonReporter`), and read [`viewer_instructions`](Self::viewer_instructions)
 /// afterwards.
 ///
-/// The harness records each trial's file in its report
-/// ([`TrialReport::recording_path`]), so the JSON a run leaves says where the
-/// recordings are.
+/// A run's files are in `<output_dir>/<run ID>/`, and the run ID is in the
+/// harness's report ([`BenchmarkReport::run_id`]): that is what joins a
+/// report's JSON to its recordings. One sink may record run after run. A
+/// run is no longer being recorded when the next begins or the sink is
+/// dropped.
 #[derive(Debug)]
 pub struct RerunSink {
     config: RerunConfig,
     sdk_version: String,
     suite: String,
-    shared: Arc<Shared>,
+    /// The run being recorded: its ID, its directory, and its state in the
+    /// process's registry, where the tracing layer finds its trials. `None`
+    /// before the first run, and for a run whose directory could not be made.
+    run: Option<Run>,
     /// `false` when rerun is switched off (`RERUN=off`): nothing is recorded.
     enabled: bool,
     /// The kind of this run's trials, once one has reached an episode or a
@@ -151,7 +152,7 @@ impl RerunSink {
             config,
             sdk_version: rerun::external::re_build_info::CrateVersion::LOCAL.to_string(),
             suite: String::new(),
-            shared: Arc::default(),
+            run: None,
             // rerun's own reading of the `RERUN` environment variable. With
             // it off, a stream opens without error and writes nothing, so
             // the sink must not report a file for it.
@@ -186,7 +187,7 @@ impl RerunSink {
             return None;
         }
         let version = &self.sdk_version;
-        let dir = self.config.output_dir.display();
+        let dir = self.run.as_ref()?.dir.display();
         Some(format!(
             "{} recordings in {dir}, written by rerun {version}\n\
              install the viewer:  cargo binstall rerun-cli@{version}\n\
@@ -196,40 +197,28 @@ impl RerunSink {
         ))
     }
 
-    /// A tracing layer that records update-rate events into this sink's
-    /// trial files: the per-update statistics a learner logs at
-    /// [`UPDATE_TARGET`](rlevo_core::fitness::UPDATE_TARGET), such as PPO's
-    /// losses. Add it to the process's subscriber before the run:
-    ///
-    /// ```no_run
-    /// use tracing_subscriber::layer::SubscriberExt;
-    /// use tracing_subscriber::util::SubscriberInitExt;
-    /// # use rlevo_rerun::{RerunConfig, RerunSink};
-    /// # let sink = RerunSink::new(RerunConfig::new("runs/x", "ppo"))?;
-    /// tracing_subscriber::registry().with(sink.layer()).init();
-    /// # Ok::<(), rlevo_rerun::RerunError>(())
-    /// ```
-    ///
-    /// The subscriber must be the global one: the harness runs trials on
-    /// worker threads, which a subscriber set for one thread does not reach.
-    /// Without the layer a run is recorded all the same, less these
-    /// statistics. See [`UpdateLayer`] for how an event finds its trial.
-    #[must_use]
-    pub fn layer(&self) -> UpdateLayer {
-        UpdateLayer::new(Arc::clone(&self.shared))
-    }
-
-    /// Update-rate events the layer saw and could file under no trial of
-    /// this run: emitted outside any trial (by work a trial handed to
-    /// another thread, say), or after their trial ended. `0` in a run whose
-    /// every event was recorded.
+    /// Update-rate events the [`UpdateLayer`](crate::UpdateLayer) saw during
+    /// this run and could not record: events of this run whose trial was not
+    /// open (it had ended), and events emitted outside any trial (by work a
+    /// trial handed to another thread, say). The second kind names no run,
+    /// so with several runs at once each sink counts them all. `0` in a run
+    /// whose every event was recorded.
     #[must_use]
     pub fn unattributed_updates(&self) -> u64 {
-        self.shared.unattributed.load(Ordering::Relaxed)
+        self.run.as_ref().map_or(0, |run| {
+            run.state.late.load(Ordering::Relaxed) + (registry::strays() - run.strays_before)
+        })
     }
 
     fn open_trial(&self, key: TrialKey) -> Option<Arc<TrialStream>> {
-        self.shared.trials.lock().get(&key).cloned()
+        self.run.as_ref()?.state.trials.lock().get(&key).cloned()
+    }
+
+    /// Stops recording the current run, if there is one.
+    fn leave_run(&mut self) {
+        if let Some(run) = self.run.take() {
+            registry::unregister(&run.id, &run.state);
+        }
     }
 
     /// Writes the end of a trial whose stream is open, and closes it.
@@ -253,12 +242,10 @@ impl RerunSink {
 
 impl Reporter for RerunSink {
     fn on_suite_start(&mut self, suite: &SuiteInfo) {
-        self.shared.run_id.write().clone_from(&suite.run_id);
         self.suite.clone_from(&suite.name);
         // A sink may be handed to one run after another; what it knows of a
         // run is that run's.
-        self.shared.trials.lock().clear();
-        self.shared.unattributed.store(0, Ordering::Relaxed);
+        self.leave_run();
         self.seen_kind = None;
         self.kindless.clear();
         self.written.clear();
@@ -269,15 +256,32 @@ impl Reporter for RerunSink {
                 target: "rlevo_rerun",
                 "rerun is switched off (the RERUN environment variable); nothing is recorded"
             );
+            return;
         }
+        let dir = self.config.output_dir.join(&suite.run_id);
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            tracing::warn!(
+                target: "rlevo_rerun",
+                path = %dir.display(),
+                %error,
+                "could not create the run's directory; the run is not recorded"
+            );
+            return;
+        }
+        self.run = Some(Run {
+            id: suite.run_id.clone(),
+            dir,
+            state: registry::register(&suite.run_id),
+            strays_before: registry::strays(),
+        });
     }
 
     fn on_trial_start(&mut self, trial: &TrialInfo) {
-        if !self.enabled {
+        let Some(run) = &self.run else {
             return;
-        }
+        };
         let identity = TrialIdentity {
-            run_id: self.shared.run_id.read().clone(),
+            run_id: run.id.clone(),
             suite: self.suite.clone(),
             label: self.config.run_label.clone(),
             env_id: trial.env_id.clone(),
@@ -286,8 +290,8 @@ impl Reporter for RerunSink {
             seed: trial.trial_seed,
             sdk_version: self.sdk_version.clone(),
         };
-        let stream = Arc::new(TrialStream::new(identity, &self.config.output_dir));
-        self.shared.trials.lock().insert(trial.key, stream);
+        let stream = Arc::new(TrialStream::new(identity, &run.dir));
+        run.state.trials.lock().insert(trial.key, stream);
     }
 
     fn on_episode(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
@@ -372,19 +376,11 @@ impl Reporter for RerunSink {
         }
     }
 
-    fn recording(&self, trial: &TrialInfo) -> Option<Recording> {
-        let entry = self.open_trial(trial.key)?;
-        // A trial whose file could not be opened is not recorded. One that
-        // has not reached an episode or a generation has no file yet, and
-        // gets one, for its status and properties, when the suite ends.
-        if entry.opened() == Some(false) {
-            return None;
-        }
-        Some(Recording::new(entry.path(), self.sdk_version.clone()))
-    }
-
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
-        let Some(entry) = self.shared.trials.lock().remove(&trial.key) else {
+        let Some(run) = &self.run else {
+            return;
+        };
+        let Some(entry) = run.state.trials.lock().remove(&trial.key) else {
             return;
         };
         let status = report.errored.then(|| {
@@ -470,5 +466,51 @@ impl Reporter for RerunSink {
         if let Some(how) = self.viewer_instructions() {
             tracing::info!(target: "rlevo_rerun", "{how}");
         }
+    }
+}
+
+impl Drop for RerunSink {
+    fn drop(&mut self) {
+        self.leave_run();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn suite(run_id: &str) -> SuiteInfo {
+        SuiteInfo::new(
+            "suite".to_string(),
+            vec!["env".to_string()],
+            1,
+            None,
+            run_id.to_string(),
+        )
+    }
+
+    /// A run is in the process's registry, where the tracing layer looks,
+    /// only while a sink is recording it: not once the sink has moved to
+    /// the next run, and not once the sink is gone. Otherwise every run a
+    /// long-lived process ever recorded would stay in memory.
+    #[test]
+    fn a_run_is_registered_only_while_it_is_recorded() {
+        if !rerun::decide_logging_enabled(true) {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("rlevo-rerun-registry-{}", std::process::id()));
+        let mut sink = RerunSink::new(RerunConfig::new(&dir, "x")).expect("a sink");
+        assert!(registry::recording("00000000000000c1").is_empty());
+
+        sink.on_suite_start(&suite("00000000000000c1"));
+        assert_eq!(registry::recording("00000000000000c1").len(), 1);
+
+        sink.on_suite_start(&suite("00000000000000c2"));
+        assert!(registry::recording("00000000000000c1").is_empty());
+        assert_eq!(registry::recording("00000000000000c2").len(), 1);
+
+        drop(sink);
+        assert!(registry::recording("00000000000000c2").is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

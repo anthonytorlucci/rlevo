@@ -2,19 +2,17 @@
 //!
 //! The harness runs trials on worker threads, so the layer must be in the
 //! process's global subscriber, and a process has one, set once. So this
-//! file is one test: it builds every sink it needs, installs one subscriber
-//! holding all their layers, and runs its cases one after another. Each
-//! layer therefore sees every case's events, which is what a layer must get
-//! right when two runs share a process.
+//! file is one test: it installs the layer once and runs its cases one
+//! after another, each with a sink of its own. One layer serves them all,
+//! which is what it must get right when several runs share a process.
 //!
-//! The layers are fixed before any event is logged. A reloadable layer
-//! would not do: rerun's own code has `tracing` callsites, so a thread
-//! inside the subscriber registers one and re-enters the reload lock, which
-//! deadlocks against a test waiting to add a layer.
+//! The cases run in turn, not as tests side by side, because the last one
+//! logs outside any trial, and every sink then recording counts that.
 
 mod common;
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rand::Rng;
@@ -27,11 +25,11 @@ use rlevo_harness::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_harness::report::{BenchmarkReport, TrialReport};
 use rlevo_harness::reporter::{Boundary, Reporter};
 use rlevo_harness::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
-use rlevo_rerun::{RerunConfig, RerunSink};
+use rlevo_rerun::{RerunConfig, RerunSink, UpdateLayer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use common::{path, read};
+use common::{path, read, trial_file};
 
 /// What an agent logged, by the tag it stamps its values with.
 type Logged = Arc<Mutex<BTreeMap<u64, Vec<(i64, f64)>>>>;
@@ -119,6 +117,12 @@ fn config(trials: usize) -> EvaluatorConfig {
     }
 }
 
+/// The file of trial `idx` of `report`'s run, written into `dir` as `label`.
+fn file(dir: &Path, report: &BenchmarkReport, label: &str, idx: usize) -> PathBuf {
+    let run_id = report.run_id.as_deref().expect("a run has an ID");
+    trial_file(dir, run_id, label, 0, "cartpole", idx)
+}
+
 fn sink(dir: &tempfile::TempDir, label: &str) -> RerunSink {
     RerunSink::new(RerunConfig::new(dir.path(), label)).expect("the directory exists")
 }
@@ -143,30 +147,27 @@ fn run(sink: &mut RerunSink, trials: usize, names_step: bool) -> (BenchmarkRepor
 }
 
 /// The cases, in one process and one subscriber. The stray event comes
-/// last: every layer counts it, so before it every count must be zero.
+/// last: a sink recording when it is logged counts it.
 #[test]
 fn update_events_are_filed_under_their_trials() {
-    let dirs: Vec<tempfile::TempDir> = (0..5).map(|_| tempfile::tempdir().unwrap()).collect();
+    let dirs: Vec<tempfile::TempDir> = (0..7).map(|_| tempfile::tempdir().unwrap()).collect();
     let mut attrib = sink(&dirs[0], "attrib");
     let mut nostep = sink(&dirs[1], "nostep");
     let mut idle = sink(&dirs[2], "idle");
     let mut busy = sink(&dirs[3], "busy");
     let mut early = sink(&dirs[4], "early");
+    let mut left = sink(&dirs[5], "left");
+    let mut right = sink(&dirs[6], "right");
     tracing_subscriber::registry()
-        .with(vec![
-            attrib.layer(),
-            nostep.layer(),
-            idle.layer(),
-            busy.layer(),
-            early.layer(),
-        ])
+        .with(UpdateLayer::new())
         .init();
 
-    each_trials_updates_are_filed_under_that_trial(&mut attrib);
-    an_update_with_no_step_is_stamped_with_the_last_boundary(&mut nostep);
-    another_runs_updates_are_not_filed(&mut idle, &mut busy);
-    an_update_before_the_first_boundary_waits_for_the_trials_kind(&mut early);
-    an_update_outside_any_trial_is_counted(&[&attrib, &nostep, &idle, &busy, &early]);
+    each_trials_updates_are_filed_under_that_trial(&mut attrib, dirs[0].path());
+    an_update_with_no_step_is_stamped_with_the_last_boundary(&mut nostep, dirs[1].path());
+    another_runs_updates_are_not_filed(&mut idle, dirs[2].path(), &mut busy, dirs[3].path());
+    an_update_before_the_first_boundary_waits_for_the_trials_kind(&mut early, dirs[4].path());
+    two_sinks_on_one_run_both_record_it(&mut left, dirs[5].path(), &mut right, dirs[6].path());
+    an_update_outside_any_trial_is_counted(&mut attrib);
 }
 
 /// Row 9. Four trials on two threads, every agent logging updates: each
@@ -174,7 +175,7 @@ fn update_events_are_filed_under_their_trials() {
 /// in some file, each on `update` and on the `step` the event named, and no
 /// event went unfiled. A field that is `None` leaves no row, and a field
 /// that is not a number is not a metric.
-fn each_trials_updates_are_filed_under_that_trial(sink: &mut RerunSink) {
+fn each_trials_updates_are_filed_under_that_trial(sink: &mut RerunSink, dir: &Path) {
     let (report, logged) = run(sink, 4, true);
     let logged = logged.lock().unwrap().clone();
     assert_eq!(logged.len(), 4, "every agent logged updates");
@@ -183,12 +184,7 @@ fn each_trials_updates_are_filed_under_that_trial(sink: &mut RerunSink) {
     let mut found = Vec::new();
     for trial in &report.trials {
         let idx = trial.key.trial_idx;
-        let rec = read(
-            trial
-                .recording_path
-                .as_ref()
-                .expect("the trial is recorded"),
-        );
+        let rec = read(&file(dir, &report, "attrib", idx));
         let loss = path(&format!("/metrics/test/loss/attrib/cartpole/{idx}"));
 
         let on_step = rec.series(&loss, "step");
@@ -245,11 +241,11 @@ fn each_trials_updates_are_filed_under_that_trial(sink: &mut RerunSink) {
 /// An event that names no `step` is stamped with the trial's step count at
 /// its last episode boundary, so it still draws on `step`. Episodes here end
 /// at steps 12 and 24, and updates come at steps 5, 10, 15, 20, 25 and 30.
-fn an_update_with_no_step_is_stamped_with_the_last_boundary(sink: &mut RerunSink) {
+fn an_update_with_no_step_is_stamped_with_the_last_boundary(sink: &mut RerunSink, dir: &Path) {
     let (report, _) = run(sink, 1, false);
     assert_eq!(sink.unattributed_updates(), 0);
 
-    let rec = read(report.trials[0].recording_path.as_ref().unwrap());
+    let rec = read(&file(dir, &report, "nostep", 0));
     let loss = path("/metrics/test/loss/nostep/cartpole/0");
     let steps: Vec<i64> = rec
         .series(&loss, "step")
@@ -268,7 +264,12 @@ fn an_update_with_no_step_is_stamped_with_the_last_boundary(sink: &mut RerunSink
 /// Two runs in one process, each with a layer in the one subscriber, and a
 /// trial of each under the same key: a run's updates are filed in its own
 /// files and never in the other's.
-fn another_runs_updates_are_not_filed(idle: &mut RerunSink, busy: &mut RerunSink) {
+fn another_runs_updates_are_not_filed(
+    idle: &mut RerunSink,
+    idle_dir: &Path,
+    busy: &mut RerunSink,
+    busy_dir: &Path,
+) {
     // `idle` has trial (0, 0) open, of a run nobody is running.
     let key = TrialKey {
         env_idx: 0,
@@ -291,17 +292,23 @@ fn another_runs_updates_are_not_filed(idle: &mut RerunSink, busy: &mut RerunSink
         1,
         "the busy run logged updates"
     );
-    let busy = read(report.trials[0].recording_path.as_ref().unwrap());
+    let busy = read(&file(busy_dir, &report, "busy", 0));
     assert_eq!(
         busy.series(&path("/metrics/test/loss/busy/cartpole/0"), "update")
             .len(),
         6
     );
 
-    let recording = idle.recording(&info).expect("the idle trial has a file");
     idle.on_trial_end(&info, &TrialReport::new(key, "cartpole".to_string(), 7));
     idle.on_suite_end(&BenchmarkReport::new("idle-suite".to_string(), 0));
-    let rec = read(&recording.path);
+    let rec = read(&trial_file(
+        idle_dir,
+        "00000000000001d1",
+        "idle",
+        0,
+        "cartpole",
+        0,
+    ));
     assert!(
         rec.entities().iter().all(|e| !e.starts_with("/metrics")),
         "the idle run's file holds another run's updates: {:?}",
@@ -319,7 +326,7 @@ fn another_runs_updates_are_not_filed(idle: &mut RerunSink, busy: &mut RerunSink
 /// the sink opens the file, under the kind the boundary gives: here a
 /// generation trial with an inner gradient step, which must not be filed as
 /// an episodic one.
-fn an_update_before_the_first_boundary_waits_for_the_trials_kind(sink: &mut RerunSink) {
+fn an_update_before_the_first_boundary_waits_for_the_trials_kind(sink: &mut RerunSink, dir: &Path) {
     const RUN: &str = "00000000000000e1";
     let key = TrialKey {
         env_idx: 0,
@@ -334,10 +341,7 @@ fn an_update_before_the_first_boundary_waits_for_the_trials_kind(sink: &mut Reru
         RUN.to_string(),
     ));
     sink.on_trial_start(&info);
-    let file = sink
-        .recording(&info)
-        .expect("the trial will have a file")
-        .path;
+    let file = trial_file(dir, RUN, "early", 0, "sphere", 0);
 
     // The harness's span, as `run_trials` opens it.
     let span = tracing::info_span!(
@@ -372,18 +376,84 @@ fn an_update_before_the_first_boundary_waits_for_the_trials_kind(sink: &mut Reru
     assert_eq!(rec.series(&loss, "step"), [(7, 0.25), (9, 0.5), (11, 0.75)]);
 }
 
-/// An update event outside any trial cannot be filed: every layer counts
-/// it, so it is not dropped unseen. An event at another target is no
-/// update, whatever it carries.
-fn an_update_outside_any_trial_is_counted(sinks: &[&RerunSink]) {
-    for sink in sinks {
+/// Two sinks recording one run, as two in a `MultiReporter` do: each files
+/// the run's updates in its own directory. An update that comes after its
+/// trial has ended is of this run and of no open trial: each sink counts it.
+fn two_sinks_on_one_run_both_record_it(
+    left: &mut RerunSink,
+    left_dir: &Path,
+    right: &mut RerunSink,
+    right_dir: &Path,
+) {
+    const RUN: &str = "00000000000000b2";
+    let key = TrialKey {
+        env_idx: 0,
+        trial_idx: 0,
+    };
+    let info = TrialInfo::new(key, "cartpole".to_string(), 5);
+    let suite = SuiteInfo::new(
+        "both-suite".to_string(),
+        vec!["cartpole".to_string()],
+        1,
+        None,
+        RUN.to_string(),
+    );
+    let span = tracing::info_span!(
+        target: "rlevo_harness",
+        parent: None,
+        "trial",
+        run = RUN,
+        env = "cartpole",
+        env_idx = 0_usize,
+        trial = 0_usize,
+        seed = 5_u64,
+    );
+    let _in_trial = span.enter();
+    for sink in [&mut *left, &mut *right] {
+        sink.on_suite_start(&suite);
+        sink.on_trial_start(&info);
+        sink.on_metrics(&info, Boundary::TrainingEpisode { index: 0, step: 4 }, &[]);
+    }
+    tracing::info!(target: UPDATE_TARGET, step = 6_u64, "test/loss" = 2.5_f64, "update");
+    for sink in [&mut *left, &mut *right] {
+        sink.on_trial_end(&info, &TrialReport::new(key, "cartpole".to_string(), 5));
         assert_eq!(sink.unattributed_updates(), 0);
     }
+    tracing::info!(target: UPDATE_TARGET, step = 8_u64, "test/loss" = 9.0_f64, "too late");
+    for (sink, dir, label) in [(left, left_dir, "left"), (right, right_dir, "right")] {
+        assert_eq!(sink.unattributed_updates(), 1, "{label}");
+        sink.on_suite_end(&BenchmarkReport::new("both-suite".to_string(), 0));
+        let rec = read(&trial_file(dir, RUN, label, 0, "cartpole", 0));
+        let loss = path(&format!("/metrics/test/loss/{label}/cartpole/0"));
+        assert_eq!(rec.series(&loss, "step"), [(6, 2.5)], "{label}");
+    }
+}
+
+/// An update event outside any trial names no run, so it cannot be filed:
+/// a sink recording at the time counts it, and it is not dropped unseen. An
+/// event at another target is no update, whatever it carries.
+fn an_update_outside_any_trial_is_counted(sink: &mut RerunSink) {
+    sink.on_suite_start(&SuiteInfo::new(
+        "stray-suite".to_string(),
+        vec!["cartpole".to_string()],
+        1,
+        None,
+        "00000000000005a1".to_string(),
+    ));
+    assert_eq!(sink.unattributed_updates(), 0);
 
     tracing::info!(target: UPDATE_TARGET, { "test/loss" = 1.0_f64 }, "no trial");
     tracing::info!(target: "somewhere::else", { "test/loss" = 1.0_f64 }, "not an update");
 
-    for sink in sinks {
-        assert_eq!(sink.unattributed_updates(), 1);
-    }
+    assert_eq!(sink.unattributed_updates(), 1);
+
+    // The count is of the run being recorded: the next run starts from none.
+    sink.on_suite_start(&SuiteInfo::new(
+        "next-suite".to_string(),
+        vec!["cartpole".to_string()],
+        1,
+        None,
+        "00000000000005a2".to_string(),
+    ));
+    assert_eq!(sink.unattributed_updates(), 0);
 }

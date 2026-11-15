@@ -7,12 +7,13 @@
 
 mod common;
 
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use rerun::external::re_log_types::{EntityPath, EntityPathPart};
 
-use common::{path, read, read_as_written};
+use common::{path, read, read_as_written, trial_file};
 
 use rlevo_core::environment::EpisodeStatus;
 use rlevo_harness::metrics::Metric;
@@ -30,6 +31,7 @@ fn suite(env_ids: &[&str]) -> SuiteInfo {
 }
 
 fn suite_of_run(run_id: &str, env_ids: &[&str]) -> SuiteInfo {
+    WRITING.with_borrow_mut(|w| w.2 = run_id.to_string());
     SuiteInfo::new(
         "suite".to_string(),
         env_ids.iter().map(ToString::to_string).collect(),
@@ -80,8 +82,34 @@ fn report(trial: &TrialInfo) -> TrialReport {
     report
 }
 
+thread_local! {
+    /// The directory and label of the sink this test built, and the run it
+    /// last started: what a trial's file is named from. Each test runs on a
+    /// thread of its own.
+    static WRITING: RefCell<(PathBuf, String, String)> = RefCell::default();
+}
+
 fn sink(dir: &Path, label: &str) -> RerunSink {
+    WRITING.with_borrow_mut(|w| {
+        w.0 = dir.to_path_buf();
+        w.1 = label.replace(' ', "_");
+    });
     RerunSink::new(RerunConfig::new(dir, label)).expect("the directory can be created")
+}
+
+/// The file the sink writes `trial` to, by the documented rule. The names
+/// in these tests need no cleaning beyond a space.
+fn file_of(trial: &TrialInfo) -> PathBuf {
+    WRITING.with_borrow(|(dir, label, run_id)| {
+        trial_file(
+            dir,
+            run_id,
+            label,
+            trial.key.env_idx,
+            &trial.env_id.replace([' ', '/'], "_"),
+            trial.key.trial_idx,
+        )
+    })
 }
 
 fn scalar(name: &str, value: f64) -> Metric {
@@ -98,14 +126,10 @@ fn counter(name: &str, count: u64) -> Metric {
     }
 }
 
-/// Ends `trial` the way the harness does: asks for the recording, copies it
-/// into the report, then calls `on_trial_end`. Returns the file's path.
-fn end(sink: &mut RerunSink, trial: &TrialInfo, mut report: TrialReport) -> PathBuf {
-    let recording = sink.recording(trial).expect("the sink records this trial");
-    report.recording_path = Some(recording.path.clone());
-    report.recording_sdk_version = Some(recording.sdk_version);
-    sink.on_trial_end(trial, &report);
-    recording.path
+/// Ends `trial` and returns the path its file is, or will be, at.
+fn end(sink: &mut RerunSink, trial: &TrialInfo, report: &TrialReport) -> PathBuf {
+    sink.on_trial_end(trial, report);
+    file_of(trial)
 }
 
 /// Three training episodes then two evaluation ones, each followed by a
@@ -171,7 +195,7 @@ fn an_episodic_trial_reads_back_episode_by_episode() {
     sink.on_suite_start(&suite(&["cartpole"]));
     sink.on_trial_start(&trial);
     play_episodic(&mut sink, &trial);
-    let file = end(&mut sink, &trial, report(&trial));
+    let file = end(&mut sink, &trial, &report(&trial));
 
     let rec = read(&file);
     assert_eq!(rec.application_id, "rlevo-episodic");
@@ -245,8 +269,7 @@ fn a_trials_properties_read_back() {
         1,
         EpisodeStatus::Terminated,
     )];
-    let sdk = sink.recording(&trial).unwrap().sdk_version;
-    let file = end(&mut sink, &trial, report);
+    let file = end(&mut sink, &trial, &report);
 
     let rec = read(&file);
     let props = path("/__properties/trial/ppo/cartpole/2");
@@ -265,7 +288,7 @@ fn a_trials_properties_read_back() {
         Some(Provenance::this_build().rlevo_version)
     );
     assert_eq!(get("platform"), Some(Provenance::this_build().platform));
-    assert_eq!(get("rerun_version"), Some(sdk.clone()));
+    let sdk = get("rerun_version").expect("the file names the rerun that wrote it");
     assert!(
         sdk.starts_with("0.") && sdk.split('.').count() == 3,
         "the SDK version is a release number: {sdk}"
@@ -295,7 +318,7 @@ fn a_generation_trial_reads_back_generation_by_generation() {
             ],
         );
     }
-    let file = end(&mut sink, &trial, report(&trial));
+    let file = end(&mut sink, &trial, &report(&trial));
 
     let rec = read(&file);
     assert_eq!(rec.application_id, "rlevo-generation");
@@ -320,7 +343,7 @@ fn an_errored_trial_has_a_status_entry() {
     sink.on_suite_start(&suite(&["cartpole"]));
     sink.on_trial_start(&trial);
     let report = errored(&trial, "reset failed: no such device");
-    let file = end(&mut sink, &trial, report);
+    let file = end(&mut sink, &trial, &report);
     suite_end(&mut sink);
 
     let rec = read(&file);
@@ -347,7 +370,7 @@ fn a_trial_that_errors_before_any_boundary_is_filed_with_its_run() {
     sink.on_trial_start(&late);
 
     // The first trial errors and ends before the second reaches a generation.
-    let early_file = end(&mut sink, &early, errored(&early, "bad genome"));
+    let early_file = end(&mut sink, &early, &errored(&early, "bad genome"));
     assert!(
         !early_file.exists(),
         "nothing says yet what kind of run this is"
@@ -361,7 +384,7 @@ fn a_trial_that_errors_before_any_boundary_is_filed_with_its_run() {
             &[scalar("ea/best_fitness", 1.0)],
         );
     }
-    let late_file = end(&mut sink, &late, report(&late));
+    let late_file = end(&mut sink, &late, &report(&late));
     suite_end(&mut sink);
     assert_eq!(sink.files(), [late_file.clone(), early_file.clone()]);
 
@@ -392,19 +415,23 @@ fn what_a_sink_knows_of_one_run_does_not_reach_the_next() {
         Boundary::Generation { generation: 1 },
         &[scalar("ea/best_fitness", 1.0)],
     );
-    end(&mut sink, &first, report(&first));
+    let first_file = end(&mut sink, &first, &report(&first));
     suite_end(&mut sink);
-    assert_eq!(sink.files().len(), 1);
+    assert_eq!(sink.files(), std::slice::from_ref(&first_file));
 
     // Then a run whose only trial errors at once.
     let second = trial(0, 0, "cartpole");
     sink.on_suite_start(&suite_of_run("00000000000000a2", &["cartpole"]));
     assert_eq!(sink.files(), Vec::<PathBuf>::new());
     sink.on_trial_start(&second);
-    let file = end(&mut sink, &second, errored(&second, "reset failed"));
+    let file = end(&mut sink, &second, &errored(&second, "reset failed"));
     suite_end(&mut sink);
 
     assert_eq!(sink.files(), std::slice::from_ref(&file));
+    // Each run has a directory of its own, so the second, of the same label,
+    // environment index and trial, did not write over the first.
+    assert_ne!(file.parent(), first_file.parent());
+    assert_eq!(read(&first_file).recording_id, "00000000000000a1");
     let rec = read(&file);
     assert_eq!(rec.recording_id, "00000000000000a2");
     assert_eq!(
@@ -431,7 +458,7 @@ fn free_text_names_are_escaped_in_paths_and_cleaned_in_file_names() {
         Boundary::EvaluationEpisode { index: 0, step: 1 },
         &[],
     );
-    let file = end(&mut sink, &trial, report(&trial));
+    let file = end(&mut sink, &trial, &report(&trial));
 
     assert_eq!(
         file.file_name().and_then(|n| n.to_str()),
@@ -474,7 +501,7 @@ fn a_histogram_is_left_out_and_its_neighbours_are_kept() {
             scalar("rl/loss", 0.5),
         ],
     );
-    let file = end(&mut sink, &trial, report(&trial));
+    let file = end(&mut sink, &trial, &report(&trial));
 
     let rec = read(&file);
     assert_eq!(
@@ -516,8 +543,8 @@ fn interleaved_trials_keep_their_rows_apart() {
     // No metrics read followed these episodes (as with a sink that wants
     // none), so each is logged without a step when the next arrives, and
     // the last when its trial ends.
-    let file_a = end(&mut sink, &a, report(&a));
-    let file_b = end(&mut sink, &b, report(&b));
+    let file_a = end(&mut sink, &a, &report(&a));
+    let file_b = end(&mut sink, &b, &report(&b));
     assert_ne!(file_a, file_b);
     assert_eq!(sink.files(), [file_a.clone(), file_b.clone()]);
 
@@ -556,7 +583,7 @@ fn rows_logged_a_while_apart_share_a_chunk() {
         // Longer than rerun's default interval between writes.
         std::thread::sleep(std::time::Duration::from_millis(300));
     }
-    let file = end(&mut sink, &trial, report(&trial));
+    let file = end(&mut sink, &trial, &report(&trial));
 
     let rec = read_as_written(&file);
     let loss = path("/metrics/rl/loss/ppo/cartpole/0");
@@ -574,9 +601,11 @@ fn viewer_instructions_name_the_version_and_bind_locally() {
     let trial = trial(0, 0, "cartpole");
     sink.on_suite_start(&suite(&["cartpole"]));
     sink.on_trial_start(&trial);
-    let sdk = sink.recording(&trial).unwrap().sdk_version;
-    end(&mut sink, &trial, report(&trial));
+    let file = end(&mut sink, &trial, &report(&trial));
     suite_end(&mut sink);
+    let sdk = read(&file)
+        .text(&path("/__properties/trial/ppo/cartpole/0"), "rerun_version")
+        .expect("the file names the rerun that wrote it");
 
     let how = sink.viewer_instructions().expect("a trial has ended");
     assert!(
@@ -590,5 +619,8 @@ fn viewer_instructions_name_the_version_and_bind_locally() {
         "{how}"
     );
     assert!(how.contains("rerun --bind 127.0.0.1"), "{how}");
-    assert!(how.contains(&dir.path().display().to_string()), "{how}");
+    assert!(
+        how.contains(&dir.path().join(RUN_ID).display().to_string()),
+        "the instructions name the run's own directory: {how}"
+    );
 }

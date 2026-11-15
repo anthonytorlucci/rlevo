@@ -9096,7 +9096,6 @@ dependencies = [
  "rlevo-harness",
  "rlevo-hybrid",
  "rlevo-reinforcement-learning",
- "rlevo-rerun",
  "rlevo-test-support",
  "serde",
  "tempfile",
