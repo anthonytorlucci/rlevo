@@ -44,7 +44,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - **The 13 environment configs that did not** (the classic-control,
     locomotion and toy-text ones) **implement `Serialize` and `Deserialize`**,
     with their nested types; `Gear<N>` serializes as its list of ratios.
-  - **`BenchmarkReport::provenance`** records the build that ran the trials:
+  - **`TrialReport::provenance`** records the build that ran the trial, and
+    **`BenchmarkReport::provenance`** the build that finished the run:
     harness version, commit, dirty flag, compiler and platform. The commit is
     the one `cargo package` recorded for a packaged harness, or HEAD of
     rlevo's own checkout, and never that of another repository enclosing
