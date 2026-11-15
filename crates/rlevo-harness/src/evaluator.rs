@@ -12,12 +12,17 @@
 //! [`EvaluatorConfig::checkpoint_dir`] enables crash-recovery: the partial
 //! [`BenchmarkReport`] is atomically written after every trial so a resumed run
 //! can skip already-finished keys.
+//!
+//! Each trial runs inside a `trial` tracing span (target `rlevo_harness`) with
+//! fields `env`, `env_idx`, `trial` and `seed`, so a tracing layer can file an
+//! event under the trial whose work emitted it. Work a trial hands to another
+//! thread runs outside the span.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -31,8 +36,8 @@ use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
 use crate::metrics::{GENERATIONS, RETURN_NON_FINITE_STEPS, WALL_CLOCK_SECONDS, core_metrics};
-use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
-use crate::reporter::Reporter;
+use crate::report::{BenchmarkReport, EpisodeSummary, Phase, TrialReport};
+use crate::reporter::{Boundary, Reporter};
 use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 
 /// Parameters governing how the evaluator runs a suite.
@@ -208,12 +213,12 @@ impl Evaluator {
         let cfg = &self.cfg;
         let seeds = SeedStream::new(cfg.base_seed);
 
-        let suite_info = SuiteInfo {
-            name: suite_name.to_string(),
-            env_names: env_names.to_vec(),
-            num_trials_per_env: cfg.num_trials_per_env,
-            success_threshold: cfg.success_threshold,
-        };
+        let suite_info = SuiteInfo::new(
+            suite_name.to_string(),
+            env_names.to_vec(),
+            cfg.num_trials_per_env,
+            cfg.success_threshold,
+        );
 
         // Load checkpoint (if any) and start report.
         let mut report = cfg
@@ -262,15 +267,23 @@ impl Evaluator {
                 let env_seed = seeds.env_seed(trial_seed);
                 let agent_seed = seeds.agent_seed(trial_seed);
 
-                let info = TrialInfo {
-                    key,
-                    env_name: env_name.clone(),
-                    trial_seed,
-                };
-                {
-                    let mut r = reporter_lock.lock().unwrap();
-                    r.on_trial_start(&info);
-                }
+                let info = TrialInfo::new(key, env_name.clone(), trial_seed);
+                // Everything the trial does on this thread, its reporter
+                // callbacks included, is inside the span. A root span, with no
+                // parent: when the trial's own parallel work lets rayon run
+                // another trial's job on this thread, that trial's span must
+                // not nest under this one.
+                let span = tracing::info_span!(
+                    target: "rlevo_harness",
+                    parent: None,
+                    "trial",
+                    env = %env_name,
+                    env_idx = key.env_idx,
+                    trial = key.trial_idx,
+                    seed = trial_seed,
+                );
+                let _in_trial = span.enter();
+                lock_reporter(&reporter_lock).on_trial_start(&info);
 
                 let trial_report = catch_unwind(AssertUnwindSafe(|| {
                     make_trial(key, env_seed, agent_seed).run(cfg, &info, &reporter_lock)
@@ -291,12 +304,9 @@ impl Evaluator {
                     aborted.store(true, Ordering::Relaxed);
                 }
 
-                {
-                    let mut r = reporter_lock.lock().unwrap();
-                    r.on_trial_end(&info, &tr);
-                }
+                lock_reporter(&reporter_lock).on_trial_end(&info, &tr);
 
-                let mut rep = report_lock.lock().unwrap();
+                let mut rep = report_lock.lock().unwrap_or_else(PoisonError::into_inner);
                 rep.trials.push(tr);
                 if let Some(dir) = &cfg.checkpoint_dir {
                     let path = checkpoint::checkpoint_path(dir, suite_name);
@@ -361,7 +371,11 @@ pub trait Trial {
     /// Run this trial to completion and summarize it.
     ///
     /// `reporter` is shared across rayon workers; hold the lock only for the
-    /// duration of a single callback.
+    /// duration of a single callback. `run_trials` calls
+    /// [`on_trial_start`](Reporter::on_trial_start) and
+    /// [`on_trial_end`](Reporter::on_trial_end) around it; what happens
+    /// between, [`on_episode`](Reporter::on_episode) and
+    /// [`on_metrics`](Reporter::on_metrics), is the trial's to call.
     fn run(
         self,
         cfg: &EvaluatorConfig,
@@ -392,7 +406,22 @@ pub trait Trial {
 ///
 /// The report holds the evaluation episodes only, so its returns, and every
 /// metric computed from them, measure the trained agent. Wall-clock covers
-/// both phases. An environment error in either phase marks the trial errored.
+/// both phases, less the time spent reading metrics for the reporter and in
+/// its callbacks, so a sink does not slow the throughput the report states.
+/// An environment error in either phase marks the trial errored.
+///
+/// # What the reporter is shown
+///
+/// After every episode that ends, in both phases, the trial calls
+/// [`on_episode`](Reporter::on_episode) with its summary, then reads the
+/// agent's [`emit_metrics`](Agent::emit_metrics) and calls
+/// [`on_metrics`](Reporter::on_metrics) with them at a
+/// [`Boundary::TrainingEpisode`] or [`Boundary::EvaluationEpisode`], whose
+/// `step` counts the trial's environment steps across both phases. When no
+/// sink [wants metrics](Reporter::wants_metrics), the read and the
+/// `on_metrics` call are skipped. A training episode the step budget leaves
+/// open is not reported. The report's own metrics are read once more, at the
+/// end.
 pub struct EpisodicTrial<E, A> {
     /// The environment under test, already seeded by the suite factory.
     pub env: E,
@@ -430,16 +459,27 @@ where
         let mut non_finite_steps: u64 = 0;
 
         let start = Instant::now();
+        let mut port = TrialPort::new(reporter, info);
 
+        // Environment steps the trial has taken, training and evaluation
+        // together: the `step` every boundary is plotted against.
+        let mut step: u64 = 0;
         let trained = if cfg.train_steps > 0 {
-            train(
+            run_training(
                 &mut self.env,
                 &mut self.agent,
                 cfg.train_steps,
                 cfg.max_steps,
                 &mut rng,
+                |agent, ep, taken| {
+                    let at = Boundary::TrainingEpisode {
+                        index: ep.episode_idx,
+                        step: taken,
+                    };
+                    port.episode(&ep, at, || agent.emit_metrics());
+                },
             )
-            .map(drop)
+            .map(|taken| step = taken)
         } else {
             Ok(())
         };
@@ -476,7 +516,7 @@ where
                     &mut rng,
                     &mut non_finite_steps,
                 );
-                let (total_reward, length) = match played {
+                let (total_reward, length, status) = match played {
                     Ok(Some(episode)) => episode,
                     Ok(None) => unreachable!("an evaluation episode has no step budget"),
                     Err(e) => {
@@ -486,18 +526,22 @@ where
                     }
                 };
 
-                let rec = EpisodeSummary {
+                step += length as u64;
+                let rec = EpisodeSummary::new(
+                    Phase::Evaluation,
                     episode_idx,
-                    return_value: total_reward,
+                    total_reward,
                     length,
-                };
+                    status,
+                );
                 returns.push(total_reward);
                 lengths.push(length);
                 report.episodes.push(rec.clone());
-                {
-                    let mut r = reporter.lock().unwrap();
-                    r.on_episode_end(info, &rec);
-                }
+                let at = Boundary::EvaluationEpisode {
+                    index: episode_idx,
+                    step,
+                };
+                port.episode(&rec, at, || self.agent.emit_metrics());
             }
         }
 
@@ -516,7 +560,7 @@ where
             );
         }
 
-        let wall = start.elapsed().as_secs_f64();
+        let wall = port.wall_clock(start);
         // Harness measurements take the privileged path; the agent's take the
         // checked one, so an agent that names a harness key is re-homed under
         // `agent/` instead of replacing the value this loop just measured.
@@ -571,19 +615,41 @@ where
     E: Environment,
     A: Agent<E::ObservationType, E::ActionType>,
 {
-    agent.set_training(true);
     let mut episodes = Vec::new();
+    run_training(env, agent, steps, max_steps, rng, |_, ep, _| {
+        episodes.push(ep);
+    })?;
+    Ok(episodes)
+}
+
+/// [`train`]'s loop, calling `on_episode` with the agent, the summary and the
+/// steps taken so far as each episode ends. Returns the steps taken in all,
+/// those of an episode the budget left open included.
+fn run_training<E, A>(
+    env: &mut E,
+    agent: &mut A,
+    steps: usize,
+    max_steps: usize,
+    rng: &mut dyn Rng,
+    mut on_episode: impl FnMut(&A, EpisodeSummary, u64),
+) -> Result<u64, EnvironmentError>
+where
+    E: Environment,
+    A: Agent<E::ObservationType, E::ActionType>,
+{
+    agent.set_training(true);
     // An episode of at most zero steps takes nothing from the budget, so the
     // loop below would never end.
     if max_steps == 0 {
-        return Ok(episodes);
+        return Ok(0);
     }
     let mut budget = steps;
+    let mut index = 0;
     // Training rewards are the agent's to judge; the trial counts only the
     // evaluation phase's.
     let mut non_finite_steps = 0;
     while budget > 0 {
-        let Some((return_value, length)) = play_episode(
+        let Some((return_value, length, status)) = play_episode(
             env,
             agent,
             max_steps,
@@ -594,18 +660,88 @@ where
         else {
             break;
         };
-        episodes.push(EpisodeSummary {
-            episode_idx: episodes.len(),
-            return_value,
-            length,
-        });
+        let taken = (steps - budget) as u64;
+        let ep = EpisodeSummary::new(Phase::Training, index, return_value, length, status);
+        on_episode(agent, ep, taken);
+        index += 1;
     }
-    Ok(episodes)
+    Ok((steps - budget) as u64)
+}
+
+/// Locks the shared reporter, taking it even when poisoned.
+///
+/// A reporter that panics inside a trial poisons the lock; `run_trials`
+/// records that trial as errored, and the other trials, and the callbacks
+/// `run_trials` makes outside `catch_unwind`, must still reach the reporter
+/// rather than abort the suite.
+fn lock_reporter<'a, 'r>(
+    reporter: &'a Mutex<&'r mut dyn Reporter>,
+) -> MutexGuard<'a, &'r mut dyn Reporter> {
+    reporter.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// A trial's side of the shared reporter.
+///
+/// Reads the trial's metrics only when a sink wants them (asked once, when
+/// the trial starts), and adds up the time it spends reading and in reporter
+/// callbacks, which the trial leaves out of its wall clock.
+struct TrialPort<'a, 'r> {
+    reporter: &'a Mutex<&'r mut dyn Reporter>,
+    info: &'a TrialInfo,
+    wants_metrics: bool,
+    spent: Duration,
+}
+
+impl<'a, 'r> TrialPort<'a, 'r> {
+    fn new(reporter: &'a Mutex<&'r mut dyn Reporter>, info: &'a TrialInfo) -> Self {
+        let wants_metrics = lock_reporter(reporter).wants_metrics();
+        Self {
+            reporter,
+            info,
+            wants_metrics,
+            spent: Duration::ZERO,
+        }
+    }
+
+    /// One finished episode, then the metrics `read` returns at `at`.
+    fn episode(&mut self, ep: &EpisodeSummary, at: Boundary, read: impl FnOnce() -> Vec<Metric>) {
+        let started = Instant::now();
+        let metrics = if self.wants_metrics {
+            read()
+        } else {
+            Vec::new()
+        };
+        {
+            let mut r = lock_reporter(self.reporter);
+            r.on_episode(self.info, ep);
+            if self.wants_metrics {
+                r.on_metrics(self.info, at, &metrics);
+            }
+        }
+        self.spent += started.elapsed();
+    }
+
+    /// The metrics `read` returns at `at`, with no episode.
+    fn metrics(&mut self, at: Boundary, read: impl FnOnce() -> Vec<Metric>) {
+        if !self.wants_metrics {
+            return;
+        }
+        let started = Instant::now();
+        let metrics = read();
+        lock_reporter(self.reporter).on_metrics(self.info, at, &metrics);
+        self.spent += started.elapsed();
+    }
+
+    /// Seconds since `start`, less the time spent reporting.
+    fn wall_clock(&self, start: Instant) -> f64 {
+        start.elapsed().saturating_sub(self.spent).as_secs_f64()
+    }
 }
 
 /// Plays one episode from a fresh `reset`: at most `max_steps` steps, each
-/// taken from `budget`. Returns the episode's raw return and length, or `None`
-/// when the budget ran out before the episode ended.
+/// taken from `budget`. Returns the episode's raw return, length and how it
+/// ended (`Truncated` when cut at `max_steps`), or `None` when the budget ran
+/// out before the episode ended.
 ///
 /// The one place the agent is shown a step. Both phases of an
 /// [`EpisodicTrial`] go through it, so the status rule holds once: the
@@ -618,7 +754,7 @@ fn play_episode<E, A>(
     budget: &mut usize,
     rng: &mut dyn Rng,
     non_finite_steps: &mut u64,
-) -> Result<Option<(f64, usize)>, EnvironmentError>
+) -> Result<Option<(f64, usize, EpisodeStatus)>, EnvironmentError>
 where
     E: Environment,
     A: Agent<E::ObservationType, E::ActionType>,
@@ -629,7 +765,7 @@ where
     loop {
         if length == max_steps {
             agent.on_episode_end(EpisodeStatus::Truncated);
-            return Ok(Some((total_reward, length)));
+            return Ok(Some((total_reward, length, EpisodeStatus::Truncated)));
         }
         if *budget == 0 {
             return Ok(None);
@@ -658,7 +794,7 @@ where
         obs = snap.observation;
         if status.is_done() {
             agent.on_episode_end(status);
-            return Ok(Some((total_reward, length)));
+            return Ok(Some((total_reward, length, status)));
         }
     }
 }
@@ -678,7 +814,11 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// The counterpart to [`EpisodicTrial`] for work that has no episode axis. It
 /// calls `begin` once, then `advance` until the probe reports exhaustion,
 /// and reports the probe's [`emit_metrics`](GenerationProbe::emit_metrics),
-/// read once after the last generation, plus a generation count.
+/// read once after the last generation, plus a generation count. After every
+/// generation it also reads them and hands them to the reporter's
+/// [`on_metrics`](Reporter::on_metrics) at a [`Boundary::Generation`], unless
+/// no sink [wants metrics](Reporter::wants_metrics); that time is left out of
+/// the trial's wall clock.
 ///
 /// # The cap
 ///
@@ -717,7 +857,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// compute carrying zero information. Rather than fabricate one synthetic
 /// `EpisodeSummary` per run — which would make `num_episodes > 1` silently
 /// multiply cost for no signal, the trap the retired `BenchEnv` path had —
-/// this trial reports no episodes at all and `on_episode_end` never fires.
+/// this trial reports no episodes at all and `on_episode` never fires.
 /// Consumers read the `ea/*` or `coea/*` scalars instead.
 pub struct GenerationTrial<P> {
     /// The probe under test, already seeded by the suite factory.
@@ -738,10 +878,11 @@ where
         mut self,
         cfg: &EvaluatorConfig,
         info: &TrialInfo,
-        _reporter: &Mutex<&mut dyn Reporter>,
+        reporter: &Mutex<&mut dyn Reporter>,
     ) -> TrialReport {
         let mut report = TrialReport::new(info.key, info.env_name.clone(), info.trial_seed);
         let start = Instant::now();
+        let mut port = TrialPort::new(reporter, info);
 
         self.probe.begin();
 
@@ -751,9 +892,12 @@ where
         // broken exhaustion check cannot hang the suite.
         while units < cfg.max_generations && self.probe.advance().is_some() {
             units += 1;
+            port.metrics(Boundary::Generation { generation: units }, || {
+                self.probe.emit_metrics()
+            });
         }
 
-        let wall = start.elapsed().as_secs_f64();
+        let wall = port.wall_clock(start);
         // Read before the cap check below, which may run one more generation
         // that this report must not describe.
         let probe_metrics = self.probe.emit_metrics();
@@ -812,8 +956,10 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
     use tracing::field::{Field, Visit};
+    use tracing::span::{Attributes, Id};
     use tracing::{Event as TracingEvent, Level, Subscriber};
     use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+    use tracing_subscriber::registry::LookupSpan;
 
     use rlevo_core::agent::{Agent, Transition};
     use rlevo_core::base::{Action, Observation};
@@ -823,8 +969,8 @@ mod tests {
 
     use super::{EpisodicTrial, Evaluator, EvaluatorConfig, Trial};
     use crate::metrics::{RETURN_MEAN, RETURN_NON_FINITE_STEPS};
-    use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
-    use crate::reporter::Reporter;
+    use crate::report::{BenchmarkReport, EpisodeSummary, Phase, TrialReport};
+    use crate::reporter::{Boundary, Reporter};
     use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 
     // ── Stub env ─────────────────────────────────────────────────────────────
@@ -932,7 +1078,10 @@ mod tests {
     enum Event {
         SuiteStart,
         TrialStart,
-        EpisodeEnd,
+        /// An episode's phase, index and status.
+        Episode(Phase, usize, Option<EpisodeStatus>),
+        /// A metrics read: where, and how many metrics it carried.
+        Metrics(Boundary, usize),
         TrialEnd,
         SuiteEnd,
     }
@@ -960,8 +1109,17 @@ mod tests {
         fn on_trial_start(&mut self, _: &TrialInfo) {
             self.log.lock().unwrap().push(Event::TrialStart);
         }
-        fn on_episode_end(&mut self, _: &TrialInfo, _: &EpisodeSummary) {
-            self.log.lock().unwrap().push(Event::EpisodeEnd);
+        fn on_episode(&mut self, _: &TrialInfo, ep: &EpisodeSummary) {
+            self.log
+                .lock()
+                .unwrap()
+                .push(Event::Episode(ep.phase, ep.episode_idx, ep.status));
+        }
+        fn on_metrics(&mut self, _: &TrialInfo, at: Boundary, metrics: &[Metric]) {
+            self.log
+                .lock()
+                .unwrap()
+                .push(Event::Metrics(at, metrics.len()));
         }
         fn on_trial_end(&mut self, _: &TrialInfo, _: &TrialReport) {
             self.log.lock().unwrap().push(Event::TrialEnd);
@@ -996,6 +1154,60 @@ mod tests {
         static SINK: RefCell<Option<Vec<CapturedEvent>>> = const { RefCell::new(None) };
     }
 
+    /// The fields of a `trial` span, as `run_trials` opens it, and whether it
+    /// had a parent span.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    struct TrialSpan {
+        env: String,
+        env_idx: u64,
+        trial: u64,
+        seed: u64,
+        nested: bool,
+    }
+
+    impl Visit for TrialSpan {
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            match field.name() {
+                "env_idx" => self.env_idx = value,
+                "trial" => self.trial = value,
+                "seed" => self.seed = value,
+                _ => {}
+            }
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "env" {
+                self.env = format!("{value:?}");
+            }
+        }
+    }
+
+    /// Environment names starting with this are the span tests'; only their
+    /// events are kept in [`SPANNED`], so it holds what those tests emit and
+    /// nothing else.
+    const SPAN_TEST_ENV: &str = "span-test";
+
+    /// Every event, on any thread, whose `env` starts with [`SPAN_TEST_ENV`],
+    /// with the innermost `trial` span it was emitted in, if any.
+    /// Process-wide; each test takes out its own environment's entries.
+    static SPANNED: Mutex<Vec<(String, Option<TrialSpan>)>> = Mutex::new(Vec::new());
+
+    /// Removes and returns the `trial` spans of `env`'s events, in trial order.
+    fn take_spanned(env: &str) -> Vec<TrialSpan> {
+        let mut all = SPANNED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (mine, rest): (Vec<_>, Vec<_>) = all.drain(..).partition(|(e, _)| e == env);
+        *all = rest;
+        drop(all);
+        let mut spans: Vec<TrialSpan> = mine
+            .into_iter()
+            .map(|(_, span)| span.expect("the warn! is emitted inside a trial span"))
+            .collect();
+        spans.sort_by_key(|s| s.trial);
+        spans
+    }
+
     /// Records every event whose thread has an active [`capturing`] scope.
     ///
     /// Mirrors `rlevo_test_support::capture::FieldCapture`, which is not used
@@ -1004,8 +1216,45 @@ mod tests {
     /// collects a single integer field, so it could not observe the `env` name.
     struct CaptureLayer;
 
-    impl<S: Subscriber> Layer<S> for CaptureLayer {
-        fn on_event(&self, event: &TracingEvent<'_>, _ctx: Context<'_, S>) {
+    impl<S> Layer<S> for CaptureLayer
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
+        fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+            if attrs.metadata().name() == "trial"
+                && let Some(span) = ctx.span(id)
+            {
+                let mut fields = TrialSpan {
+                    nested: span.parent().is_some(),
+                    ..TrialSpan::default()
+                };
+                attrs.record(&mut fields);
+                span.extensions_mut().insert(fields);
+            }
+        }
+
+        fn on_event(&self, event: &TracingEvent<'_>, ctx: Context<'_, S>) {
+            let mut fields = EventVisitor {
+                env: None,
+                non_finite_steps: None,
+                key: None,
+                max_generations: None,
+            };
+            event.record(&mut fields);
+            if let Some(env) = fields.env.filter(|e| e.starts_with(SPAN_TEST_ENV)) {
+                // Innermost first: the trial whose work emitted the event.
+                let trial = ctx.event_scope(event).and_then(|mut scope| {
+                    scope
+                        .find(|span| span.name() == "trial")
+                        .and_then(|span| span.extensions().get::<TrialSpan>().cloned())
+                });
+                // A failed assertion elsewhere must not poison every later
+                // test's events.
+                SPANNED
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push((env, trial));
+            }
             SINK.with(|sink| {
                 let mut sink = sink.borrow_mut();
                 let Some(events) = sink.as_mut() else { return };
@@ -1221,7 +1470,7 @@ mod tests {
     }
 
     #[test]
-    fn on_episode_end_fires_once_per_episode() {
+    fn on_episode_fires_once_per_episode() {
         let cfg = single_thread_cfg(3, 20);
         let suite = Suite::new("s").with_env("e", |_| StubEnv::new(5));
 
@@ -1232,9 +1481,118 @@ mod tests {
             .lock()
             .unwrap()
             .iter()
-            .filter(|e| *e == &Event::EpisodeEnd)
+            .filter(|e| matches!(e, Event::Episode(..)))
             .count();
         assert_eq!(episode_count, 3);
+    }
+
+    /// Every episode of both phases reaches the reporter, each followed by the
+    /// agent's metrics at its boundary, with `step` counting across the two
+    /// phases. Budget 10 over 3-step episodes: three training episodes end at
+    /// steps 3, 6 and 9, a fourth is left open at step 10 and not reported,
+    /// and the two evaluation episodes end at 13 and 16.
+    #[test]
+    fn both_phases_reach_the_reporter_with_their_metrics() {
+        let cfg = EvaluatorConfig {
+            train_steps: 10,
+            ..single_thread_cfg(2, 20)
+        };
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(3));
+        let metric = Metric::Scalar {
+            name: "rl/probe".to_string(),
+            value: 1.0,
+        };
+
+        let (mut reporter, log) = SpyReporter::new();
+        Evaluator::new(cfg).run_suite(
+            &suite,
+            |_| EmittingAgent {
+                metrics: vec![metric.clone()],
+            },
+            &mut reporter,
+        );
+
+        let events = log.lock().unwrap().clone();
+        let start = events.iter().position(|e| e == &Event::TrialStart).unwrap();
+        let end = events.iter().position(|e| e == &Event::TrialEnd).unwrap();
+        let done = Some(EpisodeStatus::Terminated);
+        let train = |index, step| Event::Metrics(Boundary::TrainingEpisode { index, step }, 1);
+        let eval = |index, step| Event::Metrics(Boundary::EvaluationEpisode { index, step }, 1);
+        assert_eq!(
+            events[start + 1..end],
+            [
+                Event::Episode(Phase::Training, 0, done),
+                train(0, 3),
+                Event::Episode(Phase::Training, 1, done),
+                train(1, 6),
+                Event::Episode(Phase::Training, 2, done),
+                train(2, 9),
+                Event::Episode(Phase::Evaluation, 0, done),
+                eval(0, 13),
+                Event::Episode(Phase::Evaluation, 1, done),
+                eval(1, 16),
+            ]
+        );
+    }
+
+    /// An episode the trial cuts at `max_steps` is reported `Truncated`, in
+    /// the reporter's summary and the report's; one the environment ends is
+    /// `Terminated`.
+    #[test]
+    fn an_episode_cut_at_max_steps_is_reported_truncated() {
+        let suite = Suite::new("s")
+            .with_env("ends", |_| StubEnv::new(3))
+            .with_env("cut", |_| StubEnv::new(100));
+
+        let (mut reporter, log) = SpyReporter::new();
+        let report =
+            Evaluator::new(single_thread_cfg(1, 4)).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let statuses: Vec<Option<EpisodeStatus>> =
+            report.trials.iter().map(|t| t.episodes[0].status).collect();
+        assert_eq!(
+            statuses,
+            [
+                Some(EpisodeStatus::Terminated),
+                Some(EpisodeStatus::Truncated)
+            ]
+        );
+        let episodes: Vec<Event> = log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e, Event::Episode(..)))
+            .cloned()
+            .collect();
+        assert_eq!(
+            episodes,
+            [
+                Event::Episode(Phase::Evaluation, 0, Some(EpisodeStatus::Terminated)),
+                Event::Episode(Phase::Evaluation, 0, Some(EpisodeStatus::Truncated)),
+            ]
+        );
+    }
+
+    /// `train` on its own returns training summaries with their status.
+    #[test]
+    fn train_returns_training_summaries() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let episodes = super::train(&mut StubEnv::new(3), &mut StubAgent, 7, 2, &mut rng)
+            .expect("the stub never fails");
+        let got: Vec<(Phase, usize, usize, Option<EpisodeStatus>)> = episodes
+            .iter()
+            .map(|e| (e.phase, e.episode_idx, e.length, e.status))
+            .collect();
+        let cut = Some(EpisodeStatus::Truncated);
+        assert_eq!(
+            got,
+            [
+                (Phase::Training, 0, 2, cut),
+                (Phase::Training, 1, 2, cut),
+                (Phase::Training, 2, 2, cut),
+            ],
+            "budget 7 at max_steps 2: three cut episodes, the seventh step left open"
+        );
     }
 
     #[test]
@@ -1706,6 +2064,290 @@ mod tests {
             report.displaced_metrics.is_empty(),
             "a silent probe contests nothing, so nothing is re-homed"
         );
+    }
+
+    /// Each trial's work on its thread runs inside a `trial` span carrying
+    /// its environment, indices and seed, with trials on two threads. The
+    /// non-finite-reward `warn!` each trial emits is the event observed.
+    #[test]
+    fn every_trial_runs_inside_its_trial_span() {
+        install_capture_subscriber();
+        let env = "span-test-flat";
+        let cfg = EvaluatorConfig {
+            num_trials_per_env: 2,
+            num_threads: Some(2),
+            ..single_thread_cfg(1, 10)
+        };
+        let suite = Suite::new("s").with_env(env, |_| {
+            let mut e = StubEnv::new(2);
+            e.reward_override = Some(f32::NAN);
+            e
+        });
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let spans = take_spanned(env);
+        let expected: Vec<TrialSpan> = report
+            .trials
+            .iter()
+            .map(|t| TrialSpan {
+                env: env.to_string(),
+                env_idx: t.key.env_idx as u64,
+                trial: t.key.trial_idx as u64,
+                seed: t.trial_seed,
+                nested: false,
+            })
+            .collect();
+        assert_eq!(spans, expected);
+    }
+
+    /// A trial's span is a root even when the thread that runs it is already
+    /// inside a span, as it is when rayon runs a trial on a worker that is
+    /// waiting on another trial's parallel work. Here the suite runs from
+    /// inside a one-thread pool with an outer span entered, so each trial
+    /// runs on that thread under it.
+    #[test]
+    fn a_trial_span_never_nests_under_another_span() {
+        install_capture_subscriber();
+        let env = "span-test-nested";
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let cfg = EvaluatorConfig {
+            num_trials_per_env: 2,
+            num_threads: None,
+            ..single_thread_cfg(1, 10)
+        };
+        let suite = Suite::new("s").with_env(env, |_| {
+            let mut e = StubEnv::new(2);
+            e.reward_override = Some(f32::NAN);
+            e
+        });
+
+        pool.install(|| {
+            let outer = tracing::info_span!("outer");
+            let _in_outer = outer.enter();
+            let (mut reporter, _) = SpyReporter::new();
+            Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+        });
+
+        let spans = take_spanned(env);
+        assert_eq!(spans.len(), 2, "one warn! per trial; got {spans:?}");
+        assert!(
+            spans.iter().all(|s| !s.nested),
+            "a trial span must have no parent; got {spans:?}"
+        );
+    }
+
+    /// A reporter that panics in `on_metrics` errors its trial, poisoning the
+    /// shared lock, and the suite still runs every other trial and reaches
+    /// `on_suite_end`.
+    #[test]
+    fn a_panicking_reporter_errors_its_trial_not_the_suite() {
+        struct PanicsOnce {
+            panicked: bool,
+            suite_ended: Arc<Mutex<bool>>,
+        }
+        impl Reporter for PanicsOnce {
+            fn on_suite_start(&mut self, _: &SuiteInfo) {}
+            fn on_trial_start(&mut self, _: &TrialInfo) {}
+            fn on_episode(&mut self, _: &TrialInfo, _: &EpisodeSummary) {}
+            fn on_metrics(&mut self, _: &TrialInfo, _: Boundary, _: &[Metric]) {
+                if !self.panicked {
+                    self.panicked = true;
+                    panic!("a sink defect");
+                }
+            }
+            fn on_trial_end(&mut self, _: &TrialInfo, _: &TrialReport) {}
+            fn on_suite_end(&mut self, _: &BenchmarkReport) {
+                *self.suite_ended.lock().unwrap() = true;
+            }
+        }
+
+        let cfg = EvaluatorConfig {
+            num_trials_per_env: 3,
+            ..single_thread_cfg(2, 10)
+        };
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(3));
+        let suite_ended = Arc::new(Mutex::new(false));
+        let mut reporter = PanicsOnce {
+            panicked: false,
+            suite_ended: Arc::clone(&suite_ended),
+        };
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let errored: Vec<bool> = report.trials.iter().map(|t| t.errored).collect();
+        assert_eq!(errored, [true, false, false]);
+        assert!(*suite_ended.lock().unwrap());
+    }
+
+    /// A sink that does not want metrics gets no `on_metrics` call, and the
+    /// agent's metrics are read once, for the report, instead of after every
+    /// episode.
+    #[test]
+    fn metrics_are_not_read_for_a_sink_that_does_not_want_them() {
+        struct CountsReads {
+            reads: Arc<std::sync::atomic::AtomicUsize>,
+        }
+        impl Agent<StubObs, StubAction> for CountsReads {
+            fn act(&mut self, _obs: &StubObs, _rng: &mut dyn Rng) -> StubAction {
+                StubAction
+            }
+            fn emit_metrics(&self) -> Vec<Metric> {
+                self.reads
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Vec::new()
+            }
+        }
+        struct NoMetrics(SpyReporter);
+        impl Reporter for NoMetrics {
+            fn on_suite_start(&mut self, s: &SuiteInfo) {
+                self.0.on_suite_start(s);
+            }
+            fn on_trial_start(&mut self, t: &TrialInfo) {
+                self.0.on_trial_start(t);
+            }
+            fn on_episode(&mut self, t: &TrialInfo, ep: &EpisodeSummary) {
+                self.0.on_episode(t, ep);
+            }
+            fn on_metrics(&mut self, t: &TrialInfo, at: Boundary, m: &[Metric]) {
+                self.0.on_metrics(t, at, m);
+            }
+            fn wants_metrics(&self) -> bool {
+                false
+            }
+            fn on_trial_end(&mut self, t: &TrialInfo, r: &TrialReport) {
+                self.0.on_trial_end(t, r);
+            }
+            fn on_suite_end(&mut self, r: &BenchmarkReport) {
+                self.0.on_suite_end(r);
+            }
+        }
+
+        let cfg = EvaluatorConfig {
+            train_steps: 9,
+            ..single_thread_cfg(2, 10)
+        };
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(3));
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (spy, log) = SpyReporter::new();
+        let mut reporter = NoMetrics(spy);
+        Evaluator::new(cfg).run_suite(
+            &suite,
+            |_| CountsReads {
+                reads: Arc::clone(&reads),
+            },
+            &mut reporter,
+        );
+
+        let events = log.lock().unwrap().clone();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, Event::Episode(..)))
+                .count(),
+            5,
+            "three training and two evaluation episodes still reach the sink"
+        );
+        assert!(!events.iter().any(|e| matches!(e, Event::Metrics(..))));
+        assert_eq!(
+            reads.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "read once, for the report"
+        );
+    }
+
+    /// Time a sink spends in its callbacks is not the trial's: a sink that
+    /// sleeps 40 ms per episode leaves the trial's wall clock near zero.
+    #[test]
+    fn reporter_time_is_left_out_of_the_wall_clock() {
+        use crate::metrics::WALL_CLOCK_SECONDS;
+
+        struct Slow;
+        impl Reporter for Slow {
+            fn on_suite_start(&mut self, _: &SuiteInfo) {}
+            fn on_trial_start(&mut self, _: &TrialInfo) {}
+            fn on_episode(&mut self, _: &TrialInfo, _: &EpisodeSummary) {
+                std::thread::sleep(std::time::Duration::from_millis(40));
+            }
+            fn on_trial_end(&mut self, _: &TrialInfo, _: &TrialReport) {}
+            fn on_suite_end(&mut self, _: &BenchmarkReport) {}
+        }
+
+        let suite = Suite::new("s").with_env("e", |_| StubEnv::new(3));
+        let report =
+            Evaluator::new(single_thread_cfg(3, 10)).run_suite(&suite, |_| StubAgent, &mut Slow);
+
+        let wall = report.trials[0].scalars[WALL_CLOCK_SECONDS];
+        assert!(
+            wall < 0.06,
+            "three 40 ms callbacks must not count; wall clock {wall} s"
+        );
+    }
+
+    /// A generation trial hands the probe's metrics to `on_metrics` after
+    /// every generation, counted from 1 as the probe's `ea/generation` is, and
+    /// never for the generation the cap check may run past the cap.
+    #[test]
+    fn on_metrics_fires_after_every_generation() {
+        use rlevo_core::evaluation::GenerationProbe;
+
+        use super::GenerationTrial;
+
+        struct Probe {
+            budget: usize,
+            done: usize,
+        }
+
+        impl GenerationProbe for Probe {
+            type Metrics = ();
+
+            fn begin(&mut self) {
+                self.done = 0;
+            }
+
+            fn advance(&mut self) -> Option<Self::Metrics> {
+                if self.done == self.budget {
+                    return None;
+                }
+                self.done += 1;
+                Some(())
+            }
+
+            fn emit_metrics(&self) -> Vec<Metric> {
+                vec![Metric::Scalar {
+                    name: "ea/generation".to_string(),
+                    #[allow(clippy::cast_precision_loss)]
+                    value: self.done as f64,
+                }]
+            }
+        }
+
+        let info = TrialInfo {
+            key: TrialKey {
+                env_idx: 0,
+                trial_idx: 0,
+            },
+            env_name: "probe".to_string(),
+            trial_seed: 0,
+        };
+        // (budget, cap, reads expected): exhausted before the cap, and cut at it.
+        for (budget, cap, reads) in [(4, 10, 4), (10, 3, 3)] {
+            let (mut reporter, log) = SpyReporter::new();
+            let dyn_reporter: &mut dyn Reporter = &mut reporter;
+            let lock = Mutex::new(dyn_reporter);
+            GenerationTrial {
+                probe: Probe { budget, done: 0 },
+            }
+            .run(&generation_cfg(cap), &info, &lock);
+
+            let expected: Vec<Event> = (1..=reads)
+                .map(|generation| Event::Metrics(Boundary::Generation { generation }, 1))
+                .collect();
+            assert_eq!(*log.lock().unwrap(), expected, "budget {budget}, cap {cap}");
+        }
     }
 
     /// Runs a [`GenerationTrial`](super::GenerationTrial) over a probe with

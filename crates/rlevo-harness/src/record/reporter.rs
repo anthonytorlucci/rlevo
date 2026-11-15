@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
+use crate::report::{BenchmarkReport, EpisodeSummary, Phase, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{SuiteInfo, TrialInfo};
 
@@ -170,8 +170,10 @@ impl Reporter for RecordingReporter {
         }
     }
 
-    fn on_episode_end(&mut self, _trial: &TrialInfo, ep: &EpisodeSummary) {
-        if !self.drive_episode_lifecycle {
+    fn on_episode(&mut self, _trial: &TrialInfo, ep: &EpisodeSummary) {
+        // Recordings cover evaluation episodes, the only ones this hook saw
+        // before training episodes reached reporters.
+        if !self.drive_episode_lifecycle || ep.phase != Phase::Evaluation {
             return;
         }
         let mut sink = self.sink.lock();
@@ -183,6 +185,11 @@ impl Reporter for RecordingReporter {
         // tolerates a stray on_episode_start when the trial ends,
         // since the next call rotates the file cleanly.
         sink.on_episode_start(u32::try_from(ep.episode_idx.saturating_add(1)).unwrap_or(u32::MAX));
+    }
+
+    /// Metrics reach recordings through the tracing layer, not this hook.
+    fn wants_metrics(&self) -> bool {
+        false
     }
 
     fn on_trial_end(&mut self, _trial: &TrialInfo, _report: &TrialReport) {
@@ -212,6 +219,7 @@ mod tests {
     use crate::record::writer::InMemoryRecordSink;
     use crate::reporter::MultiReporter;
     use crate::suite::TrialKey;
+    use rlevo_core::environment::EpisodeStatus;
 
     fn sample_manifest() -> RunManifest {
         RunManifest::new(RunId("test-run".into()), 42, EnvFamily::Classic, 1)
@@ -257,18 +265,20 @@ mod tests {
         r.on_suite_start(&suite());
         r.on_trial_start(&trial());
         for i in 0..3 {
-            let ep = EpisodeSummary {
-                episode_idx: i,
-                return_value: f64::from(i32::try_from(i).unwrap_or(0)),
-                length: 10,
-            };
-            r.on_episode_end(&trial(), &ep);
+            let ep = EpisodeSummary::new(
+                Phase::Evaluation,
+                i,
+                f64::from(i32::try_from(i).unwrap_or(0)),
+                10,
+                EpisodeStatus::Terminated,
+            );
+            r.on_episode(&trial(), &ep);
         }
         r.on_trial_end(&trial(), &trep());
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
         let probe = probe.lock();
-        // on_trial_start opens ep 0; on_episode_end (`$\times 3$`) closes and re-opens for the next
+        // on_trial_start opens ep 0; on_episode (`$\times 3$`) closes and re-opens for the next
         // idx → episodes 0, 1, 2, 3 all reach on_episode_start.
         assert!(probe.episodes.contains_key(&0));
         assert!(probe.episodes.contains_key(&1));
@@ -286,13 +296,9 @@ mod tests {
 
         r.on_suite_start(&suite());
         r.on_trial_start(&trial());
-        r.on_episode_end(
+        r.on_episode(
             &trial(),
-            &EpisodeSummary {
-                episode_idx: 0,
-                return_value: 1.0,
-                length: 4,
-            },
+            &EpisodeSummary::new(Phase::Evaluation, 0, 1.0, 4, EpisodeStatus::Terminated),
         );
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
@@ -358,7 +364,7 @@ mod tests {
         impl Reporter for CountToShared {
             fn on_suite_start(&mut self, _: &SuiteInfo) {}
             fn on_trial_start(&mut self, _: &TrialInfo) {}
-            fn on_episode_end(&mut self, _: &TrialInfo, _: &EpisodeSummary) {
+            fn on_episode(&mut self, _: &TrialInfo, _: &EpisodeSummary) {
                 *self.shared.lock() += 1;
             }
             fn on_trial_end(&mut self, _: &TrialInfo, _: &TrialReport) {}
@@ -379,13 +385,9 @@ mod tests {
 
         multi.on_suite_start(&suite());
         multi.on_trial_start(&trial());
-        multi.on_episode_end(
+        multi.on_episode(
             &trial(),
-            &EpisodeSummary {
-                episode_idx: 0,
-                return_value: 1.0,
-                length: 5,
-            },
+            &EpisodeSummary::new(Phase::Evaluation, 0, 1.0, 5, EpisodeStatus::Terminated),
         );
         multi.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 

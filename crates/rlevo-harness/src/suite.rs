@@ -64,7 +64,11 @@ impl<E> Suite<E> {
 ///
 /// Derived from a [`Suite`] at run start and does not hold any closures, so it
 /// is cheaply cloneable and serializable.
+///
+/// `#[non_exhaustive]`: built only by the harness, so a later field is not a
+/// breaking change.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SuiteInfo {
     /// Display name of the suite.
     pub name: String,
@@ -79,6 +83,25 @@ pub struct SuiteInfo {
     pub success_threshold: Option<f64>,
 }
 
+impl SuiteInfo {
+    /// Suite metadata as `run_trials` builds it; public so a sink's own tests
+    /// can build one.
+    #[must_use]
+    pub fn new(
+        name: String,
+        env_names: Vec<String>,
+        num_trials_per_env: usize,
+        success_threshold: Option<f64>,
+    ) -> Self {
+        Self {
+            name,
+            env_names,
+            num_trials_per_env,
+            success_threshold,
+        }
+    }
+}
+
 /// Identifies a single trial within a suite run.
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -90,7 +113,11 @@ pub struct TrialKey {
 }
 
 /// Runtime metadata about an in-flight trial passed to reporters.
+///
+/// `#[non_exhaustive]`: built only by the harness, so a later field is not a
+/// breaking change.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TrialInfo {
     /// Unique identifier for this trial within the suite.
     pub key: TrialKey,
@@ -98,6 +125,19 @@ pub struct TrialInfo {
     pub env_name: String,
     /// Combined seed used for both the environment and the agent.
     pub trial_seed: u64,
+}
+
+impl TrialInfo {
+    /// Trial metadata as `run_trials` builds it; public so a sink's own tests
+    /// can build one.
+    #[must_use]
+    pub fn new(key: TrialKey, env_name: String, trial_seed: u64) -> Self {
+        Self {
+            key,
+            env_name,
+            trial_seed,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -11,6 +11,61 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking changes
 
+- **A reporter sees every episode and every metrics read, and each trial
+  runs inside a span.** `Reporter::on_episode_end` is renamed
+  `Reporter::on_episode` (`Agent::on_episode_end` keeps its name), and is now
+  called for training episodes as well as evaluation ones;
+  `EpisodeSummary::phase` (`Phase::Training` or `Phase::Evaluation`) says
+  which. A new method, `Reporter::on_metrics(trial, at, metrics)`, defaulted
+  to do nothing, receives the agent's `emit_metrics` after every episode of
+  both phases and the probe's after every generation, at a `Boundary`
+  (`TrainingEpisode { index, step }`, `EvaluationEpisode { index, step }` or
+  `Generation { generation }`, where `step` counts the trial's environment
+  steps across both phases and `generation` counts from 1, as `ea/generation`
+  does). A sink that does not use `on_metrics` returns `false` from the new
+  defaulted `Reporter::wants_metrics`, and the trial then skips the reads;
+  the shipped `JsonReporter`, `LoggingReporter` and `RecordingReporter` do.
+  Before, a training episode reached no reporter and a trial's metrics were
+  read once, at its end; the report still keeps the last read. Each trial
+  runs inside a root `trial` tracing span (target `rlevo_harness`; fields
+  `env`, `env_idx`, `trial`, `seed`). The trial's wall clock, and the
+  throughput computed from it, leave out the time spent reading metrics and
+  in reporter callbacks. A reporter that panics now errors only the trial it
+  panicked in, instead of poisoning the lock every later trial needs.
+  - **A reporter.** Rename the method:
+
+    ```rust
+    // before
+    fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) { /* ... */ }
+
+    // after: also called for training episodes
+    fn on_episode(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
+        if ep.phase != Phase::Evaluation {
+            return; // to keep the old behaviour
+        }
+        /* ... */
+    }
+    ```
+  - **`EpisodeSummary` records how the episode ended.** Its `status` is
+    `Some(Terminated)` or `Some(Truncated)` (an episode the trial cuts at
+    `max_steps` is `Truncated`), and `None` only in a report written before
+    0.7.0. `train` returns summaries with both fields filled.
+  - **`#[non_exhaustive]`** on `EpisodeSummary`, `SuiteInfo` and `TrialInfo`.
+    A literal of one outside `rlevo-harness` no longer compiles; a sink's
+    tests build them with `EpisodeSummary::new`, `SuiteInfo::new` and
+    `TrialInfo::new`.
+  - **The report has room for a recording.** `TrialReport::recording_id` and
+    `recording_path`, and `BenchmarkReport::recording_sdk_version`, are
+    `None` until a recording sink fills them. A checkpoint written by 0.6.1
+    still loads, and a resumed run still skips its finished trials.
+  - **`EpisodeStatus` implements `Serialize` and `Deserialize`.**
+
+- **`SnapshotMetadata::positions` and `with_position` are removed.** Nothing
+  read them. `components`, the named reward parts, stays. The four
+  locomotion environments that filled `positions` (InvertedPendulum,
+  InvertedDoublePendulum, Swimmer, Reacher) no longer do. Delete
+  `.with_position(..)` calls; a body's pose is the environment's to expose.
+
 - **`TensorConvertible` is deleted, and `rlevo-core` does not depend on
   Burn** (ADR 0102). Nothing in the workspace's own code, the probes or the
   `rlevo-algo` template called it: every agent stages a batch of rows and

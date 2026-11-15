@@ -18,15 +18,56 @@ pub mod logging;
 #[cfg(feature = "json")]
 pub mod json;
 
+use crate::metrics::Metric;
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::suite::{SuiteInfo, TrialInfo};
+
+/// Where in a trial a set of metrics was read.
+///
+/// The harness reads the agent's or probe's `emit_metrics` at each of these
+/// and hands the values to [`Reporter::on_metrics`]. A read describes the
+/// trial so far and changes nothing (ADR 0097), so a sink may keep every read
+/// as a time series or only the latest.
+///
+/// `#[non_exhaustive]`: a later kind of boundary is not a breaking change, so
+/// a `match` needs a wildcard arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Boundary {
+    /// A training episode of an episodic trial ended.
+    TrainingEpisode {
+        /// Zero-based index of the episode among the trial's training
+        /// episodes.
+        index: usize,
+        /// Environment steps the trial has taken so far, training and
+        /// evaluation together, this episode's included.
+        step: u64,
+    },
+    /// An evaluation episode of an episodic trial ended.
+    EvaluationEpisode {
+        /// Zero-based index of the episode among the trial's evaluation
+        /// episodes.
+        index: usize,
+        /// Environment steps the trial has taken so far, training and
+        /// evaluation together, this episode's included.
+        step: u64,
+    },
+    /// A generation of a generation trial ended.
+    Generation {
+        /// Generations run so far, this one included: 1 after the first. The
+        /// same count as the report's `generations` scalar and an
+        /// `EvolutionaryLoop`'s `ea/generation`.
+        generation: usize,
+    },
+}
 
 /// Event sink called by the `Evaluator` throughout a benchmark run.
 ///
 /// Implementors are notified at each lifecycle boundary — suite start/end,
-/// trial start/end, and episode end — and may emit, log, or buffer the data
-/// however they need. Implementors must be [`Send`] so they can be driven from
-/// the evaluator's execution context.
+/// trial start/end, each episode, and each point where the trial's metrics
+/// are read — and may emit, log, or buffer the data however they need.
+/// Implementors must be [`Send`] so they can be driven from the evaluator's
+/// execution context.
 ///
 /// For running multiple sinks in parallel, see [`MultiReporter`].
 pub trait Reporter: Send {
@@ -36,8 +77,38 @@ pub trait Reporter: Send {
     /// Called at the start of each (env, seed) trial.
     fn on_trial_start(&mut self, trial: &TrialInfo);
 
-    /// Called after each episode within a trial completes.
-    fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeSummary);
+    /// Called after each episode of an episodic trial, training and
+    /// evaluation alike; [`EpisodeSummary::phase`] says which. A generation
+    /// trial plays no episodes and never calls it.
+    ///
+    /// Named `on_episode_end` before 0.7.0, when it saw evaluation episodes
+    /// only. A sink that wants the old behaviour returns early unless the
+    /// phase is [`Phase::Evaluation`](crate::report::Phase::Evaluation).
+    fn on_episode(&mut self, trial: &TrialInfo, ep: &EpisodeSummary);
+
+    /// Called with the trial's metrics each time the harness reads them: after
+    /// every episode of an episodic trial (the agent's
+    /// [`emit_metrics`](rlevo_core::agent::Agent::emit_metrics)), and after
+    /// every generation of a generation trial (the probe's). `at` says which
+    /// boundary, and carries the index and, for episodes, the step count a
+    /// time series is plotted against.
+    ///
+    /// For an episode, it follows that episode's
+    /// [`on_episode`](Self::on_episode). It is called even when `metrics` is
+    /// empty, and never when [`wants_metrics`](Self::wants_metrics) is
+    /// `false`. The default does nothing.
+    fn on_metrics(&mut self, trial: &TrialInfo, at: Boundary, metrics: &[Metric]) {
+        let _ = (trial, at, metrics);
+    }
+
+    /// Whether this sink uses [`on_metrics`](Self::on_metrics). The harness
+    /// asks once as each trial starts; when it is `false`, the trial neither
+    /// reads its agent's or probe's metrics at each boundary nor calls
+    /// `on_metrics`, which saves a read and a lock per episode. Defaults to
+    /// `true`; a sink that leaves `on_metrics` at its default returns `false`.
+    fn wants_metrics(&self) -> bool {
+        true
+    }
 
     /// Called when a trial finishes, with its full accumulated report.
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport);
@@ -81,10 +152,22 @@ impl Reporter for MultiReporter {
             r.on_trial_start(trial);
         }
     }
-    fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
+    fn on_episode(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
         for r in &mut self.reporters {
-            r.on_episode_end(trial, ep);
+            r.on_episode(trial, ep);
         }
+    }
+    /// Forwards to the sinks that [want metrics](Reporter::wants_metrics).
+    fn on_metrics(&mut self, trial: &TrialInfo, at: Boundary, metrics: &[Metric]) {
+        for r in &mut self.reporters {
+            if r.wants_metrics() {
+                r.on_metrics(trial, at, metrics);
+            }
+        }
+    }
+    /// `true` when any sink wants them.
+    fn wants_metrics(&self) -> bool {
+        self.reporters.iter().any(|r| r.wants_metrics())
     }
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
         for r in &mut self.reporters {
@@ -103,8 +186,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::{MultiReporter, Reporter};
-    use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
+    use crate::report::{BenchmarkReport, EpisodeSummary, Phase, TrialReport};
     use crate::suite::{SuiteInfo, TrialInfo, TrialKey};
+    use rlevo_core::environment::EpisodeStatus;
 
     #[derive(Debug, Clone)]
     enum Tag {
@@ -133,7 +217,7 @@ mod tests {
                 .unwrap()
                 .push(Tag::TrialStart(format!("{}:{}", self.name, trial.env_name)));
         }
-        fn on_episode_end(&mut self, _trial: &TrialInfo, _ep: &EpisodeSummary) {
+        fn on_episode(&mut self, _trial: &TrialInfo, _ep: &EpisodeSummary) {
             self.log
                 .lock()
                 .unwrap()
@@ -151,6 +235,66 @@ mod tests {
                 self.name, report.suite_name
             )));
         }
+    }
+
+    /// `MultiReporter` wants metrics when any sink does, and hands them only to
+    /// the sinks that want them.
+    #[test]
+    fn multi_reporter_forwards_metrics_to_the_sinks_that_want_them() {
+        use super::Boundary;
+        use crate::metrics::Metric;
+
+        struct Counts {
+            wants: bool,
+            calls: Arc<Mutex<usize>>,
+        }
+        impl Reporter for Counts {
+            fn on_suite_start(&mut self, _: &SuiteInfo) {}
+            fn on_trial_start(&mut self, _: &TrialInfo) {}
+            fn on_episode(&mut self, _: &TrialInfo, _: &EpisodeSummary) {}
+            fn on_metrics(&mut self, _: &TrialInfo, _: Boundary, _: &[Metric]) {
+                *self.calls.lock().unwrap() += 1;
+            }
+            fn wants_metrics(&self) -> bool {
+                self.wants
+            }
+            fn on_trial_end(&mut self, _: &TrialInfo, _: &TrialReport) {}
+            fn on_suite_end(&mut self, _: &BenchmarkReport) {}
+        }
+
+        let calls = |wants| {
+            let n = Arc::new(Mutex::new(0));
+            (
+                Box::new(Counts {
+                    wants,
+                    calls: Arc::clone(&n),
+                }) as Box<dyn Reporter>,
+                n,
+            )
+        };
+        let trial = TrialInfo::new(
+            TrialKey {
+                env_idx: 0,
+                trial_idx: 0,
+            },
+            "E".into(),
+            0,
+        );
+
+        let (no, no_calls) = calls(false);
+        let mut quiet = MultiReporter::new(vec![no]);
+        assert!(!quiet.wants_metrics());
+
+        let (yes, yes_calls) = calls(true);
+        let (no, no_calls_2) = calls(false);
+        let mut mixed = MultiReporter::new(vec![yes, no]);
+        assert!(mixed.wants_metrics());
+        mixed.on_metrics(&trial, Boundary::Generation { generation: 1 }, &[]);
+        quiet.on_metrics(&trial, Boundary::Generation { generation: 1 }, &[]);
+
+        assert_eq!(*yes_calls.lock().unwrap(), 1);
+        assert_eq!(*no_calls.lock().unwrap(), 0);
+        assert_eq!(*no_calls_2.lock().unwrap(), 0);
     }
 
     #[test]
@@ -180,17 +324,13 @@ mod tests {
             env_name: "E".into(),
             trial_seed: 0,
         };
-        let ep = EpisodeSummary {
-            episode_idx: 7,
-            return_value: 1.0,
-            length: 2,
-        };
+        let ep = EpisodeSummary::new(Phase::Evaluation, 7, 1.0, 2, EpisodeStatus::Terminated);
         let report = BenchmarkReport::new("S".into(), 0);
         let trep = TrialReport::new(trial.key, "E".into(), 0);
 
         multi.on_suite_start(&suite);
         multi.on_trial_start(&trial);
-        multi.on_episode_end(&trial, &ep);
+        multi.on_episode(&trial, &ep);
         multi.on_trial_end(&trial, &trep);
         multi.on_suite_end(&report);
 

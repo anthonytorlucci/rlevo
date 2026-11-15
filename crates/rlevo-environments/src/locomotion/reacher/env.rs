@@ -315,8 +315,7 @@ impl Environment for Reacher {
         // `$\sum$`-components = reward invariant holds at step 0 (no action taken).
         let meta = SnapshotMetadata::new()
             .with(METADATA_KEY_REWARD_DISTANCE, 0.0)
-            .with(METADATA_KEY_REWARD_CONTROL, 0.0)
-            .with_position("target", [obs.target_xy()[0], obs.target_xy()[1], 0.0]);
+            .with(METADATA_KEY_REWARD_CONTROL, 0.0);
         Ok(Snapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
@@ -324,9 +323,7 @@ impl Environment for Reacher {
     ///
     /// The action is clipped to `config.action_clip` before the gear ratio is
     /// applied. The snapshot metadata carries the two reward components under
-    /// [`METADATA_KEY_REWARD_DISTANCE`] and [`METADATA_KEY_REWARD_CONTROL`],
-    /// and the world-space positions of the fingertip and target under the
-    /// keys `"fingertip"` and `"target"`.
+    /// [`METADATA_KEY_REWARD_DISTANCE`] and [`METADATA_KEY_REWARD_CONTROL`].
     ///
     /// # Errors
     ///
@@ -405,16 +402,9 @@ impl Environment for Reacher {
             EpisodeStatus::Running
         };
 
-        // Fingertip world-xy `$= (\text{finger} - \text{target}) + \text{target}$`.
-        let [tx, ty] = self.state.target_xy;
-        let fx = dx + tx;
-        let fy = dy + ty;
-
         let meta = SnapshotMetadata::new()
             .with(METADATA_KEY_REWARD_DISTANCE, reward_distance)
-            .with(METADATA_KEY_REWARD_CONTROL, reward_control)
-            .with_position("fingertip", [fx, fy, 0.0])
-            .with_position("target", [tx, ty, 0.0]);
+            .with(METADATA_KEY_REWARD_CONTROL, reward_control);
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot disagree.
         let snapshot = Snapshot {

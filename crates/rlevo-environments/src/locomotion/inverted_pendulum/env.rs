@@ -284,8 +284,7 @@ impl Environment for InvertedPendulum {
     ///    - `Truncated` if `steps >= max_steps`.
     ///    - `Running` otherwise.
     ///
-    /// The snapshot metadata includes the `"alive"` component (0 or 1) and the
-    /// cart's 3-D position keyed as `"cart"`.
+    /// The snapshot metadata includes the `"alive"` component (0 or 1).
     ///
     /// # Errors
     ///
@@ -347,12 +346,7 @@ impl Environment for InvertedPendulum {
             EpisodeStatus::Running
         };
 
-        let meta = SnapshotMetadata::new()
-            .with(METADATA_KEY_ALIVE, alive_bonus)
-            .with_position(
-                "cart",
-                [obs.cart_position(), 0.0, self.config.cart_half_extents[2]],
-            );
+        let meta = SnapshotMetadata::new().with(METADATA_KEY_ALIVE, alive_bonus);
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
         let snapshot = Snapshot {
