@@ -479,23 +479,27 @@ impl tracing::field::Visit for UpdateEvent {
     }
 }
 
+/// What a collecting thread does with each event it logs.
+type Collector = Box<dyn FnMut(&tracing::Event<'_>)>;
+
 thread_local! {
-    /// The update events this thread is collecting, while it is collecting.
-    static COLLECTING: std::cell::RefCell<Option<Vec<UpdateEvent>>> =
+    /// This thread's collector, while it is collecting.
+    static COLLECTOR: std::cell::RefCell<Option<Collector>> =
         const { std::cell::RefCell::new(None) };
 }
 
-/// The process's subscriber in this crate's tests: hands each event at
-/// [`UPDATE_TARGET`](rlevo_core::fitness::UPDATE_TARGET) to the thread that
-/// logged it, if that thread is collecting, and ignores every other one.
-struct UpdateCapture;
+/// The process's subscriber in this crate's tests: hands each event to the
+/// thread that logged it, if that thread is collecting.
+struct Capture;
 
-impl tracing::Subscriber for UpdateCapture {
+impl tracing::Subscriber for Capture {
     fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
         true
     }
 
     fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        // The code under test opens no spans; a constant id satisfies the
+        // contract without any bookkeeping.
         tracing::span::Id::from_u64(1)
     }
 
@@ -504,16 +508,13 @@ impl tracing::Subscriber for UpdateCapture {
     fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
 
     fn event(&self, event: &tracing::Event<'_>) {
-        if event.metadata().target() != rlevo_core::fitness::UPDATE_TARGET {
+        // Taken out for the call, so an event logged from inside a collector
+        // finds none and is ignored instead of borrowing twice.
+        let Some(mut collector) = COLLECTOR.take() else {
             return;
-        }
-        COLLECTING.with_borrow_mut(|collecting| {
-            if let Some(events) = collecting {
-                let mut captured = UpdateEvent::default();
-                event.record(&mut captured);
-                events.push(captured);
-            }
-        });
+        };
+        collector(event);
+        COLLECTOR.set(Some(collector));
     }
 
     fn enter(&self, _span: &tracing::span::Id) {}
@@ -521,30 +522,61 @@ impl tracing::Subscriber for UpdateCapture {
     fn exit(&self, _span: &tracing::span::Id) {}
 }
 
-/// Runs `f` and returns the update-rate events it logged on this thread, in
-/// order.
+/// Runs `f` and returns what `read` made of each `tracing` event `f` logged
+/// on this thread, in order; an event `read` returns `None` for is left out.
 ///
-/// The subscriber is the process's, set once, and not one scoped to this
-/// thread with `with_default`. `tracing` caches, for the whole process,
-/// whether anything listens at a callsite, and decides it when the callsite
-/// is first reached. An agent's update event is one callsite for every
-/// instantiation of the agent, since a `static` in a generic function is
-/// shared; and other tests drive the same agents through an update with no
-/// subscriber. If one of them reaches the callsite first, "no one listens"
-/// is cached, and a scoped subscriber on this thread then sees nothing: a
-/// failure that depends on how many test threads run. With a subscriber
-/// that is always there, the answer is always that someone listens.
-pub(crate) fn capture_update_events(f: impl FnOnce()) -> Vec<UpdateEvent> {
+/// Every test in this crate that asserts on a `tracing` event captures it
+/// through this function, and through no subscriber of its own.
+///
+/// The subscriber is the process's, set once, and not one scoped to the
+/// calling thread with `with_default`. `tracing` caches, for the whole
+/// process, whether anything listens at a callsite, and decides it when the
+/// callsite is first reached. A callsite in a generic function is one
+/// callsite for every instantiation, since a `static` there is shared; and
+/// other tests reach the same callsites with no subscriber. If one of them
+/// gets there first, "no one listens" is cached, and a scoped subscriber on
+/// this thread then sees nothing: a failure that depends on how many test
+/// threads run. With a subscriber that is always there, the answer is
+/// always that someone listens.
+pub(crate) fn capture_events<T: 'static>(
+    mut read: impl FnMut(&tracing::Event<'_>) -> Option<T> + 'static,
+    f: impl FnOnce(),
+) -> Vec<T> {
     static INSTALL: std::sync::Once = std::sync::Once::new();
     INSTALL.call_once(|| {
-        tracing::subscriber::set_global_default(UpdateCapture)
+        tracing::subscriber::set_global_default(Capture)
             .expect("no other global subscriber is installed in this crate's tests");
         // Callsites reached before this, by tests that do not collect.
         tracing::callsite::rebuild_interest_cache();
     });
-    COLLECTING.set(Some(Vec::new()));
+
+    let collected = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = std::rc::Rc::clone(&collected);
+    COLLECTOR.set(Some(Box::new(move |event| {
+        if let Some(item) = read(event) {
+            sink.borrow_mut().push(item);
+        }
+    })));
     f();
-    COLLECTING.take().unwrap_or_default()
+    // Dropping the collector drops its handle on what was collected.
+    COLLECTOR.set(None);
+    collected.take()
+}
+
+/// Runs `f` and returns the update-rate events
+/// ([`UPDATE_TARGET`](rlevo_core::fitness::UPDATE_TARGET)) it logged on this
+/// thread, in order.
+pub(crate) fn capture_update_events(f: impl FnOnce()) -> Vec<UpdateEvent> {
+    capture_events(
+        |event| {
+            (event.metadata().target() == rlevo_core::fitness::UPDATE_TARGET).then(|| {
+                let mut captured = UpdateEvent::default();
+                event.record(&mut captured);
+                captured
+            })
+        },
+        f,
+    )
 }
 
 /// The metric names of `event`, in order.

@@ -1182,7 +1182,7 @@ mod tests {
     use super::*;
 
     use std::panic::AssertUnwindSafe;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use burn::module::Module;
     use burn::optim::AdamConfig;
@@ -2286,17 +2286,16 @@ mod tests {
     // Mirrors `ppo::policies::gaussian`'s: the schedule under test is a
     // property of the emitted events, and a latch/counter-only assertion
     // cannot distinguish "fires at 1, 10, 100" from "fires every time" once
-    // the counter itself is the thing being asserted on. Hand-rolled rather
-    // than pulled in as a dev-dependency: `tracing` is already a direct
-    // dependency of this crate, and `with_default` plus a seven-method
-    // `Subscriber` is all that is needed (rules §8).
+    // the counter itself is the thing being asserted on. The subscriber is
+    // the crate's one hand-rolled capture, in `bootstrap_mask`: `tracing` is
+    // already a direct dependency of this crate, so no capture dependency is
+    // needed (rules §8).
     // -----------------------------------------------------------------
 
     /// The fields of one captured `tracing` event that the warnings are
     /// asserted on.
     #[derive(Debug, Clone, Default)]
     struct CapturedEvent {
-        level: Option<tracing::Level>,
         /// The structured `dropped` field: the running drop total.
         dropped: Option<u64>,
         /// The structured `skipped` field: the running skipped-update total
@@ -2338,61 +2337,22 @@ mod tests {
         }
     }
 
-    /// Minimal `Subscriber` that records every event it is handed.
-    #[derive(Debug, Default)]
-    struct CaptureSubscriber {
-        events: Arc<Mutex<Vec<CapturedEvent>>>,
-    }
-
-    impl tracing::Subscriber for CaptureSubscriber {
-        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
-            true
-        }
-
-        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-            // No spans are opened by the code under test; a constant id
-            // satisfies the contract without any bookkeeping.
-            tracing::span::Id::from_u64(1)
-        }
-
-        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
-
-        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
-
-        fn event(&self, event: &tracing::Event<'_>) {
-            let mut captured = CapturedEvent {
-                level: Some(*event.metadata().level()),
-                ..CapturedEvent::default()
-            };
-            event.record(&mut FieldVisitor(&mut captured));
-            self.events
-                .lock()
-                .expect("capture mutex is never poisoned")
-                .push(captured);
-        }
-
-        fn enter(&self, _span: &tracing::span::Id) {}
-
-        fn exit(&self, _span: &tracing::span::Id) {}
-    }
-
-    /// Runs `f` with a capturing subscriber installed on this thread and
-    /// returns the `WARN`-level events it emitted, in order.
+    /// Runs `f` and returns the `WARN`-level events it emitted on this
+    /// thread, in order.
     ///
-    /// `with_default` is thread-local, so this is safe under the parallel test
-    /// runner: a concurrently running test cannot observe or pollute these
-    /// events.
+    /// Through the crate's one capture
+    /// ([`capture_events`](crate::algorithms::bootstrap_mask::capture_events)),
+    /// whose docs say why a subscriber scoped to this thread would not do.
     fn capture_warnings(f: impl FnOnce()) -> Vec<CapturedEvent> {
-        let events = Arc::new(Mutex::new(Vec::new()));
-        let subscriber = CaptureSubscriber {
-            events: Arc::clone(&events),
-        };
-        tracing::subscriber::with_default(subscriber, f);
-        let captured = events.lock().expect("capture mutex is never poisoned");
-        captured
-            .iter()
-            .filter(|e| e.level == Some(tracing::Level::WARN))
-            .cloned()
-            .collect()
+        crate::algorithms::bootstrap_mask::capture_events(
+            |event| {
+                (*event.metadata().level() == tracing::Level::WARN).then(|| {
+                    let mut captured = CapturedEvent::default();
+                    event.record(&mut FieldVisitor(&mut captured));
+                    captured
+                })
+            },
+            f,
+        )
     }
 }
