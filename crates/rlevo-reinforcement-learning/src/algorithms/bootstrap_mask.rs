@@ -428,3 +428,101 @@ pub(crate) fn assert_rl_counters(metrics: &[Metric], expected: &[(&str, u64)]) {
         "each counter needs a count of its own, or a swap would pass: {expected:?}"
     );
 }
+
+/// One update-rate event ([`UPDATE_TARGET`]) as a reader that follows the
+/// target's rules sees it.
+///
+/// [`UPDATE_TARGET`]: rlevo_core::fitness::UPDATE_TARGET
+#[derive(Debug, Default)]
+pub(crate) struct UpdateEvent {
+    /// The `step` field, when the event carries one as an integer.
+    pub(crate) step: Option<u64>,
+    /// Every other numeric field, by name.
+    pub(crate) metrics: std::collections::BTreeMap<String, f64>,
+    /// The names of fields recorded as anything but a number, the message
+    /// excepted: a reader drops these, so a metric here is a metric lost.
+    pub(crate) not_numbers: Vec<String>,
+}
+
+impl tracing::field::Visit for UpdateEvent {
+    fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
+        self.metrics.insert(field.name().to_owned(), value);
+    }
+
+    // The counts in an update event are small; the cast is exact.
+    #[allow(clippy::cast_precision_loss)]
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        if field.name() == "step" {
+            self.step = Some(value);
+        } else {
+            self.metrics.insert(field.name().to_owned(), value as f64);
+        }
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+        self.metrics.insert(field.name().to_owned(), value as f64);
+    }
+
+    fn record_bool(&mut self, field: &tracing::field::Field, _value: bool) {
+        self.not_numbers.push(field.name().to_owned());
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, _value: &str) {
+        self.not_numbers.push(field.name().to_owned());
+    }
+
+    fn record_debug(&mut self, field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {
+        if field.name() != "message" {
+            self.not_numbers.push(field.name().to_owned());
+        }
+    }
+}
+
+/// Keeps the events at [`UPDATE_TARGET`](rlevo_core::fitness::UPDATE_TARGET)
+/// and ignores every other one, as a reader of that target does.
+struct UpdateCapture(std::sync::Arc<std::sync::Mutex<Vec<UpdateEvent>>>);
+
+impl tracing::Subscriber for UpdateCapture {
+    fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+        true
+    }
+
+    fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+    fn event(&self, event: &tracing::Event<'_>) {
+        if event.metadata().target() != rlevo_core::fitness::UPDATE_TARGET {
+            return;
+        }
+        let mut captured = UpdateEvent::default();
+        event.record(&mut captured);
+        self.0
+            .lock()
+            .expect("capture mutex is never poisoned")
+            .push(captured);
+    }
+
+    fn enter(&self, _span: &tracing::span::Id) {}
+
+    fn exit(&self, _span: &tracing::span::Id) {}
+}
+
+/// Runs `f` and returns the update-rate events it logged on this thread, in
+/// order. `with_default` is thread-local, so parallel tests do not see each
+/// other's events.
+pub(crate) fn capture_update_events(f: impl FnOnce()) -> Vec<UpdateEvent> {
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    tracing::subscriber::with_default(UpdateCapture(std::sync::Arc::clone(&events)), f);
+    std::mem::take(&mut *events.lock().expect("capture mutex is never poisoned"))
+}
+
+/// The metric names of `event`, in order.
+pub(crate) fn metric_names(event: &UpdateEvent) -> Vec<&str> {
+    event.metrics.keys().map(String::as_str).collect()
+}

@@ -11,6 +11,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking changes
 
+- **PPO's and PPG's per-update event has a target of its own and metric
+  names.** Each update is still one `tracing::info!`, now at the target
+  `rlevo::update` (`rlevo_core::fitness::UPDATE_TARGET`, a constant an
+  outside learner can log to as well) instead of the module path, and its
+  fields are spelled as `emit_metrics` names are: `rl/policy_loss`,
+  `rl/value_loss`, `rl/entropy`, `rl/approx_kl`, `rl/clip_frac`,
+  `rl/epochs_run`, `rl/learning_rate`, and for PPO `rl/old_approx_kl` and
+  `rl/explained_variance`. `step` stays, as the point the values belong to.
+  A subscriber that filtered on the module path or read `policy_loss` reads
+  the new target and names.
+  - **A quantity that does not exist is absent.** `rl/min_log_std` and
+    `rl/max_log_std` were logged as the text `Some(-1.2)` or `None`; they are
+    numbers now, and a categorical head logs neither. PPG's
+    `rl/aux_value_loss` and `rl/aux_policy_kl` were `0.0` on an iteration with
+    no auxiliary phase, which read as a loss of zero; such an iteration logs
+    neither, and `aux_ran` is gone.
+  - **The event no longer repeats the counters.** `env_steps_sampled`,
+    `iteration` and `skipped_updates` are `rl/env_steps`, `rl/iterations` and
+    `rl/skipped_updates` from `emit_metrics`.
+  - The static report's per-update panels, which matched the old field names,
+    stay empty until the recording stack they belong to is removed.
+
 - **A trial names its environment `env_id`, and can name its task.**
   `TrialInfo::env_name` and `TrialReport::env_name` are renamed `env_id`, and
   `SuiteInfo::env_names` `env_ids`: the id is the name the suite registers an
