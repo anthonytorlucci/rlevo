@@ -4,9 +4,40 @@
 //! This crate is the one place in the workspace that links rerun. The
 //! harness ([`rlevo_harness`]) reports a run through its
 //! [`Reporter`](rlevo_harness::reporter::Reporter) trait and knows nothing
-//! about rerun; a sink here turns those reports into `.rrd` recordings that
-//! the rerun viewer opens. No other published crate depends on this one by
-//! default: the `rlevo` umbrella carries it only behind an off-by-default
-//! feature.
+//! about rerun; [`RerunSink`] is a `Reporter` that turns those reports into
+//! `.rrd` recordings the rerun viewer opens. No rerun type appears in this
+//! crate's API, so a rerun upgrade is not a breaking change of it.
 //!
-//! The crate exports nothing yet.
+//! # What a run writes
+//!
+//! One file per trial, in the directory the sink was given, all under one
+//! recording ID (the run's, which the harness draws and a resumed run
+//! keeps), so the viewer shows the files of a run as one recording and
+//! overlays its seeds. Each file holds, for its trial:
+//!
+//! - every episode's return and length, training and evaluation apart;
+//! - every metric the trial's agent or generation loop reported, at each
+//!   point the harness read it;
+//! - the trial's identity, task and build, as properties of the recording;
+//! - a status entry, when the trial ended in an error.
+//!
+//! Values sit at `/metrics/<metric>/<run label>/<environment>/<trial>`, the
+//! metric first, so one view rooted at a metric overlays every trial.
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use rlevo_rerun::{RerunConfig, RerunSink};
+//!
+//! let mut sink = RerunSink::new(RerunConfig::new("runs/cartpole-ppo", "ppo"))?;
+//! // Hand `&mut sink` to `Evaluator::run_suite` or `run_trials`, then:
+//! if let Some(how) = sink.viewer_instructions() {
+//!     println!("{how}");
+//! }
+//! # Ok::<(), rlevo_rerun::RerunError>(())
+//! ```
+
+mod sink;
+mod trial;
+
+pub use sink::{RerunConfig, RerunError, RerunSink};

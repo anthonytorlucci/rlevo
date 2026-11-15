@@ -7,13 +7,32 @@ harness.
 
 ## Status
 
-**Unreleased.** The crate exists and links rerun's SDK; it exports nothing
-yet.
+**Unreleased.** `RerunSink` records a run's metrics: every episode's return
+and length, every metric an agent or a generation loop reports, each trial's
+identity and build, and an entry for a trial that errored. Frames, a default
+layout and per-update statistics are not written yet.
 
 `rlevo-rerun` is the one crate in the workspace that depends on rerun. The
 harness (`rlevo-harness`) reports a run through its `Reporter` trait and
 knows nothing about rerun; this crate turns those reports into `.rrd`
-recordings that the rerun viewer opens.
+recordings that the rerun viewer opens. No rerun type appears in its API.
+
+## Use
+
+```rust,ignore
+use rlevo_rerun::{RerunConfig, RerunSink};
+
+let mut sink = RerunSink::new(RerunConfig::new("runs/cartpole-ppo", "ppo"))?;
+let report = evaluator.run_suite(&suite, make_agent, &mut sink);
+if let Some(how) = sink.viewer_instructions() {
+    println!("{how}");
+}
+```
+
+A run writes one file per trial into the directory, all under one recording
+ID, so the viewer shows them as one recording. Give each run a directory of
+its own. `viewer_instructions` names the viewer version that wrote the files
+and the command that opens them.
 
 ## Versions
 

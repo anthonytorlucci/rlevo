@@ -9242,8 +9242,14 @@ dependencies = [
 name = "rlevo-rerun"
 version = "0.1.0"
 dependencies = [
+ "parking_lot",
+ "rand 0.10.3",
  "rerun",
+ "rlevo-core",
+ "rlevo-environments",
  "rlevo-harness",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

@@ -19,6 +19,17 @@ rlevo-harness = { path = "../rlevo-harness", version = "0.6.1" }
 # researcher's own `rerun` in the same minor resolves beside this one. `sdk`
 # alone: no viewer, no server.
 rerun = { version = "0.43.2", default-features = false, features = ["sdk"] }
+# The trial map is shared between the sink and its tracing layer; the
+# workspace's lock for sink state (ADR 0010).
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+rlevo-core = { path = "../rlevo-core", version = "0.6.1" }
+# CartPole for the end-to-end run; no physics features.
+rlevo-environments = { path = "../rlevo-environments", version = "0.6.1", default-features = false }
+tempfile = "3"
 
 [package.metadata.docs.rs]
 all-features = true
