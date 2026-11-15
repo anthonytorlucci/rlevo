@@ -54,7 +54,7 @@ Layered action abstractions cover the standard taxonomy:
 | `Environment` | Core trait, no parameters: `reset()`, `step(action)` |
 | `Snapshot<O>` | Per-step result returned by `reset` and `step`: observation, `ScalarReward`, status, optional metadata; named constructors `running()`, `terminated()`, `truncated()` |
 | `EpisodeStatus` | `Running \| Terminated \| Truncated` — distinguishes natural episode ends from step-limit truncations (important for value bootstrapping) |
-| `SnapshotMetadata` | Builder for named reward components and 3-D positions (visualization / debugging) |
+| `SnapshotMetadata` | Builder for named reward components (shaped-reward logging) |
 
 ### `episode` — Episode-Lifecycle Guard
 

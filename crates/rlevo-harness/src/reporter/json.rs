@@ -102,7 +102,13 @@ impl Reporter for JsonReporter {
 
     fn on_trial_start(&mut self, _trial: &TrialInfo) {}
 
-    fn on_episode_end(&mut self, _trial: &TrialInfo, _ep: &EpisodeSummary) {}
+    fn on_episode(&mut self, _trial: &TrialInfo, _ep: &EpisodeSummary) {}
+
+    /// The JSON document holds each trial's last read, which the report
+    /// already carries.
+    fn wants_metrics(&self) -> bool {
+        false
+    }
 
     fn on_trial_end(&mut self, _trial: &TrialInfo, _report: &TrialReport) {}
 

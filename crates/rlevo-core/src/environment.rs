@@ -14,7 +14,7 @@
 //! - [`Environment`] — core trait with `reset` / `step` methods
 //! - [`Snapshot`] — per-step result carrying observation, reward, and status
 //! - [`EpisodeStatus`] — distinguishes running, terminated, and truncated episodes
-//! - [`SnapshotMetadata`] — optional named reward components and 3D positions
+//! - [`SnapshotMetadata`] — optional named reward components
 //!
 //! [`SnapshotMetadata`]: crate::environment::SnapshotMetadata
 
@@ -28,7 +28,7 @@ use std::fmt::Debug;
 /// Separating `Terminated` from `Truncated` allows RL algorithms to correctly
 /// bootstrap the value function: a truncated episode still has future value,
 /// whereas a terminated one does not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum EpisodeStatus {
     /// The episode is still in progress.
     Running,
@@ -58,17 +58,17 @@ impl EpisodeStatus {
     }
 }
 
-/// Named metadata emitted alongside a snapshot.
+/// Named metadata emitted alongside a snapshot: the parts a shaped reward is
+/// made of.
 ///
-/// Used for shaped / multi-component reward logging. Keys are `&'static str`
-/// constants defined in each per-environment module to avoid magic strings at
-/// call sites.
+/// Keys are `&'static str` constants defined in each per-environment module to
+/// avoid magic strings at call sites. A component is a value at this step, not
+/// a term to sum over the episode: some are potentials (`LunarLander`'s
+/// `shaping` is `$\Phi(s_t)$`), so a reader logs them per step.
 #[derive(Debug, Clone, Default)]
 pub struct SnapshotMetadata {
     /// Named reward components (e.g. `"ctrl"`, `"goal"`, `"healthy"`).
     pub components: BTreeMap<&'static str, f32>,
-    /// Named 3D positions for analysis (e.g. `"torso"`, `"com"`, `"main_body"`).
-    pub positions: BTreeMap<&'static str, [f32; 3]>,
 }
 
 impl SnapshotMetadata {
@@ -82,13 +82,6 @@ impl SnapshotMetadata {
     #[must_use]
     pub fn with(mut self, key: &'static str, value: f32) -> Self {
         self.components.insert(key, value);
-        self
-    }
-
-    /// Builder-style insert for a named 3D position.
-    #[must_use]
-    pub fn with_position(mut self, key: &'static str, xyz: [f32; 3]) -> Self {
-        self.positions.insert(key, xyz);
         self
     }
 }
@@ -706,20 +699,15 @@ mod tests {
     fn test_metadata_default_is_empty() {
         let meta = SnapshotMetadata::default();
         assert!(meta.components.is_empty());
-        assert!(meta.positions.is_empty());
     }
 
     #[test]
-    fn test_metadata_builder_components_and_positions() {
+    fn test_metadata_builder_components() {
         let meta = SnapshotMetadata::new()
             .with("forward", 1.25)
-            .with("ctrl", -0.1)
-            .with_position("torso", [0.5, 0.0, 1.1])
-            .with_position("com", [0.4, 0.0, 0.9]);
+            .with("ctrl", -0.1);
 
         assert_eq!(meta.components.len(), 2);
         assert_eq!(meta.components.get("forward"), Some(&1.25));
-        assert_eq!(meta.positions.len(), 2);
-        assert_eq!(meta.positions.get("torso"), Some(&[0.5, 0.0, 1.1]));
     }
 }

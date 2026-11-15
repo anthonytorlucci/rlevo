@@ -366,13 +366,9 @@ impl Environment for Swimmer {
         let obs = self.observe();
         self.state.last_obs = obs;
 
-        let torso_pos = Rapier3DBackend::get_pose(&self.world, self.state.segment0).position;
         let meta = SnapshotMetadata::new()
             .with(METADATA_KEY_FORWARD, 0.0)
-            .with(METADATA_KEY_CTRL, 0.0)
-            .with_position("torso", torso_pos)
-            .with_position("com", torso_pos)
-            .with_position("main_body", torso_pos);
+            .with(METADATA_KEY_CTRL, 0.0);
         Ok(Snapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
@@ -437,13 +433,9 @@ impl Environment for Swimmer {
             EpisodeStatus::Running
         };
 
-        let torso_pos = Rapier3DBackend::get_pose(&self.world, self.state.segment0).position;
         let meta = SnapshotMetadata::new()
             .with(METADATA_KEY_FORWARD, forward)
-            .with(METADATA_KEY_CTRL, ctrl)
-            .with_position("torso", torso_pos)
-            .with_position("com", torso_pos)
-            .with_position("main_body", torso_pos);
+            .with(METADATA_KEY_CTRL, ctrl);
         // Single exit: one snapshot is built, and the guard is fed that
         // snapshot's own status, so the two cannot disagree.
         let snapshot = Snapshot {

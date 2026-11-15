@@ -94,7 +94,7 @@ The traits a trial drives are part of the contract, so they live in `rlevo-core`
 
 ### `metrics` — Metric Collection
 
-Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram`, `Counter`). An agent and a generation loop each report method-specific metrics through `emit_metrics`, read once per trial after its last episode or generation. Each value describes the trial so far: a counter is a total since the trial began, a scalar the value at the read, so a reader that reads more often keeps the latest and never adds two reads together.
+Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram`, `Counter`). An agent and a generation loop each report method-specific metrics through `emit_metrics`. The harness reads them after every episode (both phases) or generation, hands each read to `Reporter::on_metrics`, and keeps the last read in the trial's report. Each value describes the trial so far: a counter is a total since the trial began, a scalar the value at the read, so a reader that reads more often keeps the latest and never adds two reads together.
 
 The module's constants name what the harness measures itself: `return/{mean,median,std,min,max}`, `return/non_finite_steps`, `episode_length/mean`, `throughput/steps_per_sec`, `wall_clock_seconds`, `success_rate` and `generations`. `is_harness_reserved` reserves them, so an agent or a probe cannot overwrite one.
 
@@ -108,13 +108,13 @@ Always-on re-export of the `rlevo-metrics-registry` leaf crate (ADR 0015). Suppl
 
 | Item | Description |
 |------|-------------|
-| `EpisodeSummary` | Per-episode `(episode_idx, return_value, length)` |
-| `TrialReport` | Aggregated per-trial result with scalar/histogram/counter BTreeMaps and error state |
+| `EpisodeSummary` | Per-episode index, return and length, its `Phase` (training or evaluation) and how it ended (`status`) |
+| `TrialReport` | Aggregated per-trial result: the evaluation episodes, scalar/histogram/counter BTreeMaps, error state, and the trial's recording ID and path when a recording sink wrote one |
 | `BenchmarkReport` | Suite-level result; `finalize()` marks the run complete |
 
 ### `reporter` — Event Sink
 
-The `Reporter` trait receives lifecycle events (`on_suite_start`, `on_trial_start`, `on_episode_end`, `on_trial_end`, `on_suite_end`) with no metric-computation responsibility. Four built-in implementations are provided:
+The `Reporter` trait receives lifecycle events (`on_suite_start`, `on_trial_start`, `on_episode` for training and evaluation episodes, `on_metrics` at each episode or generation with the `Boundary` it was read at, `on_trial_end`, `on_suite_end`) with no metric-computation responsibility. `on_metrics` defaults to doing nothing, and a sink that does not use it returns `false` from `wants_metrics` so the trial skips the reads. A trial's wall clock leaves out reporting time. Each trial runs inside a root `trial` tracing span (`env`, `env_idx`, `trial`, `seed`). Four built-in implementations are provided:
 
 | Reporter | Feature gate | Behaviour |
 |----------|-------------|-----------|

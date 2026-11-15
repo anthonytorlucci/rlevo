@@ -345,16 +345,10 @@ impl Environment for InvertedDoublePendulum {
         let obs = self.observe();
         self.state.last_obs = obs;
 
-        let tip = self.tip_position();
         let meta = SnapshotMetadata::new()
             .with(METADATA_KEY_ALIVE, 0.0)
             .with(METADATA_KEY_DISTANCE, 0.0)
-            .with(METADATA_KEY_VELOCITY, 0.0)
-            .with_position(
-                "cart",
-                [obs.cart_position(), 0.0, self.config.cart_half_extents[2]],
-            )
-            .with_position("tip", tip);
+            .with(METADATA_KEY_VELOCITY, 0.0);
         Ok(Snapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
@@ -445,12 +439,7 @@ impl Environment for InvertedDoublePendulum {
         let meta = SnapshotMetadata::new()
             .with(METADATA_KEY_ALIVE, alive)
             .with(METADATA_KEY_DISTANCE, distance)
-            .with(METADATA_KEY_VELOCITY, velocity)
-            .with_position(
-                "cart",
-                [obs.cart_position(), 0.0, self.config.cart_half_extents[2]],
-            )
-            .with_position("tip", tip);
+            .with(METADATA_KEY_VELOCITY, velocity);
         // Single exit: exactly one snapshot is built, and the guard is fed that
         // snapshot's own status, so no branch can forget to record.
         let snapshot = Snapshot {
@@ -631,11 +620,7 @@ mod tests {
         let mut min_y_tip = f32::INFINITY;
         for _ in 0..500 {
             let snap = env.step(InvertedDoublePendulumAction::new(1.0)).unwrap();
-            if let Some(meta) = snap.metadata.as_ref()
-                && let Some(pos) = meta.positions.get("tip")
-            {
-                min_y_tip = min_y_tip.min(pos[2]);
-            }
+            min_y_tip = min_y_tip.min(env.tip_position()[2]);
             if snap.status.is_terminated() {
                 terminated = true;
                 break;

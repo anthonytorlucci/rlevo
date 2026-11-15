@@ -40,23 +40,81 @@ pub use replay::{EpisodeIndex, OpenError, OpenWarning, RecordedRun};
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
+use std::path::PathBuf;
+
+use rlevo_core::environment::EpisodeStatus;
+
 use crate::metrics::Metric;
 use crate::metrics::is_harness_reserved;
 use crate::suite::TrialKey;
 
+/// Which phase of an episodic trial an episode belongs to.
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Phase {
+    /// Played while the agent learns, before evaluation
+    /// ([`EvaluatorConfig::train_steps`](crate::evaluator::EvaluatorConfig::train_steps)).
+    Training,
+    /// Played with learning switched off; the episodes a [`TrialReport`]
+    /// keeps and its return metrics describe. The default, because every
+    /// episode a report written before 0.7.0 holds is one.
+    #[default]
+    Evaluation,
+}
+
 /// Compact summary of a single episode within a trial.
 ///
-/// Stored in [`TrialReport::episodes`] after each episode completes. The
-/// `return_value` is the undiscounted sum of rewards over the episode.
+/// A [`Reporter`](crate::reporter::Reporter) receives one for every episode
+/// of either [`Phase`]; [`TrialReport::episodes`] keeps the evaluation ones.
+/// The `return_value` is the undiscounted sum of rewards over the episode.
+///
+/// `#[non_exhaustive]`: built only by the harness, so a later field is not a
+/// breaking change.
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EpisodeSummary {
-    /// Zero-based index of this episode within the trial.
+    /// Zero-based index of this episode within its phase of the trial.
     pub episode_idx: usize,
     /// Undiscounted cumulative reward for the episode.
     pub return_value: f64,
-    /// Number of steps taken before the episode terminated.
+    /// Number of steps the episode took.
     pub length: usize,
+    /// The phase the episode was played in.
+    ///
+    /// `#[serde(default)]`: a report written before 0.7.0 holds evaluation
+    /// episodes only, so a missing value reads as [`Phase::Evaluation`].
+    #[cfg_attr(feature = "json", serde(default))]
+    pub phase: Phase,
+    /// How the episode ended: [`EpisodeStatus::Terminated`] when the
+    /// environment ended it, [`EpisodeStatus::Truncated`] when the environment
+    /// truncated it or the trial cut it at `max_steps`. Never `Running`.
+    ///
+    /// `None` only for an episode read from a report written before 0.7.0,
+    /// which did not record it (`#[serde(default)]`).
+    #[cfg_attr(feature = "json", serde(default))]
+    pub status: Option<EpisodeStatus>,
+}
+
+impl EpisodeSummary {
+    /// The summary of an episode that ended with `status`, as the harness
+    /// builds it after playing one; public so a sink's own tests can build one.
+    #[must_use]
+    pub fn new(
+        phase: Phase,
+        episode_idx: usize,
+        return_value: f64,
+        length: usize,
+        status: EpisodeStatus,
+    ) -> Self {
+        Self {
+            episode_idx,
+            return_value,
+            length,
+            phase,
+            status: Some(status),
+        }
+    }
 }
 
 /// All results collected for a single (env, seed) trial.
@@ -115,6 +173,16 @@ pub struct TrialReport {
     pub errored: bool,
     /// Human-readable error description when `errored` is `true`.
     pub error_message: Option<String>,
+    /// The recording ID of the trial's recording, when a recording sink wrote
+    /// one. `None` otherwise, and in a report written before 0.7.0
+    /// (`#[serde(default)]`).
+    #[cfg_attr(feature = "json", serde(default))]
+    pub recording_id: Option<String>,
+    /// The path of the file the trial's recording was written to, when a
+    /// recording sink wrote one. `None` otherwise, and in a report written
+    /// before 0.7.0 (`#[serde(default)]`).
+    #[cfg_attr(feature = "json", serde(default))]
+    pub recording_path: Option<PathBuf>,
 }
 
 impl TrialReport {
@@ -136,6 +204,8 @@ impl TrialReport {
             displaced_metrics: Vec::new(),
             errored: false,
             error_message: None,
+            recording_id: None,
+            recording_path: None,
         }
     }
 
@@ -261,6 +331,11 @@ pub struct BenchmarkReport {
     pub trials: Vec<TrialReport>,
     /// `true` while trials are still running; `false` after [`finalize`](Self::finalize).
     pub in_progress: bool,
+    /// The version of the recording SDK that wrote the trials' recordings,
+    /// when a recording sink wrote any. `None` otherwise, and in a report
+    /// written before 0.7.0 (`#[serde(default)]`).
+    #[cfg_attr(feature = "json", serde(default))]
+    pub recording_sdk_version: Option<String>,
 }
 
 impl BenchmarkReport {
@@ -276,6 +351,7 @@ impl BenchmarkReport {
             base_seed,
             trials: Vec::new(),
             in_progress: true,
+            recording_sdk_version: None,
         }
     }
 

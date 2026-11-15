@@ -1,14 +1,14 @@
 //! Tracing-backed [`Reporter`] with no additional dependencies.
 //!
 //! [`LoggingReporter`] emits one `INFO`-level tracing event per lifecycle
-//! callback under the `rlevo_harness` target. It is always compiled; no
-//! feature flag is required.
+//! callback under the `rlevo_harness` target, except training episodes, which
+//! it logs at `DEBUG`. It is always compiled; no feature flag is required.
 //!
 //! [`Reporter`]: crate::reporter::Reporter
 
-use tracing::info;
+use tracing::{debug, info};
 
-use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
+use crate::report::{BenchmarkReport, EpisodeSummary, Phase, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{SuiteInfo, TrialInfo};
 
@@ -52,16 +52,36 @@ impl Reporter for LoggingReporter {
         );
     }
 
-    fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
-        info!(
-            target: "rlevo_harness",
-            env = %trial.env_name,
-            trial_idx = trial.key.trial_idx,
-            episode = ep.episode_idx,
-            ret = ep.return_value,
-            length = ep.length,
-            "episode end"
-        );
+    /// Evaluation episodes at `info`; training episodes at `debug`, since a
+    /// training run can play many thousands.
+    fn on_episode(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
+        match ep.phase {
+            Phase::Evaluation => info!(
+                target: "rlevo_harness",
+                env = %trial.env_name,
+                trial_idx = trial.key.trial_idx,
+                episode = ep.episode_idx,
+                ret = ep.return_value,
+                length = ep.length,
+                status = ?ep.status,
+                "episode end"
+            ),
+            Phase::Training => debug!(
+                target: "rlevo_harness",
+                env = %trial.env_name,
+                trial_idx = trial.key.trial_idx,
+                episode = ep.episode_idx,
+                ret = ep.return_value,
+                length = ep.length,
+                status = ?ep.status,
+                "training episode end"
+            ),
+        }
+    }
+
+    /// Logs no metrics, so the trial need not read them.
+    fn wants_metrics(&self) -> bool {
+        false
     }
 
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
