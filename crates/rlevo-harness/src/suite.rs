@@ -25,7 +25,7 @@ pub type EnvFactory<E> = Arc<dyn Fn(u64) -> E + Send + Sync>;
 /// [`Suite`] holds one per environment it registers.
 ///
 /// `#[non_exhaustive]`: built from an id (`From<&str>`, `From<String>`) or
-/// with [`with_task`](Self::with_task), so a later field is not a breaking
+/// with `with_task` (feature `json`), so a later field is not a breaking
 /// change.
 ///
 /// # Examples
@@ -48,8 +48,7 @@ pub type EnvFactory<E> = Arc<dyn Fn(u64) -> E + Send + Sync>;
 pub struct TrialUnit {
     /// The unit's id: the name its trial reports carry as `env_id`.
     pub id: String,
-    /// The task's fingerprint, when the unit was built with
-    /// [`with_task`](Self::with_task).
+    /// The task's fingerprint, when the unit was built with `with_task`.
     pub task: Option<TaskFingerprint>,
 }
 
@@ -99,8 +98,8 @@ impl From<String> for TrialUnit {
 /// breaking change.
 #[non_exhaustive]
 pub struct SuiteEnv<E> {
-    /// The environment's id and, when registered with
-    /// [`Suite::with_task`], its task.
+    /// The environment's id and, when registered with `Suite::with_task`,
+    /// its task.
     pub unit: TrialUnit,
     /// Builds a fresh, seeded environment for each trial.
     pub factory: EnvFactory<E>,
@@ -117,7 +116,7 @@ impl<E> std::fmt::Debug for SuiteEnv<E> {
 /// A named collection of environments to benchmark against.
 ///
 /// Constructed via [`Suite::new`] and extended with [`Suite::with_env`] or
-/// [`Suite::with_task`] in a builder style. Each environment is stored with an
+/// `Suite::with_task` (feature `json`) in a builder style. Each environment is stored with an
 /// [`EnvFactory`] closure so that parallel workers can instantiate
 /// independent, deterministically seeded copies at trial time. How the suite
 /// runs is the [`Evaluator`](crate::evaluator::Evaluator)'s configuration,
@@ -155,7 +154,7 @@ impl<E> Suite<E> {
     /// The factory is called once per trial with the trial-derived seed. The
     /// id is the environment's own name, which every trial report of it
     /// carries as `env_id`; give it once, from one constant. Its trials carry
-    /// no task fingerprint; [`with_task`](Self::with_task) adds one.
+    /// no task fingerprint; `with_task` (feature `json`) adds one.
     #[must_use]
     pub fn with_env(
         mut self,

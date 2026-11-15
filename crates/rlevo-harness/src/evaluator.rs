@@ -199,7 +199,7 @@ impl Evaluator {
     /// its id and task still match its unit's; one that does not is run
     /// again. A unit is built from an id
     /// (`"sphere-d8".into()`) or, to fingerprint the task, with
-    /// [`TrialUnit::with_task`].
+    /// `TrialUnit::with_task` (feature `json`).
     ///
     /// `make_trial` is called once per pending key with `(key, env_seed,
     /// agent_seed)`, all three derived from the configured base seed.

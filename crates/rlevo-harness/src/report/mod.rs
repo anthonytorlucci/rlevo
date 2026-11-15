@@ -144,7 +144,7 @@ pub struct TrialReport {
     pub key: TrialKey,
     /// The environment's id: the name the suite registered it under
     /// ([`Suite::with_env`](crate::suite::Suite::with_env) or
-    /// [`Suite::with_task`](crate::suite::Suite::with_task)).
+    /// `Suite::with_task`, feature `json`).
     ///
     /// Named `env_name` before 0.7.0; a report written then still loads
     /// (`#[serde(alias = "env_name")]`).
@@ -191,11 +191,10 @@ pub struct TrialReport {
     #[cfg_attr(feature = "json", serde(default))]
     pub recording_path: Option<PathBuf>,
     /// The hash of the task the trial faced, when its unit was built with a
-    /// task ([`TrialUnit::with_task`](crate::suite::TrialUnit::with_task) or
-    /// [`Suite::with_task`](crate::suite::Suite::with_task)); the full
-    /// fingerprint is [`BenchmarkReport::tasks`]`[key.env_idx]`, stored once
-    /// per unit. `None` otherwise, and in a report written before 0.7.0
-    /// (`#[serde(default)]`).
+    /// task (`TrialUnit::with_task` or `Suite::with_task`, feature `json`);
+    /// the full fingerprint is [`BenchmarkReport::tasks`]`[key.env_idx]`,
+    /// stored once per unit. `None` otherwise, and in a report written before
+    /// 0.7.0 (`#[serde(default)]`).
     #[cfg_attr(feature = "json", serde(default))]
     pub task_hash: Option<String>,
     /// The build that ran this trial. A run resumed from a checkpoint keeps

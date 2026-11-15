@@ -4,8 +4,7 @@
 //! landscape, or any other unit of trials) was built from, with the per-trial
 //! seed left out, so every trial of one task carries the same fingerprint and
 //! a change to any other config field changes it.
-//! [`Suite::with_task`](crate::suite::Suite::with_task) and
-//! [`TrialUnit::with_task`](crate::suite::TrialUnit::with_task) compute it,
+//! `Suite::with_task` and `TrialUnit::with_task` (feature `json`) compute it,
 //! and every trial report of the unit names it.
 //!
 //! The fingerprint is a hash of a canonical text of the config, computed with
@@ -18,7 +17,7 @@
 
 /// The algorithm every [`TaskFingerprint`] this build computes is tagged
 /// with: 64-bit FNV-1a over the canonical text described at
-/// [`task_fingerprint`], version 1. A change to that text or to the hash is a
+/// `task_fingerprint` (feature `json`), version 1. A change to that text or to the hash is a
 /// new tag.
 pub const TASK_FINGERPRINT_ALGORITHM: &str = "fnv1a64-canon-v1";
 
@@ -28,8 +27,8 @@ pub const TASK_FINGERPRINT_ALGORITHM: &str = "fnv1a64-canon-v1";
 /// `algorithm` and `hash`. `config` is the canonical text the hash covers,
 /// kept so a reader can see what the task was.
 ///
-/// `#[non_exhaustive]`: built by [`task_fingerprint`], so a later field is not
-/// a breaking change.
+/// `#[non_exhaustive]`: built by `task_fingerprint` (feature `json`), so a
+/// later field is not a breaking change.
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
