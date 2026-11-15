@@ -9096,6 +9096,7 @@ dependencies = [
  "rlevo-harness",
  "rlevo-hybrid",
  "rlevo-reinforcement-learning",
+ "rlevo-rerun",
  "rlevo-test-support",
  "serde",
  "tempfile",
@@ -9242,12 +9243,14 @@ dependencies = [
 name = "rlevo-rerun"
 version = "0.1.0"
 dependencies = [
+ "burn",
  "parking_lot",
  "rand 0.10.3",
  "rerun",
  "rlevo-core",
  "rlevo-environments",
  "rlevo-harness",
+ "rlevo-reinforcement-learning",
  "tempfile",
  "tracing",
  "tracing-subscriber",

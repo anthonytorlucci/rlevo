@@ -99,11 +99,12 @@ const FAST_CRATES: &[FastCrate] = &[
         features: &[],
     },
     // `tests/cartpole_report_smoke.rs` and `tests/recording_episode_count.rs`
-    // are gated behind `required-features = ["viz-report"]`, which is not among
-    // `rlevo`'s defaults. A bare `cargo test -p rlevo` skips both binaries.
+    // are gated behind `required-features = ["viz-report"]`, and
+    // `tests/rerun_sink_smoke.rs` behind `["rerun"]`; neither is among
+    // `rlevo`'s defaults. A bare `cargo test -p rlevo` skips all three binaries.
     FastCrate {
         name: "rlevo",
-        features: &["viz-report"],
+        features: &["viz-report", "rerun"],
     },
     // The probe runner's own logic: what counts as a hand-added crate, which
     // paths leave the contract crate, how step lines become a verdict. A

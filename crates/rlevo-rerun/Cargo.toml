@@ -30,6 +30,9 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
 
 [dev-dependencies]
+# Real PPO for the update layer's end-to-end test, on Flex.
+burn = { workspace = true, features = ["default", "flex", "autodiff"] }
+rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.6.1" }
 rand = { workspace = true }
 # CartPole for the end-to-end run; no physics features.
 rlevo-environments = { path = "../rlevo-environments", version = "0.6.1", default-features = false }

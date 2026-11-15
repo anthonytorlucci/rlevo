@@ -9,6 +9,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **`rlevo-rerun`, a recording sink for the evaluation harness.** A new
+  crate, re-exported as `rlevo::rerun` under the umbrella's off-by-default
+  `rerun` feature. `RerunSink` is a harness `Reporter`: hand it to
+  `Evaluator::run_suite` or `run_trials` and the run is written as
+  [rerun](https://rerun.io) `.rrd` files, one per trial, all under the run's
+  ID so the viewer shows them as one recording and a resumed run adds to it.
+  A file holds its trial's episode returns and lengths (training and
+  evaluation apart), every metric the agent or generation loop reported at
+  each point the harness read it, the trial's identity, task and build as
+  properties, and a status entry when the trial errored. Values sit at
+  `/metrics/<metric>/<run label>/<environment>/<trial>`, each on its episode
+  or generation timeline and, for an episodic trial, on `step`.
+  - **Per-update statistics.** `RerunSink::layer` returns a `tracing` layer
+    for the process's global subscriber. It files every numeric field of an
+    event at `rlevo_core::fitness::UPDATE_TARGET` in the emitting trial's
+    file, on `update` and `step`, with no list of names, so an outside
+    learner's statistics are recorded as PPO's and PPG's are. An event it
+    cannot file is counted (`RerunSink::unattributed_updates`).
+  - **Opening a run.** `RerunSink::viewer_instructions` names the viewer
+    version that wrote the files and the command that opens them. rerun
+    promises that a recording opens only in viewers of adjacent minor
+    versions, so the report's JSON stays the record that lasts.
+  - **No rerun type is in its API**, it pins rerun within one minor, and it
+    is on a release line of its own, so that a rerun upgrade is a release of
+    this crate and not of `rlevo`. It is the one crate that links rerun; no
+    default build includes it.
+  - Not yet recorded: environment frames, a default layout, and the
+    cross-seed band.
+
 ### Breaking changes
 
 - **PPO's and PPG's per-update event has a target of its own and metric
