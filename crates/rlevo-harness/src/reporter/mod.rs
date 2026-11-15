@@ -315,6 +315,7 @@ mod tests {
             env_ids: vec!["E".into()],
             num_trials_per_env: 1,
             success_threshold: None,
+            run_id: "run".into(),
         };
         let trial = TrialInfo {
             key: TrialKey {

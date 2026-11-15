@@ -428,3 +428,216 @@ pub(crate) fn assert_rl_counters(metrics: &[Metric], expected: &[(&str, u64)]) {
         "each counter needs a count of its own, or a swap would pass: {expected:?}"
     );
 }
+
+/// One update-rate event ([`UPDATE_TARGET`]) as a reader that follows the
+/// target's rules sees it.
+///
+/// [`UPDATE_TARGET`]: rlevo_core::fitness::UPDATE_TARGET
+#[derive(Debug, Default)]
+pub(crate) struct UpdateEvent {
+    /// The `step` field, when the event carries one as an integer.
+    pub(crate) step: Option<u64>,
+    /// Every other numeric field, by name.
+    pub(crate) metrics: std::collections::BTreeMap<String, f64>,
+    /// The names of fields recorded as anything but a number, the message
+    /// excepted: a reader drops these, so a metric here is a metric lost.
+    pub(crate) not_numbers: Vec<String>,
+}
+
+impl tracing::field::Visit for UpdateEvent {
+    fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
+        self.metrics.insert(field.name().to_owned(), value);
+    }
+
+    // The counts in an update event are small; the cast is exact.
+    #[allow(clippy::cast_precision_loss)]
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        if field.name() == "step" {
+            self.step = Some(value);
+        } else {
+            self.metrics.insert(field.name().to_owned(), value as f64);
+        }
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+        self.metrics.insert(field.name().to_owned(), value as f64);
+    }
+
+    fn record_bool(&mut self, field: &tracing::field::Field, _value: bool) {
+        self.not_numbers.push(field.name().to_owned());
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, _value: &str) {
+        self.not_numbers.push(field.name().to_owned());
+    }
+
+    fn record_debug(&mut self, field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {
+        if field.name() != "message" {
+            self.not_numbers.push(field.name().to_owned());
+        }
+    }
+}
+
+/// What a collecting thread does with each event it logs.
+type Collector = Box<dyn FnMut(&tracing::Event<'_>)>;
+
+thread_local! {
+    /// This thread's collector, while it is collecting.
+    static COLLECTOR: std::cell::RefCell<Option<Collector>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The process's subscriber in this crate's tests: hands each event to the
+/// thread that logged it, if that thread is collecting.
+struct Capture;
+
+impl tracing::Subscriber for Capture {
+    fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+        true
+    }
+
+    fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        // The code under test opens no spans; a constant id satisfies the
+        // contract without any bookkeeping.
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+    fn event(&self, event: &tracing::Event<'_>) {
+        // Taken out for the call, so an event logged from inside a collector
+        // finds none and is ignored instead of borrowing twice.
+        let Some(mut collector) = COLLECTOR.take() else {
+            return;
+        };
+        collector(event);
+        COLLECTOR.set(Some(collector));
+    }
+
+    fn enter(&self, _span: &tracing::span::Id) {}
+
+    fn exit(&self, _span: &tracing::span::Id) {}
+}
+
+/// Puts back the collector a capture displaced, on return and on unwind.
+struct Restore(Option<Collector>);
+
+impl Drop for Restore {
+    fn drop(&mut self) {
+        // Dropping the capture's own collector drops its handle on what it
+        // collected.
+        COLLECTOR.set(self.0.take());
+    }
+}
+
+/// Runs `f` and returns what `read` made of each `tracing` event `f` logged
+/// on this thread, in order; an event `read` returns `None` for is left out.
+///
+/// A call inside another's `f` collects alone while it runs, and the outer
+/// call collects again once it returns. If `f` panics, the thread is left
+/// collecting what it was before the call.
+///
+/// Every test in this crate that asserts on a `tracing` event captures it
+/// through this function, and through no subscriber of its own.
+///
+/// The subscriber is the process's, set once, and not one scoped to the
+/// calling thread with `with_default`. `tracing` caches, for the whole
+/// process, whether anything listens at a callsite, and decides it when the
+/// callsite is first reached. A callsite in a generic function is one
+/// callsite for every instantiation, since a `static` there is shared; and
+/// other tests reach the same callsites with no subscriber. If one of them
+/// gets there first, "no one listens" is cached, and a scoped subscriber on
+/// this thread then sees nothing: a failure that depends on how many test
+/// threads run. With a subscriber that is always there, the answer is
+/// always that someone listens.
+pub(crate) fn capture_events<T: 'static>(
+    mut read: impl FnMut(&tracing::Event<'_>) -> Option<T> + 'static,
+    f: impl FnOnce(),
+) -> Vec<T> {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        tracing::subscriber::set_global_default(Capture)
+            .expect("no other global subscriber is installed in this crate's tests");
+        // Callsites reached before this, by tests that do not collect.
+        tracing::callsite::rebuild_interest_cache();
+    });
+
+    let collected = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = std::rc::Rc::clone(&collected);
+    let restore = Restore(COLLECTOR.replace(Some(Box::new(move |event| {
+        if let Some(item) = read(event) {
+            sink.borrow_mut().push(item);
+        }
+    }))));
+    f();
+    drop(restore);
+    collected.take()
+}
+
+/// Runs `f` and returns the update-rate events
+/// ([`UPDATE_TARGET`](rlevo_core::fitness::UPDATE_TARGET)) it logged on this
+/// thread, in order.
+pub(crate) fn capture_update_events(f: impl FnOnce()) -> Vec<UpdateEvent> {
+    capture_events(
+        |event| {
+            (event.metadata().target() == rlevo_core::fitness::UPDATE_TARGET).then(|| {
+                let mut captured = UpdateEvent::default();
+                event.record(&mut captured);
+                captured
+            })
+        },
+        f,
+    )
+}
+
+/// The metric names of `event`, in order.
+pub(crate) fn metric_names(event: &UpdateEvent) -> Vec<&str> {
+    event.metrics.keys().map(String::as_str).collect()
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::capture_events;
+
+    /// Keeps `INFO` events only.
+    fn message(event: &tracing::Event<'_>) -> Option<&'static str> {
+        (*event.metadata().level() == tracing::Level::INFO).then(|| event.metadata().name())
+    }
+
+    /// A capture inside a capture collects alone, and the outer one goes on
+    /// collecting when it returns.
+    #[test]
+    fn test_a_nested_capture_gives_the_outer_one_back() {
+        let mut inner = Vec::new();
+        let outer = capture_events(
+            |event| Some(*event.metadata().level()),
+            || {
+                tracing::warn!("before");
+                inner = capture_events(message, || tracing::info!("inside"));
+                tracing::error!("after");
+            },
+        );
+        assert_eq!(inner.len(), 1);
+        assert_eq!(outer, [tracing::Level::WARN, tracing::Level::ERROR]);
+    }
+
+    /// A capture whose closure panics leaves the thread collecting what it
+    /// was before: the outer capture still sees what follows.
+    #[test]
+    fn test_a_capture_that_panics_gives_the_outer_one_back() {
+        let outer = capture_events(
+            |event| Some(*event.metadata().level()),
+            || {
+                let unwound = std::panic::catch_unwind(|| {
+                    capture_events(message, || panic!("inside the capture"))
+                });
+                assert!(unwound.is_err());
+                tracing::error!("after");
+            },
+        );
+        assert_eq!(outer, [tracing::Level::ERROR]);
+    }
+}

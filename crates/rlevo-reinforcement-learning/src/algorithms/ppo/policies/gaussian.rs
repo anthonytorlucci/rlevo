@@ -752,7 +752,6 @@ mod tests {
     // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
-    use std::sync::Mutex;
 
     use super::*;
     use rand::SeedableRng;
@@ -1376,19 +1375,17 @@ mod tests {
     // back to a single shared flag passes every latch-only assertion. The
     // tests below therefore assert on the events.
     //
-    // Hand-rolled rather than pulled in as a dev-dependency: `tracing` is
-    // already a direct dependency of this crate, and `with_default` plus a
-    // seven-method `Subscriber` is all that is needed. Adding
-    // `tracing-test`/`tracing-subscriber` to this crate's dev-deps for one
-    // test module would be a workspace dependency change (rules §8) for no
-    // capability gain.
+    // The subscriber is the crate's one hand-rolled capture, in
+    // `bootstrap_mask`: `tracing` is already a direct dependency of this
+    // crate, so adding `tracing-test`/`tracing-subscriber` to its dev-deps
+    // would be a workspace dependency change (rules §8) for no capability
+    // gain.
     // -----------------------------------------------------------------
 
     /// The fields of one captured `tracing` event that the warnings are
     /// asserted on.
     #[derive(Debug, Clone, Default)]
     struct CapturedEvent {
-        level: Option<tracing::Level>,
         /// The structured `bound` field: `"log_std_min"` or `"log_std_max"`.
         bound: Option<String>,
         /// The structured `dims` field, rendered as its `Debug` form (`"[0, 2]"`).
@@ -1428,62 +1425,23 @@ mod tests {
         }
     }
 
-    /// Minimal `Subscriber` that records every event it is handed.
-    #[derive(Debug, Default)]
-    struct CaptureSubscriber {
-        events: Arc<Mutex<Vec<CapturedEvent>>>,
-    }
-
-    impl tracing::Subscriber for CaptureSubscriber {
-        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
-            true
-        }
-
-        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-            // No spans are opened by the code under test; a constant id
-            // satisfies the contract without any bookkeeping.
-            tracing::span::Id::from_u64(1)
-        }
-
-        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
-
-        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
-
-        fn event(&self, event: &tracing::Event<'_>) {
-            let mut captured = CapturedEvent {
-                level: Some(*event.metadata().level()),
-                ..CapturedEvent::default()
-            };
-            event.record(&mut FieldVisitor(&mut captured));
-            self.events
-                .lock()
-                .expect("capture mutex is never poisoned")
-                .push(captured);
-        }
-
-        fn enter(&self, _span: &tracing::span::Id) {}
-
-        fn exit(&self, _span: &tracing::span::Id) {}
-    }
-
-    /// Runs `f` with a capturing subscriber installed on this thread and
-    /// returns the `WARN`-level events it emitted, in order.
+    /// Runs `f` and returns the `WARN`-level events it emitted on this
+    /// thread, in order.
     ///
-    /// `with_default` is thread-local, so this is safe under the parallel test
-    /// runner: a concurrently running test cannot observe or pollute these
-    /// events.
+    /// Through the crate's one capture
+    /// ([`capture_events`](crate::algorithms::bootstrap_mask::capture_events)),
+    /// whose docs say why a subscriber scoped to this thread would not do.
     fn capture_warnings(f: impl FnOnce()) -> Vec<CapturedEvent> {
-        let events = Arc::new(Mutex::new(Vec::new()));
-        let subscriber = CaptureSubscriber {
-            events: Arc::clone(&events),
-        };
-        tracing::subscriber::with_default(subscriber, f);
-        let captured = events.lock().expect("capture mutex is never poisoned");
-        captured
-            .iter()
-            .filter(|e| e.level == Some(tracing::Level::WARN))
-            .cloned()
-            .collect()
+        crate::algorithms::bootstrap_mask::capture_events(
+            |event| {
+                (*event.metadata().level() == tracing::Level::WARN).then(|| {
+                    let mut captured = CapturedEvent::default();
+                    event.record(&mut FieldVisitor(&mut captured));
+                    captured
+                })
+            },
+            f,
+        )
     }
 
     /// Finds the single captured event naming `bound`, asserting there is

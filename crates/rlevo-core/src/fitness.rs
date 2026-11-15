@@ -17,6 +17,8 @@
 //!   [`GenerationProbe::emit_metrics`](crate::evaluation::GenerationProbe::emit_metrics).
 //!   It lives in this crate so neither producer depends on the harness that
 //!   reads it.
+//! - [`UPDATE_TARGET`] — the `tracing` target for statistics a learner has
+//!   more often than a trial reads its metrics: one event per update.
 
 use crate::objective::ObjectiveSense;
 
@@ -67,6 +69,45 @@ pub enum Metric {
     /// number of events, not a level that can fall.
     Counter { name: String, count: u64 },
 }
+
+/// The `tracing` target of an update-rate event.
+///
+/// [`Agent::emit_metrics`](crate::agent::Agent::emit_metrics) is read at
+/// episode boundaries. A learner that updates more often than that, and has
+/// statistics of each update worth a curve (a loss, a KL divergence), logs
+/// them as one `tracing` event per update at this target:
+///
+/// ```ignore
+/// tracing::info!(
+///     target: rlevo_core::fitness::UPDATE_TARGET,
+///     step = self.env_steps,
+///     "rl/policy_loss" = policy_loss,
+///     "rl/entropy_coef" = self.entropy_coef, // an `Option<f32>`
+/// );
+/// ```
+///
+/// A reader that collects these events follows four rules, so an event an
+/// outside author writes is read as the workspace's own are:
+///
+/// - every numeric field is a metric, and its name is the metric's name,
+///   spelled as an `emit_metrics` name is (quoted, since `/` is not an
+///   identifier character);
+/// - `step`, when present, is the environment steps the trial has taken, the
+///   point the values belong to, and is not itself a metric;
+/// - a field that is not a number (the message, a string, a `bool`) is not a
+///   metric;
+/// - an `Option` that is `None` records nothing, so a quantity that does not
+///   exist for this update is absent, never `0.0`. Pass the `Option` itself,
+///   without `?` or `%`, which would record its text.
+///
+/// One rule of the `tracing` macros to know: a quoted name cannot be the
+/// first field, where the macro reads a string as the message. Put `step`
+/// first, as above, or put the fields in braces:
+/// `tracing::info!(target: UPDATE_TARGET, { "rl/loss" = loss }, "update")`.
+///
+/// The value is a contract between the code that logs and the code that
+/// reads; this crate does not depend on `tracing`.
+pub const UPDATE_TARGET: &str = "rlevo::update";
 
 /// Self-evaluating numerical fitness landscape.
 ///

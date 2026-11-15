@@ -29,7 +29,7 @@ use burn::tensor::{Device, Tensor, TensorData};
 use rand::Rng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::agent::{Agent, Transition};
-use rlevo_core::fitness::Metric;
+use rlevo_core::fitness::{Metric, UPDATE_TARGET};
 
 use crate::algorithms::shared::{FiniteLossGuard, Slot, rl_counter};
 use crate::algorithms::shared::{assert_batch_rank, row_len, upload_one, upload_rows};
@@ -561,31 +561,30 @@ where
         }
     }
 
-    /// Logs one policy phase, and the auxiliary phase when it ran, at `info`
-    /// under the metric registry's names. The two `log_std` extrema read
-    /// `None` for every PPG run, PPG being discrete-only, and are logged so a
-    /// Gaussian head is observable the day one lands (ADR 0049).
+    /// Logs one iteration's statistics as an update-rate event
+    /// ([`UPDATE_TARGET`]): every field but `step` is a metric under `rl/`.
+    ///
+    /// The step, iteration and skipped-update counts are not repeated here;
+    /// they are the counters `emit_metrics` reports. The two auxiliary
+    /// fields are `Option`s, `None` on an iteration with no auxiliary phase,
+    /// so that iteration records nothing for them: a `0.0` there would be
+    /// read as a loss of zero.
     fn log_update(&self, stats: &PpoUpdateStats, aux: Option<AuxPhaseStats>) {
         tracing::info!(
+            target: UPDATE_TARGET,
             step = self.step,
-            env_steps_sampled = self.step,
-            iteration = self.iteration,
-            policy_loss = stats.policy_loss,
-            value_loss = stats.value_loss,
-            entropy = stats.entropy,
-            approx_kl = stats.approx_kl,
-            clip_frac = stats.clip_frac,
-            epochs_run = stats.epochs_run,
-            min_log_std = ?stats.min_log_std,
-            max_log_std = ?stats.max_log_std,
-            // Cumulative over all four PPG loss sites (ADR 0072), two of which
-            // are in the auxiliary phase.
-            skipped_updates = self.skipped_updates(),
-            learning_rate = self.current_learning_rate(),
-            aux_ran = aux.is_some(),
-            aux_value_loss = aux.map_or(0.0, |a| a.aux_value_loss),
-            aux_policy_kl = aux.map_or(0.0, |a| a.policy_kl),
-            "ppg training progress"
+            "rl/policy_loss" = stats.policy_loss,
+            "rl/value_loss" = stats.value_loss,
+            "rl/entropy" = stats.entropy,
+            "rl/approx_kl" = stats.approx_kl,
+            "rl/clip_frac" = stats.clip_frac,
+            "rl/epochs_run" = stats.epochs_run,
+            "rl/min_log_std" = stats.min_log_std,
+            "rl/max_log_std" = stats.max_log_std,
+            "rl/learning_rate" = self.current_learning_rate(),
+            "rl/aux_value_loss" = aux.map(|a| a.aux_value_loss),
+            "rl/aux_policy_kl" = aux.map(|a| a.policy_kl),
+            "ppg update"
         );
     }
 
@@ -2066,5 +2065,82 @@ mod tests {
                 ("skipped_updates", agent.skipped_updates()),
             ],
         );
+    }
+
+    /// One update-rate event per iteration, at the update target, every
+    /// statistic a number under `rl/`. With an auxiliary phase every second
+    /// iteration, the first event carries neither auxiliary statistic and
+    /// the second carries both: an iteration with no auxiliary phase must
+    /// not report an auxiliary loss of `0.0`.
+    #[test]
+    fn test_ppg_update_event_carries_auxiliary_statistics_only_when_the_phase_ran() {
+        use crate::algorithms::bootstrap_mask::{
+            MaskDiscreteAction as Act, capture_update_events, metric_names,
+        };
+
+        let device = Device::flex();
+        let policy: PpgCategoricalPolicyHead = PpgCategoricalPolicyHeadConfig {
+            obs_dim: 2,
+            hidden: 4,
+            num_actions: 2,
+        }
+        .try_init(&device)
+        .expect("valid head config");
+        let config = PpgConfig {
+            n_iteration: 2,
+            e_aux: 1,
+            aux_batch_size: 4,
+            ppo: PpoTrainingConfig {
+                num_envs: 1,
+                num_steps: 4,
+                num_minibatches: 1,
+                update_epochs: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut agent = TestAgent::new(policy, TestValue::init(&device), config, device, 10)
+            .expect("valid config");
+        let mut rng = StdRng::seed_from_u64(0);
+        let (obs, next) = (TestObs([0.1, -0.2]), TestObs([0.3, 0.4]));
+
+        let events = capture_update_events(|| {
+            for _ in 0..9 {
+                let action: Act = agent.act(&obs, &mut rng);
+                agent.on_transition(
+                    Transition {
+                        obs: &obs,
+                        action: &action,
+                        reward: 1.0,
+                        next_obs: &next,
+                        status: EpisodeStatus::Running,
+                    },
+                    &mut rng,
+                );
+            }
+        });
+
+        let every_iteration = [
+            "rl/approx_kl",
+            "rl/clip_frac",
+            "rl/entropy",
+            "rl/epochs_run",
+            "rl/learning_rate",
+            "rl/policy_loss",
+            "rl/value_loss",
+        ];
+        let mut with_aux = every_iteration.to_vec();
+        with_aux.extend(["rl/aux_policy_kl", "rl/aux_value_loss"]);
+        with_aux.sort_unstable();
+
+        assert_eq!(
+            events.iter().map(|e| e.step).collect::<Vec<_>>(),
+            [Some(4), Some(8)]
+        );
+        assert_eq!(metric_names(&events[0]), every_iteration);
+        assert_eq!(metric_names(&events[1]), with_aux);
+        for event in &events {
+            assert_eq!(event.not_numbers, Vec::<String>::new());
+        }
     }
 }

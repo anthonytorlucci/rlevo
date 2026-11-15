@@ -14,8 +14,10 @@
 //! can skip already-finished keys.
 //!
 //! Each trial runs inside a `trial` tracing span (target `rlevo_harness`) with
-//! fields `env`, `env_idx`, `trial` and `seed`, so a tracing layer can file an
-//! event under the trial whose work emitted it. Work a trial hands to another
+//! fields `run`, `env`, `env_idx`, `trial` and `seed`, so a tracing layer can
+//! file an event under the trial whose work emitted it. `run` is the run's ID
+//! ([`BenchmarkReport::run_id`]): with two runs in one process, it says
+//! whose trial `env_idx` and `trial` name. Work a trial hands to another
 //! thread runs outside the span.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -222,13 +224,6 @@ impl Evaluator {
         let cfg = &self.cfg;
         let seeds = SeedStream::new(cfg.base_seed);
 
-        let suite_info = SuiteInfo::new(
-            suite_name.to_string(),
-            units.iter().map(|u| u.id.clone()).collect(),
-            cfg.num_trials_per_env,
-            cfg.success_threshold,
-        );
-
         // Load checkpoint (if any) and start report.
         let mut report = cfg
             .checkpoint_dir
@@ -238,6 +233,20 @@ impl Evaluator {
                 checkpoint::load(&path).ok().flatten()
             })
             .unwrap_or_else(|| BenchmarkReport::new(suite_name.to_string(), cfg.base_seed));
+        // A resumed run is the run it resumes: it keeps the checkpoint's ID,
+        // so a sink that names its output by the ID adds to what is there. A
+        // checkpoint from before 0.7.0 has none and is given one.
+        let run_id = report
+            .run_id
+            .get_or_insert_with(crate::report::new_run_id)
+            .clone();
+        let suite_info = SuiteInfo::new(
+            suite_name.to_string(),
+            units.iter().map(|u| u.id.clone()).collect(),
+            cfg.num_trials_per_env,
+            cfg.success_threshold,
+            run_id.clone(),
+        );
         // A resumed run reports the build that finishes it, and says so when
         // the checkpoint's trials came from another; each finished trial keeps
         // the provenance of the build that ran it.
@@ -326,6 +335,7 @@ impl Evaluator {
                     target: "rlevo_harness",
                     parent: None,
                     "trial",
+                    run = run_id.as_str(),
                     env = %env_id,
                     env_idx = key.env_idx,
                     trial = key.trial_idx,
@@ -1211,6 +1221,7 @@ mod tests {
     /// had a parent span.
     #[derive(Debug, Clone, Default, PartialEq)]
     struct TrialSpan {
+        run: String,
         env: String,
         env_idx: u64,
         trial: u64,
@@ -1225,6 +1236,12 @@ mod tests {
                 "trial" => self.trial = value,
                 "seed" => self.seed = value,
                 _ => {}
+            }
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            if field.name() == "run" {
+                self.run = value.to_string();
             }
         }
 
@@ -2344,7 +2361,7 @@ mod tests {
     }
 
     /// Each trial's work on its thread runs inside a `trial` span carrying
-    /// its environment, indices and seed, with trials on two threads. The
+    /// its run, environment, indices and seed, with trials on two threads. The
     /// non-finite-reward `warn!` each trial emits is the event observed.
     #[test]
     fn every_trial_runs_inside_its_trial_span() {
@@ -2369,6 +2386,7 @@ mod tests {
             .trials
             .iter()
             .map(|t| TrialSpan {
+                run: report.run_id.clone().expect("a run has an ID"),
                 env: env.to_string(),
                 env_idx: t.key.env_idx as u64,
                 trial: t.key.trial_idx as u64,
@@ -3275,5 +3293,141 @@ mod tests {
             "no episode can be stepped, so none is opened"
         );
         assert_eq!(*log.lock().unwrap(), vec![Told::Training(true)]);
+    }
+
+    // ── Run identity ─────────────────────────────────────────────────────────
+
+    /// What a sink is told: the run ID from `on_suite_start`, and the trials
+    /// that ended.
+    #[derive(Default)]
+    struct SinkLog {
+        run_id: Option<String>,
+        ended: Vec<TrialKey>,
+    }
+
+    /// A sink that keeps what it is told.
+    struct KeepsRunId {
+        told: Arc<Mutex<SinkLog>>,
+    }
+
+    impl KeepsRunId {
+        fn new() -> (Self, Arc<Mutex<SinkLog>>) {
+            let told = Arc::new(Mutex::new(SinkLog::default()));
+            (
+                Self {
+                    told: Arc::clone(&told),
+                },
+                told,
+            )
+        }
+    }
+
+    impl Reporter for KeepsRunId {
+        fn on_suite_start(&mut self, suite: &SuiteInfo) {
+            self.told.lock().unwrap().run_id = Some(suite.run_id.clone());
+        }
+        fn on_trial_start(&mut self, _: &TrialInfo) {}
+        fn on_episode(&mut self, _: &TrialInfo, _: &EpisodeSummary) {}
+        fn wants_metrics(&self) -> bool {
+            false
+        }
+        fn on_trial_end(&mut self, trial: &TrialInfo, _: &TrialReport) {
+            self.told.lock().unwrap().ended.push(trial.key);
+        }
+        fn on_suite_end(&mut self, _: &BenchmarkReport) {}
+    }
+
+    fn is_run_id(id: &str) -> bool {
+        id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit())
+    }
+
+    /// A run has an ID of 16 hexadecimal digits, its sinks are given the same
+    /// one, and a second run of the same suite and base seed has another.
+    #[test]
+    fn a_run_has_an_id_its_sinks_are_given() {
+        let run = || {
+            let suite = Suite::new("s").with_env("e", |_| StubEnv::new(3));
+            let (mut reporter, told) = KeepsRunId::new();
+            let report = Evaluator::new(single_thread_cfg(1, 10)).run_suite(
+                &suite,
+                |_| StubAgent,
+                &mut reporter,
+            );
+            let given = told.lock().unwrap().run_id.clone();
+            (report.run_id, given)
+        };
+
+        let (first, given) = run();
+        let first = first.expect("a run has an ID");
+        assert!(is_run_id(&first), "{first}");
+        assert_eq!(given.as_deref(), Some(first.as_str()));
+
+        let (second, _) = run();
+        assert_ne!(second, Some(first), "the ID is not derived from the seed");
+    }
+
+    /// A run resumed from its checkpoint is the same run: the report and the
+    /// sinks have the ID the first run drew, so a sink that names its output
+    /// by the ID adds to what it began.
+    #[cfg(feature = "json")]
+    #[test]
+    fn a_resumed_run_keeps_its_run_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let run = |trials: usize| {
+            let cfg = EvaluatorConfig {
+                num_trials_per_env: trials,
+                checkpoint_dir: Some(dir.path().to_path_buf()),
+                ..single_thread_cfg(1, 10)
+            };
+            let suite = Suite::new("resume-id").with_env("e", |_| StubEnv::new(3));
+            let (mut reporter, told) = KeepsRunId::new();
+            let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+            let told = std::mem::take(&mut *told.lock().unwrap());
+            (report, told)
+        };
+
+        let (first, _) = run(1);
+        let id = first.run_id.expect("a run has an ID");
+
+        // One trial is done; the second run adds one more.
+        let (second, told) = run(2);
+        assert_eq!(told.ended.len(), 1, "only the pending trial ran");
+        assert_eq!(second.run_id.as_deref(), Some(id.as_str()));
+        assert_eq!(told.run_id.as_deref(), Some(id.as_str()));
+    }
+
+    /// A checkpoint from before 0.7.0 names no run. Resuming it draws an ID,
+    /// which the report keeps and the sinks are given.
+    #[cfg(feature = "json")]
+    #[test]
+    fn a_run_resumed_from_a_0_6_1_checkpoint_is_given_an_id() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/checkpoint-0.6.1.json"
+            ),
+            crate::checkpoint::checkpoint_path(dir.path(), "fixture-suite"),
+        )
+        .unwrap();
+        let cfg = EvaluatorConfig {
+            num_trials_per_env: 2,
+            checkpoint_dir: Some(dir.path().to_path_buf()),
+            ..single_thread_cfg(1, 10)
+        };
+        let suite = Suite::new("fixture-suite").with_env("cartpole", |_| StubEnv::new(3));
+        let (mut reporter, told) = KeepsRunId::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let id = report.run_id.expect("the resumed run is given an ID");
+        assert!(is_run_id(&id), "{id}");
+        assert_eq!(told.lock().unwrap().run_id.as_deref(), Some(id.as_str()));
+        let saved = crate::checkpoint::load(&crate::checkpoint::checkpoint_path(
+            dir.path(),
+            "fixture-suite",
+        ))
+        .unwrap()
+        .unwrap();
+        assert_eq!(saved.run_id, Some(id), "and the checkpoint keeps it");
     }
 }

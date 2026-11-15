@@ -12,7 +12,7 @@ use burn::tensor::{Device, Tensor};
 use rand::Rng;
 use rlevo_core::action::{ContinuousAction, DiscreteAction};
 use rlevo_core::agent::{Agent, Transition};
-use rlevo_core::fitness::Metric;
+use rlevo_core::fitness::{Metric, UPDATE_TARGET};
 
 use crate::algorithms::shared::{FiniteLossGuard, Slot, rl_counter};
 use crate::algorithms::shared::{assert_batch_rank, row_len, upload_one, upload_rows};
@@ -470,30 +470,29 @@ where
         self.policy().deterministic_env_row(batched)
     }
 
-    /// Logs one update at `info`, its statistics under the metric registry's
-    /// names. The two `log_std` extrema are `Option`s, logged with `?`: a
-    /// categorical policy has no `$\sigma$`, and `None` says so where a
-    /// `0.0` would claim `$\sigma = 1$` (ADR 0049).
+    /// Logs one update's statistics as an update-rate event
+    /// ([`UPDATE_TARGET`]): every field but `step` is a metric under `rl/`.
+    ///
+    /// The step, iteration and skipped-update counts are not repeated here;
+    /// they are the counters `emit_metrics` reports. The log-std bounds are
+    /// passed as the `Option`s they are, so a categorical head, which has
+    /// none, records nothing for them.
     fn log_update(&self, stats: &PpoUpdateStats) {
         tracing::info!(
+            target: UPDATE_TARGET,
             step = self.step,
-            env_steps_sampled = self.step,
-            iteration = self.iteration,
-            policy_loss = stats.policy_loss,
-            value_loss = stats.value_loss,
-            entropy = stats.entropy,
-            approx_kl = stats.approx_kl,
-            old_approx_kl = stats.old_approx_kl,
-            clip_frac = stats.clip_frac,
-            explained_variance = stats.explained_variance,
-            epochs_run = stats.epochs_run,
-            min_log_std = ?stats.min_log_std,
-            max_log_std = ?stats.max_log_std,
-            // Cumulative over both loss sites and counted per minibatch (ADR
-            // 0072); see `skipped_updates`.
-            skipped_updates = self.skipped_updates(),
-            learning_rate = self.current_learning_rate(),
-            "ppo training progress"
+            "rl/policy_loss" = stats.policy_loss,
+            "rl/value_loss" = stats.value_loss,
+            "rl/entropy" = stats.entropy,
+            "rl/approx_kl" = stats.approx_kl,
+            "rl/old_approx_kl" = stats.old_approx_kl,
+            "rl/clip_frac" = stats.clip_frac,
+            "rl/explained_variance" = stats.explained_variance,
+            "rl/epochs_run" = stats.epochs_run,
+            "rl/min_log_std" = stats.min_log_std,
+            "rl/max_log_std" = stats.max_log_std,
+            "rl/learning_rate" = self.current_learning_rate(),
+            "ppo update"
         );
     }
 
@@ -1666,5 +1665,77 @@ mod update_telemetry_tests {
                 ("skipped_updates", agent.skipped_updates()),
             ],
         );
+    }
+
+    /// The statistics every head logs at each update, as metric names.
+    const UPDATE_METRICS: [&str; 9] = [
+        "rl/approx_kl",
+        "rl/clip_frac",
+        "rl/entropy",
+        "rl/epochs_run",
+        "rl/explained_variance",
+        "rl/learning_rate",
+        "rl/old_approx_kl",
+        "rl/policy_loss",
+        "rl/value_loss",
+    ];
+
+    /// One update-rate event per update, at the update target, stamped with
+    /// the agent's step, every statistic a number under `rl/`, and none of
+    /// the counters `emit_metrics` already reports. A categorical head has
+    /// no log-std, so the two bounds are absent from its events: not `0.0`,
+    /// and not the text `None`.
+    #[test]
+    fn test_ppo_update_event_names_each_statistic_and_omits_a_missing_log_std() {
+        use crate::algorithms::bootstrap_mask::{capture_update_events, drive, metric_names};
+
+        let mut rng = StdRng::seed_from_u64(5);
+        let mut env = CartPole::with_config(CartPoleConfig {
+            seed: 5,
+            ..CartPoleConfig::default()
+        })
+        .expect("valid config");
+        let mut agent = cart_pole_agent(4);
+        let events = capture_update_events(|| drive(&mut env, &mut agent, 9, &mut rng));
+
+        assert_eq!(
+            events.iter().map(|e| e.step).collect::<Vec<_>>(),
+            [Some(4), Some(8)],
+            "nine steps of a four-step rollout are two updates"
+        );
+        for event in &events {
+            assert_eq!(metric_names(event), UPDATE_METRICS);
+            assert_eq!(event.not_numbers, Vec::<String>::new());
+            assert!(event.metrics.values().all(|v| v.is_finite()), "{event:?}");
+        }
+    }
+
+    /// A Gaussian head has a log-std, and its bounds are logged as numbers:
+    /// the values its policy reports, inside the configured clamp.
+    #[test]
+    fn test_ppo_update_event_carries_a_gaussian_heads_log_std_bounds_as_numbers() {
+        use crate::algorithms::bootstrap_mask::{capture_update_events, drive, metric_names};
+
+        let mut rng = StdRng::seed_from_u64(5);
+        let mut env = Pendulum::with_config(PendulumConfig {
+            seed: 5,
+            ..PendulumConfig::default()
+        })
+        .expect("valid config");
+        let mut agent = pendulum_agent(4);
+        let events = capture_update_events(|| drive(&mut env, &mut agent, 5, &mut rng));
+
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        let mut expected = UPDATE_METRICS.to_vec();
+        expected.extend(["rl/max_log_std", "rl/min_log_std"]);
+        expected.sort_unstable();
+        assert_eq!(metric_names(event), expected);
+        assert_eq!(event.not_numbers, Vec::<String>::new());
+        let (min, max) = (
+            event.metrics["rl/min_log_std"],
+            event.metrics["rl/max_log_std"],
+        );
+        assert!((-20.0..=2.0).contains(&min) && min <= max && max <= 2.0);
     }
 }

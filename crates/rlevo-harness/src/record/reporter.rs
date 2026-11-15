@@ -242,6 +242,7 @@ mod tests {
             env_ids: vec!["stub".into()],
             num_trials_per_env: 1,
             success_threshold: None,
+            run_id: "run".into(),
         }
     }
 
@@ -408,6 +409,7 @@ mod tests {
             env_ids: vec!["stub".into()],
             num_trials_per_env: 5,
             success_threshold: Some(195.0),
+            run_id: "run".into(),
         };
         r.on_suite_start(&info);
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
@@ -432,6 +434,7 @@ mod tests {
             env_ids: vec!["stub".into()],
             num_trials_per_env: 5,
             success_threshold: None,
+            run_id: "run".into(),
         });
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 

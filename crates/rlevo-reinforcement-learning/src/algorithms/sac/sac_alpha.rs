@@ -386,10 +386,10 @@ impl LogAlpha {
     /// Note that this is weaker than asserting the event itself — a refactor
     /// that flips the latch but breaks or downgrades the `warn!` would still
     /// pass. The PPO Gaussian head used to test the same way and no longer
-    /// does: `policies::gaussian`'s test module installs a hand-rolled
-    /// `tracing::Subscriber` via `tracing::subscriber::with_default` and
-    /// asserts on the emitted events, which needs no capture dependency
-    /// because `tracing` is already a direct dependency. PPO switched
+    /// does: `policies::gaussian`'s test module captures the events
+    /// through the crate's hand-rolled `tracing::Subscriber` and asserts on
+    /// them, which needs no capture dependency because `tracing` is already
+    /// a direct dependency. PPO switched
     /// because a boolean latch cannot distinguish a warning that fired once
     /// as intended from one that fired once and then wrongly stayed silent:
     /// its latch spent itself on the first out-of-bounds action dimension
